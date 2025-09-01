@@ -14,7 +14,6 @@ func main() {
 
 	var (
 		flagApply       = flag.Bool("apply", false, "Perform deletion (default is dry-run)")
-		flagYes         = flag.Bool("yes", false, "Do not prompt for confirmation")
 		flagInteractive = flag.Bool("interactive", false, "Interactive selection (uncheck caches)")
 		flagOnly        = flag.String("only", "", "Only include apps (comma-separated). Example: \"Chrome,Edge,Discord\"")
 		flagSkip        = flag.String("skip", "", "Skip apps (comma-separated). Example: \"VSCode,Firefox\"")
@@ -24,7 +23,6 @@ func main() {
 
 	opts := cleaner.Options{
 		DryRun:      !*flagApply,
-		AssumeYes:   *flagYes,
 		Interactive: *flagInteractive,
 	}
 
@@ -73,19 +71,16 @@ func main() {
 		return
 	}
 
-	if !opts.AssumeYes {
-		ok, err := cleaner.ConfirmProceed(plan, opts)
-		if err != nil {
-			log.Fatalf("Prompt failed: %v", err)
-		}
-		if !ok {
-			fmt.Println("Cancelled.")
-			return
-		}
+	ok, err := cleaner.ConfirmProceed(plan, opts)
+	if err != nil {
+		log.Fatalf("Prompt failed: %v", err)
+	}
+	if !ok {
+		fmt.Println("Cancelled.")
+		return
 	}
 
-	err = cleaner.Execute(plan, opts)
-	if err != nil {
+	if err := cleaner.Execute(plan, opts); err != nil {
 		log.Fatalf("Cleanup failed: %v", err)
 	}
 

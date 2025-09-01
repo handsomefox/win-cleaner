@@ -15,7 +15,6 @@ import (
 
 type Options struct {
 	DryRun      bool
-	AssumeYes   bool
 	Interactive bool
 }
 

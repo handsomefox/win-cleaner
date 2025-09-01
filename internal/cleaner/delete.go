@@ -11,7 +11,7 @@ import (
 // DeletePathSmart deletes path using only the Recycle Bin.
 //   - File/link: attempt to move to Recycle Bin.
 //   - Directory: first attempt to move all immediate children to Recycle Bin
-//     (batched for performance), then attempt to move the now-empty directory.
+//     then attempt to move the now-empty directory.
 //   - If any move fails, we print a message and skip (no permanent deletion).
 func DeletePathSmart(path string) error {
 	clean := filepath.Clean(path)

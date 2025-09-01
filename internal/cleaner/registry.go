@@ -28,15 +28,13 @@ func BuildRegistry() Registry {
 	appData := os.Getenv("APPDATA")
 	userProfile := os.Getenv("USERPROFILE")
 
-	// Guard: basic sanity to prevent catastrophic mistakes if envs are empty.
-	// If we can't detect essential envs, we fall back to safe no-op.
+	// Guard: basic sanity; if we can't detect essential envs, no-op.
 	if programData == "" || localAppData == "" || appData == "" || userProfile == "" {
 		return Registry{Items: nil}
 	}
 
-	// Helper builders
+	// Helper: common Chromium/Electron/CEF per-profile cache folders
 	chromiumSet := func(base string) []string {
-		// Common Chromium/Electron/CEF cache directories
 		rel := []string{
 			"Cache",
 			"Code Cache",
@@ -55,210 +53,238 @@ func BuildRegistry() Registry {
 		return out
 	}
 
-	var items []Item
+	items := make([]Item, 0, 64)
 
-	// NVIDIA
-	items = append(items,
-		Item{
-			App:       "NVIDIA App",
-			Label:     "NV App/Driver OTA Artifacts (grd/nvapp)/Logs/Shader cache",
-			DefaultOn: true,
-			Paths: append(
-				chromiumSet(filepath.Join(localAppData, "NVIDIA Corporation", "NVIDIA App", "CefCache")),
-				filepath.Join(programData, "NVIDIA Corporation", "NVIDIA App", "UpdateFramework", "ota-artifacts", "grd"),
-				filepath.Join(programData, "NVIDIA Corporation", "NVIDIA App", "UpdateFramework", "ota-artifacts", "nvapp"),
-				filepath.Join(programData, "NVIDIA Corporation", "NVIDIA App", "Logs"),
-				filepath.Join(localAppData, "NVIDIA", "DXCache"),
-				filepath.Join(localAppData, "NVIDIA", "GLCache"),
+	// NVIDIA App (updates/logs + shader + CEF)
+	items = append(items, Item{
+		App:       "NVIDIA App",
+		Label:     "updates/logs/shaders + CEF",
+		DefaultOn: true,
+		Paths: append(
+			// CEF cache under user local
+			chromiumSet(filepath.Join(
+				localAppData, "NVIDIA Corporation", "NVIDIA App", "CefCache",
+			)),
+			// OTA artifacts + logs
+			filepath.Join(
+				programData, "NVIDIA Corporation", "NVIDIA App",
+				"UpdateFramework", "ota-artifacts", "grd",
+			),
+			filepath.Join(
+				programData, "NVIDIA Corporation", "NVIDIA App",
+				"UpdateFramework", "ota-artifacts", "nvapp",
+			),
+			filepath.Join(programData, "NVIDIA Corporation", "NVIDIA App", "Logs"),
+			// Shader cache
+			filepath.Join(localAppData, "NVIDIA", "DXCache"),
+			filepath.Join(localAppData, "NVIDIA", "GLCache"),
+		),
+	})
+
+	// EA / Origin + EA Desktop CEF
+	items = append(items, Item{
+		App:       "EA/Origin",
+		Label:     "logs + anti-cheat + CEF cache",
+		DefaultOn: true,
+		Paths: append(
+			// EA Desktop CEF cache
+			chromiumSet(filepath.Join(
+				localAppData, "Electronic Arts", "EA Desktop", "CEF",
+				"BrowserCache", "EADesktop", "Cache",
+			)),
+			// Logs
+			filepath.Join(programData, "EA Desktop", "Logs"),
+			filepath.Join(programData, "EA Logs"),
+			filepath.Join(programData, "eaanticheat"),
+			filepath.Join(programData, "Origin", "Logs"),
+			// Other EA caches
+			filepath.Join(localAppData, "EADesktop", "cache"),
+			filepath.Join(localAppData, "Link2EA", "cache"),
+			filepath.Join(localAppData, "EALaunchHelper", "cache"),
+		),
+	})
+
+	// Firefox (cache + crash reports)
+	items = append(items, Item{
+		App:       "Firefox",
+		Label:     "cache + crash reports",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(appData, "Mozilla", "Firefox", "Crash Reports"),
+		},
+		Globs: []string{
+			filepath.Join(
+				localAppData, "Mozilla", "Firefox", "Profiles",
+				"*default-release", "cache2",
+			),
+			filepath.Join(
+				localAppData, "Mozilla", "Firefox", "Profiles",
+				"*default-release", "startupCache",
+			),
+			filepath.Join(
+				localAppData, "Mozilla", "Firefox", "Profiles",
+				"*default-release", "jumpListCache",
 			),
 		},
-	)
+	})
 
-	// EA
-	items = append(items,
-		Item{
-			App:       "EA/Origin",
-			Label:     "EA logs and anti-cheat",
-			DefaultOn: true,
-			Paths: append(
-				chromiumSet(filepath.Join(localAppData, "Electronic Arts", "EA Desktop", "CEF", "BrowserCache", "EADesktop", "Cache")),
-				filepath.Join(programData, "EA Desktop", "Logs"),
-				filepath.Join(programData, "EA Logs"),
-				filepath.Join(programData, "eaanticheat"),
-				filepath.Join(programData, "Origin", "Logs"),
-				filepath.Join(localAppData, "EADesktop", "cache"),
-				filepath.Join(localAppData, "Link2EA", "cache"),
-				filepath.Join(localAppData, "EALaunchHelper", "cache"),
-			),
+	// Telegram Desktop
+	items = append(items, Item{
+		App:       "Telegram",
+		Label:     "cache/media/temp/dumps",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(appData, "Telegram Desktop", "tdata", "user_data", "cache"),
+			filepath.Join(appData, "Telegram Desktop", "tdata", "user_data", "media_cache"),
+			filepath.Join(appData, "Telegram Desktop", "tdata", "temp"),
+			filepath.Join(appData, "Telegram Desktop", "tdata", "dumps"),
 		},
-	)
+	})
 
-	// Firefox
-	items = append(items,
-		Item{
-			App:       "Firefox",
-			Label:     "Cache, crash reports",
-			DefaultOn: true,
-			Paths: []string{
-				filepath.Join(appData, "Mozilla", "Firefox", "Crash Reports"),
-			},
-			Globs: []string{
-				filepath.Join(localAppData, "Mozilla", "Firefox", "Profiles", "*default-release", "cache2"),
-				filepath.Join(localAppData, "Mozilla", "Firefox", "Profiles", "*default-release", "startupCache"),
-				filepath.Join(localAppData, "Mozilla", "Firefox", "Profiles", "*default-release", "jumpListCache"),
-			},
-		},
-	)
+	// Discord (Electron)
+	items = append(items, Item{
+		App:       "Discord",
+		Label:     "cache + logs",
+		DefaultOn: true,
+		Paths: append(
+			chromiumSet(filepath.Join(appData, "discord")),
+			filepath.Join(appData, "discord", "logs"),
+		),
+	})
 
-	// Telegram
-	items = append(items,
-		Item{
-			App:       "Telegram Desktop",
-			Label:     "Cache, media cache, temp, dumps",
-			DefaultOn: true,
-			Paths: []string{
-				filepath.Join(appData, "Telegram Desktop", "tdata", "user_data", "cache"),
-				filepath.Join(appData, "Telegram Desktop", "tdata", "user_data", "media_cache"),
-				filepath.Join(appData, "Telegram Desktop", "tdata", "temp"),
-				filepath.Join(appData, "Telegram Desktop", "tdata", "dumps"),
-			},
-		},
-	)
+	// VSCode (Electron)
+	items = append(items, Item{
+		App:       "VSCode",
+		Label:     "cache + logs",
+		DefaultOn: true,
+		Paths: append(
+			chromiumSet(filepath.Join(appData, "Code")),
+			filepath.Join(appData, "Code", "CachedData"),
+			filepath.Join(appData, "Code", "CachedExtensionVSIXs"),
+			filepath.Join(appData, "Code", "logs"),
+		),
+	})
 
-	// Discord
-	items = append(items,
-		Item{
-			App:       "Discord",
-			Label:     "Discord caches (Chromium/Electron set + logs)",
-			DefaultOn: true,
-			Paths: append(
-				chromiumSet(filepath.Join(appData, "discord")),
-				filepath.Join(appData, "discord", "logs"),
-			),
+	// osu! (lazer)
+	items = append(items, Item{
+		App:       "osu! (lazer)",
+		Label:     "cache + logs",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(appData, "osu", "cache"),
+			filepath.Join(appData, "osu", "logs"),
 		},
-	)
-
-	// VSCode
-	items = append(items,
-		Item{
-			App:       "VSCode",
-			Label:     "VSCode caches and logs",
-			DefaultOn: true,
-			Paths: append(
-				chromiumSet(filepath.Join(appData, "Code")),
-				filepath.Join(appData, "Code", "CachedData"),
-				filepath.Join(appData, "Code", "CachedExtensionVSIXs"),
-				filepath.Join(appData, "Code", "logs"),
-			),
-		},
-	)
-
-	// osu!(lazer)
-	items = append(items,
-		Item{
-			App:       "osu! (lazer)",
-			Label:     "osu! caches and logs",
-			DefaultOn: true,
-			Paths: []string{
-				filepath.Join(appData, "osu", "cache"),
-				filepath.Join(appData, "osu", "logs"),
-			},
-		},
-	)
+	})
 
 	// Battlefield 2042
-	items = append(items,
-		Item{
-			App:       "Battlefield 2042",
-			Label:     "BF2042 cache",
-			DefaultOn: true,
-			Paths: []string{
-				filepath.Join(localAppData, "BattlefieldGameData.kin-release.Win32", "cache"),
-			},
+	items = append(items, Item{
+		App:       "Battlefield 2042",
+		Label:     "cache",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "BattlefieldGameData.kin-release.Win32", "cache"),
 		},
-	)
+	})
 
-	// Microsoft Edge (Chromium)
-	items = append(items,
-		Item{
-			App:       "Microsoft Edge",
-			Label:     "Edge default profile caches (Chromium set + extension caches + shader cache)",
-			DefaultOn: true,
-			Paths: append(
-				chromiumSet(filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "Default")),
-				filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "extensions_crx_cache"),
-				filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "component_crx_cache"),
-				filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "GrShaderCache"),
-			),
+	// Microsoft Edge (Chromium) — all profiles + root caches
+	items = append(items, Item{
+		App:       "Edge",
+		Label:     "all profiles cache",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "extensions_crx_cache"),
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "component_crx_cache"),
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "GrShaderCache"),
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "ShaderCache"),
 		},
-	)
+		Globs: []string{
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "*", "Cache"),
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "*", "Code Cache"),
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "*", "GPUCache"),
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "*", "DawnWebGPUCache"),
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "*", "DawnGraphiteCache"),
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "*", "Service Worker", "CacheStorage"),
+			filepath.Join(localAppData, "Microsoft", "Edge", "User Data", "*", "Service Worker", "ScriptCache"),
+		},
+	})
 
-	// Google Chrome (Chromium)
-	items = append(items,
-		Item{
-			App:       "Google Chrome",
-			Label:     "Chrome default profile caches (Chromium set + extension caches + shader cache)",
-			DefaultOn: true,
-			Paths: append(
-				chromiumSet(filepath.Join(localAppData, "Google", "Chrome", "User Data", "Default")),
-				filepath.Join(localAppData, "Google", "Chrome", "User Data", "extensions_crx_cache"),
-				filepath.Join(localAppData, "Google", "Chrome", "User Data", "component_crx_cache"),
-				filepath.Join(localAppData, "Google", "Chrome", "User Data", "GrShaderCache"),
-				filepath.Join(localAppData, "Google", "Chrome", "User Data", "ShaderCache"),
-			),
+	// Google Chrome — all profiles + root caches
+	items = append(items, Item{
+		App:       "Chrome",
+		Label:     "all profiles cache",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "extensions_crx_cache"),
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "component_crx_cache"),
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "GrShaderCache"),
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "ShaderCache"),
 		},
-	)
+		Globs: []string{
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "*", "Cache"),
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "*", "Code Cache"),
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "*", "GPUCache"),
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "*", "DawnWebGPUCache"),
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "*", "DawnGraphiteCache"),
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "*",
+				"Service Worker", "CacheStorage"),
+			filepath.Join(localAppData, "Google", "Chrome", "User Data", "*",
+				"Service Worker", "ScriptCache"),
+		},
+	})
 
-	// Razer
-	items = append(items,
-		Item{
-			App:       "Razer Synapse",
-			Label:     "Razer AppEngine/Synapse caches (Chromium set)",
-			DefaultOn: true,
-			Paths:     chromiumSet(filepath.Join(localAppData, "Razer", "RazerAppEngine", "User Data", "Default")),
-		},
-	)
+	// Razer Synapse (Electron)
+	items = append(items, Item{
+		App:       "Razer Synapse",
+		Label:     "cache",
+		DefaultOn: true,
+		Paths: chromiumSet(filepath.Join(
+			localAppData, "Razer", "RazerAppEngine", "User Data", "Default",
+		)),
+	})
 
-	// Steam cache (CEF/Electron-ish for UI)
-	items = append(items,
-		Item{
-			App:       "Steam",
-			Label:     "Steam HTML cache",
-			DefaultOn: true,
-			Paths:     chromiumSet(filepath.Join(localAppData, "Steam", "htmlcache")),
-		},
-	)
+	// Steam (CEF/Electron UI)
+	items = append(items, Item{
+		App:       "Steam",
+		Label:     "HTML cache",
+		DefaultOn: true,
+		Paths:     chromiumSet(filepath.Join(localAppData, "Steam", "htmlcache")),
+	})
 
 	// Battle.net
-	items = append(items,
-		Item{
-			App:       "Battle.net",
-			Label:     "Battle.net browser caches and logs",
-			DefaultOn: true,
-			Paths: append(
-				chromiumSet(filepath.Join(localAppData, "Battle.net", "BrowserCaches", "common")),
-				filepath.Join(localAppData, "Battle.net", "Cache"),
-				filepath.Join(localAppData, "Battle.net", "Logs"),
-			),
-		},
-	)
+	items = append(items, Item{
+		App:       "Battle.net",
+		Label:     "browser caches + logs",
+		DefaultOn: true,
+		Paths: append(
+			chromiumSet(filepath.Join(localAppData, "Battle.net", "BrowserCaches", "common")),
+			filepath.Join(localAppData, "Battle.net", "Cache"),
+			filepath.Join(localAppData, "Battle.net", "Logs"),
+		),
+	})
 
-	// Others
-	items = append(items,
-		Item{
-			App:       "Misc",
-			Label:     "Other caches (EA Desktop helpers, VLC, generic 'cache')",
-			DefaultOn: true,
-			Paths: []string{
-				filepath.Join(localAppData, "cache"),
-				filepath.Join(localAppData, "D3DSCache"),
-				filepath.Join(localAppData, "vlc", "cache"),
-				filepath.Join(userProfile, ".cache"),
-				filepath.Join(userProfile, "ansel"),
-				filepath.Join(localAppData, "Temp"),
-			},
+	// Windows Temp
+	items = append(items, Item{
+		App:       "Windows Temp",
+		Label:     "Temp",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "Temp"),
 		},
-	)
+	})
+
+	// Misc (small, safe caches + user dot folders)
+	items = append(items, Item{
+		App:       "Misc",
+		Label:     "misc caches",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "cache"),
+			filepath.Join(localAppData, "D3DSCache"),
+			filepath.Join(localAppData, "vlc", "cache"),
+			filepath.Join(userProfile, ".cache"),
+			filepath.Join(userProfile, "ansel"),
+		},
+	})
 
 	return Registry{Items: items}
 }

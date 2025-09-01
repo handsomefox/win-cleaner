@@ -27,13 +27,12 @@ type Plan struct {
 }
 
 type Group struct {
-	App      string
-	Category string
-	Label    string
-	Paths    []string // resolved paths (globs expanded)
-	On       bool     // selected for deletion
-	Bytes    uint64   // estimated reclaimable bytes
-	Errs     []error
+	App   string
+	Label string
+	Paths []string // resolved paths (globs expanded)
+	On    bool     // selected for deletion
+	Bytes uint64   // estimated reclaimable bytes
+	Errs  []error
 }
 
 func BuildPlan(reg Registry) (Plan, error) {
@@ -77,13 +76,12 @@ func BuildPlan(reg Registry) (Plan, error) {
 		}
 
 		groups = append(groups, Group{
-			App:      it.App,
-			Category: it.Category,
-			Label:    it.Label,
-			Paths:    resolved,
-			On:       it.DefaultOn,
-			Bytes:    total,
-			Errs:     errs,
+			App:   it.App,
+			Label: it.Label,
+			Paths: resolved,
+			On:    it.DefaultOn,
+			Bytes: total,
+			Errs:  errs,
 		})
 	}
 
@@ -171,15 +169,17 @@ func InteractiveSelect(plan *Plan) error {
 
 func printSelection(plan *Plan) {
 	fmt.Println("------------------------------------------------------------")
-	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "Sel\t#\tApp\tCategory\tLabel\tSize")
-	for i, g := range plan.Groups {
+	// Compact interactive table with row numbers:
+	// [x]  #  App  Label  Size
+	w := tabwriter.NewWriter(os.Stdout, 2, 4, 1, ' ', 0)
+	gs := plan.Groups
+	for i, g := range gs {
 		sel := " "
 		if g.On {
 			sel = "x"
 		}
-		fmt.Fprintf(w, "[%s]\t%2d\t%s\t%s\t%s\t%s\n",
-			sel, i+1, g.App, g.Category, g.Label, HumanBytes(g.Bytes))
+		fmt.Fprintf(w, "[%s]\t%2d\t%s\t%s\t%s\n",
+			sel, i+1, g.App, g.Label, HumanBytes(g.Bytes))
 	}
 	_ = w.Flush()
 	fmt.Println("------------------------------------------------------------")
@@ -206,44 +206,27 @@ func ReportPlan(plan Plan) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "Scan results (dry-run by default):")
 
-	// Group by app for report
-	appMap := map[string][]Group{}
-	for _, g := range plan.Groups {
-		appMap[g.App] = append(appMap[g.App], g)
-	}
+	// Single compact table: [x]  App  Label  Size
+	w := tabwriter.NewWriter(&b, 2, 4, 1, ' ', 0)
 
-	apps := make([]string, 0, len(appMap))
-	for a := range appMap {
-		apps = append(apps, a)
-	}
-	sort.Strings(apps)
-
-	for _, a := range apps {
-		fmt.Fprintf(&b, "- %s:\n", a)
-		w := tabwriter.NewWriter(&b, 2, 4, 2, ' ', 0)
-		// Header per app
-		// Columns: [x]  Category | Label | Size
-		fmt.Fprintln(w, "Sel\tCategory\tLabel\tSize")
-		gs := appMap[a]
-		sort.SliceStable(gs, func(i, j int) bool { return gs[i].Label < gs[j].Label })
-		for _, g := range gs {
-			flag := " "
-			if g.On {
-				flag = "x"
-			}
-			fmt.Fprintf(w, "[%s]\t%s\t%s\t%s\n",
-				flag, g.Category, g.Label, HumanBytes(g.Bytes))
+	// Sort by App then Label for stable viewing
+	gs := append([]Group(nil), plan.Groups...)
+	sort.SliceStable(gs, func(i, j int) bool {
+		if gs[i].App == gs[j].App {
+			return gs[i].Label < gs[j].Label
 		}
-		_ = w.Flush()
+		return gs[i].App < gs[j].App
+	})
 
-		// Notes (suppress not-exist and only show meaningful notes)
-		for _, g := range gs {
-			for _, e := range g.Errs {
-				// Errors added here are already filtered from dirSize.
-				fmt.Fprintf(&b, "    note: %v\n", e)
-			}
+	for _, g := range gs {
+		flag := " "
+		if g.On {
+			flag = "x"
 		}
+		fmt.Fprintf(w, "[%s]\t%s\t%s\t%s\n",
+			flag, g.App, g.Label, HumanBytes(g.Bytes))
 	}
+	_ = w.Flush()
 
 	fmt.Fprintf(&b, "Estimated savings (selected): %s\n", HumanBytes(plan.TotalBytes))
 	return b.String()
@@ -259,7 +242,7 @@ func Execute(plan Plan, opts Options) error {
 		if !g.On {
 			continue
 		}
-		fmt.Printf("Deleting: %s | %s | %s\n", g.App, g.Category, g.Label)
+		fmt.Printf("Deleting: %s | %s\n", g.App, g.Label)
 		for _, p := range g.Paths {
 			if !isSafePath(p) {
 				fmt.Printf("  Skipping unsafe path (guard): %s\n", p)
@@ -269,7 +252,7 @@ func Execute(plan Plan, opts Options) error {
 				// Skip silently if path no longer exists
 				continue
 			}
-			if err := moveToRecycleBin(p); err != nil {
+			if err := DeletePathSmart(p); err != nil {
 				fmt.Printf("  Recycle Bin move failed (%v)\n", err)
 			}
 		}

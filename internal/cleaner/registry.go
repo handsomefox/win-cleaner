@@ -141,6 +141,14 @@ func BuildRegistry() Registry {
 		},
 	})
 
+	// Vortex
+	items = append(items, Item{
+		App:       "Vortex",
+		Label:     "cache",
+		DefaultOn: true,
+		Paths:     chromiumSet(filepath.Join(appData, "Vortex")),
+	})
+
 	// Discord (Electron)
 	items = append(items, Item{
 		App:       "Discord",

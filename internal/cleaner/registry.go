@@ -6,21 +6,16 @@ import (
 	"strings"
 )
 
-// Registry holds the inbuilt catalog of apps and their cache/log paths.
-// Update this file to add/remove paths safely.
-type Registry struct {
-	Items []Item
-}
+type Registry struct{ Items []Item }
 
 // Item groups a set of paths under an App and Category. Each item is individually
 // selectable in interactive mode.
 type Item struct {
-	App         string
-	Label       string // human-friendly label for the group
-	Paths       []string
-	Globs       []string // optional glob patterns to expand at runtime
-	DefaultOn   bool     // default selection is on
-	Description string   // optional tooltip/description
+	App       string
+	Label     string // human-friendly label for the group
+	Paths     []string
+	Globs     []string // optional glob patterns to expand at runtime
+	DefaultOn bool     // default selection is on
 }
 
 // BuildRegistry returns the inbuilt registry.

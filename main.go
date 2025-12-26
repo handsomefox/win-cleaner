@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -13,11 +14,12 @@ func main() {
 	log.SetFlags(0)
 
 	var (
-		flagApply       = flag.Bool("apply", false, "Perform deletion (default is dry-run)")
-		flagInteractive = flag.Bool("interactive", false, "Interactive selection (uncheck caches)")
-		flagOnly        = flag.String("only", "", "Only include apps (comma-separated). Example: \"Chrome,Edge,Discord\"")
-		flagSkip        = flag.String("skip", "", "Skip apps (comma-separated). Example: \"VSCode,Firefox\"")
-		flagList        = flag.Bool("list", false, "List known apps and exit")
+		flagApply           = flag.Bool("apply", false, "Perform deletion (default is dry-run)")
+		flagInteractive     = flag.Bool("interactive", true, "Interactive selection (GUI when available)")
+		flagOnly            = flag.String("only", "", "Only include apps (comma-separated). Example: \"Chrome,Edge,Discord\"")
+		flagSkip            = flag.String("skip", "", "Skip apps (comma-separated). Example: \"VSCode,Firefox\"")
+		flagList            = flag.Bool("list", false, "List known apps and exit")
+		flagSkipShaderCache = flag.Bool("skip-shader", false, "Skips the deletion of shader caches")
 	)
 	flag.Parse()
 
@@ -27,7 +29,9 @@ func main() {
 	}
 
 	if *flagList {
-		reg := cleaner.BuildRegistry()
+		reg := cleaner.BuildRegistry(cleaner.RegistryConfig{
+			SkipShaderCache: *flagSkipShaderCache,
+		})
 		fmt.Println("Known applications:")
 		for _, app := range reg.Apps() {
 			fmt.Printf("- %s\n", app)
@@ -38,7 +42,9 @@ func main() {
 	only := parseCSV(*flagOnly)
 	skip := parseCSV(*flagSkip)
 
-	reg := cleaner.BuildRegistry()
+	reg := cleaner.BuildRegistry(cleaner.RegistryConfig{
+		SkipShaderCache: *flagSkipShaderCache,
+	})
 	if len(only) > 0 {
 		reg = reg.FilterInclude(only)
 	}
@@ -51,16 +57,20 @@ func main() {
 		return
 	}
 
+	if opts.Interactive {
+		if err := cleaner.RunGUI(reg, opts); err != nil {
+			if errors.Is(err, cleaner.ErrCancelled) {
+				fmt.Println("Cancelled.")
+				return
+			}
+			log.Fatalf("GUI failed: %v", err)
+		}
+		return
+	}
+
 	plan, err := cleaner.BuildPlan(reg)
 	if err != nil {
 		log.Fatalf("Failed to build plan: %v", err)
-	}
-
-	if opts.Interactive {
-		err = cleaner.InteractiveSelect(&plan)
-		if err != nil {
-			log.Fatalf("Interactive selection failed: %v", err)
-		}
 	}
 
 	report := cleaner.ReportPlan(plan)

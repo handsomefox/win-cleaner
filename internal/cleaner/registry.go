@@ -18,10 +18,14 @@ type Item struct {
 	DefaultOn bool     // default selection is on
 }
 
+type RegistryConfig struct {
+	SkipShaderCache bool
+}
+
 // BuildRegistry returns the inbuilt registry.
 // All paths are constructed from environment variables to avoid hardcoded usernames.
 // It also expands typical Chromium/Electron/CEF cache subfolders where needed.
-func BuildRegistry() Registry {
+func BuildRegistry(rc RegistryConfig) Registry {
 	// Env helpers
 	programData := os.Getenv("PROGRAMDATA")
 	localAppData := os.Getenv("LOCALAPPDATA")
@@ -56,29 +60,36 @@ func BuildRegistry() Registry {
 	items := make([]Item, 0, 64)
 
 	// NVIDIA App (updates/logs + shader + CEF)
+	nvidiaAppPaths := append(
+		// CEF cache under user local
+		chromiumSet(filepath.Join(
+			localAppData, "NVIDIA Corporation", "NVIDIA App", "CefCache",
+		)),
+		// OTA artifacts + logs
+		filepath.Join(
+			programData, "NVIDIA Corporation", "NVIDIA App",
+			"UpdateFramework", "ota-artifacts", "grd",
+		),
+		filepath.Join(
+			programData, "NVIDIA Corporation", "NVIDIA App",
+			"UpdateFramework", "ota-artifacts", "nvapp",
+		),
+		filepath.Join(programData, "NVIDIA Corporation", "NVIDIA App", "Logs"),
+	)
+
+	// Shader cache
+	if !rc.SkipShaderCache {
+		nvidiaAppPaths = append(nvidiaAppPaths,
+			filepath.Join(localAppData, "NVIDIA", "DXCache"),
+			filepath.Join(localAppData, "NVIDIA", "GLCache"),
+		)
+	}
+
 	items = append(items, Item{
 		App:       "NVIDIA App",
 		Label:     "updates/logs/shaders + CEF",
 		DefaultOn: true,
-		Paths: append(
-			// CEF cache under user local
-			chromiumSet(filepath.Join(
-				localAppData, "NVIDIA Corporation", "NVIDIA App", "CefCache",
-			)),
-			// OTA artifacts + logs
-			filepath.Join(
-				programData, "NVIDIA Corporation", "NVIDIA App",
-				"UpdateFramework", "ota-artifacts", "grd",
-			),
-			filepath.Join(
-				programData, "NVIDIA Corporation", "NVIDIA App",
-				"UpdateFramework", "ota-artifacts", "nvapp",
-			),
-			filepath.Join(programData, "NVIDIA Corporation", "NVIDIA App", "Logs"),
-			// Shader cache
-			filepath.Join(localAppData, "NVIDIA", "DXCache"),
-			filepath.Join(localAppData, "NVIDIA", "GLCache"),
-		),
+		Paths:     nvidiaAppPaths,
 	})
 
 	// EA / Origin + EA Desktop CEF
@@ -267,6 +278,26 @@ func BuildRegistry() Registry {
 			chromiumSet(filepath.Join(localAppData, "Battle.net", "BrowserCaches", "common")),
 			filepath.Join(localAppData, "Battle.net", "Cache"),
 			filepath.Join(localAppData, "Battle.net", "Logs"),
+		),
+	})
+
+	// Spotify
+	items = append(items, Item{
+		App:       "Spotify",
+		Label:     "cache/data (desktop + Store app)",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "Spotify", "Storage"),
+			filepath.Join(localAppData, "Spotify", "Data"),
+		},
+		Globs: append(
+			[]string{
+				filepath.Join(localAppData, "Packages", "SpotifyAB.SpotifyMusic_*", "LocalCache", "Spotify", "Data"),
+				filepath.Join(localAppData, "Packages", "SpotifyAB.SpotifyMusic_*", "LocalCache", "Spotify", "Storage"),
+			},
+			chromiumSet(filepath.Join(
+				localAppData, "Packages", "SpotifyAB.SpotifyMusic_*", "LocalCache", "Spotify",
+			))...,
 		),
 	})
 

@@ -1,2 +1,3 @@
 build:
-	GOOS=windows GOARCH=amd64 go build -o win-cleaner.exe .
+	fyne-cross windows -app-id 1.0 -name win-cleaner
+

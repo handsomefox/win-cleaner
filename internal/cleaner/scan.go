@@ -34,13 +34,28 @@ type Group struct {
 	Errs  []error
 }
 
+type ProgressUpdate struct {
+	Phase   string
+	Current int
+	Total   int
+	Message string
+}
+
 func BuildPlan(reg Registry) (Plan, error) {
+	return buildPlan(reg, nil)
+}
+
+func BuildPlanWithProgress(reg Registry, cb func(ProgressUpdate)) (Plan, error) {
+	return buildPlan(reg, cb)
+}
+
+func buildPlan(reg Registry, cb func(ProgressUpdate)) (Plan, error) {
 	if runtime.GOOS != "windows" {
 		return Plan{}, errors.New("this tool only supports Windows")
 	}
 
 	groups := make([]Group, 0, len(reg.Items))
-	for _, it := range reg.Items {
+	for i, it := range reg.Items {
 		resolved := make([]string, 0, len(it.Paths)+len(it.Globs))
 		for _, p := range it.Paths {
 			if p != "" {
@@ -82,6 +97,15 @@ func BuildPlan(reg Registry) (Plan, error) {
 			Bytes: total,
 			Errs:  errs,
 		})
+
+		if cb != nil {
+			cb(ProgressUpdate{
+				Phase:   "scan",
+				Current: i + 1,
+				Total:   len(reg.Items),
+				Message: fmt.Sprintf("%s - %s", it.App, it.Label),
+			})
+		}
 	}
 
 	sort.SliceStable(groups, func(i, j int) bool {
@@ -232,14 +256,38 @@ func ReportPlan(plan Plan) string {
 }
 
 func Execute(plan Plan, opts Options) error {
+	return execute(plan, opts, nil)
+}
+
+func ExecuteWithProgress(plan Plan, opts Options, cb func(ProgressUpdate)) error {
+	return execute(plan, opts, cb)
+}
+
+func execute(plan Plan, opts Options, cb func(ProgressUpdate)) error {
 	if plan.Selected == 0 {
 		fmt.Println("Nothing selected. No deletions performed.")
 		return nil
 	}
 	var anyErr error
+	total := 0
+	for _, g := range plan.Groups {
+		if g.On {
+			total++
+		}
+	}
+	current := 0
 	for _, g := range plan.Groups {
 		if !g.On {
 			continue
+		}
+		current++
+		if cb != nil {
+			cb(ProgressUpdate{
+				Phase:   "delete",
+				Current: current,
+				Total:   total,
+				Message: fmt.Sprintf("%s - %s", g.App, g.Label),
+			})
 		}
 		fmt.Printf("Deleting: %s | %s\n", g.App, g.Label)
 		for _, p := range g.Paths {
@@ -253,6 +301,9 @@ func Execute(plan Plan, opts Options) error {
 			}
 			if err := DeletePathSmart(p); err != nil {
 				fmt.Printf("  Recycle Bin move failed (%v)\n", err)
+				if anyErr == nil {
+					anyErr = err
+				}
 			}
 		}
 	}

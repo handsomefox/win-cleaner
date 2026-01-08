@@ -410,6 +410,8 @@ func showStatsDialog(w fyne.Window) {
 			label.SetText(runSummaryLine(&results[i]))
 		},
 	)
+	listScroll := container.NewVScroll(list)
+	listScroll.SetMinSize(fyne.NewSize(240, 420))
 
 	detailsLabel := widget.NewLabel("")
 	detailsLabel.Wrapping = fyne.TextWrapWord
@@ -429,13 +431,10 @@ func showStatsDialog(w fyne.Window) {
 		updateDetails(0)
 	}
 
-	meta := widget.NewLabel(fmt.Sprintf("Runs: %d", len(results)))
-	if skipped > 0 {
-		meta.SetText(fmt.Sprintf("Runs: %d (skipped unreadable files: %d)", len(results), skipped))
-	}
+	meta := widget.NewLabel(statsSummaryText(results, skipped))
+	meta.Wrapping = fyne.TextWrapWord
 
-	split := container.NewHSplit(list, detailsScroll)
-	split.Offset = 0.32
+	split := container.NewGridWithColumns(2, listScroll, detailsScroll)
 	content := container.NewPadded(container.NewBorder(meta, nil, nil, nil, split))
 
 	dialog.NewCustom("Cleanup history", "Close", content, w).Show()
@@ -462,9 +461,7 @@ func runSummaryLine(res *ExecResult) string {
 	if res == nil {
 		return ""
 	}
-	ts := runTimestamp(res).Format("2006-01-02 15:04")
-	return fmt.Sprintf("%s | Groups: %d | Est: %s | Errors: %d",
-		ts, res.TotalSelected, HumanBytes(res.TotalBytes), res.ErrorCount)
+	return runTimestamp(res).Format("Jan 02 15:04")
 }
 
 func runDetailsText(res *ExecResult) string {
@@ -499,4 +496,39 @@ func runDetailsText(res *ExecResult) string {
 	}
 
 	return b.String()
+}
+
+func statsSummaryText(results []ExecResult, skipped int) string {
+	now := time.Now()
+	cutoff7 := now.AddDate(0, 0, -7)
+	cutoff30 := now.AddDate(0, 0, -30)
+
+	var totalAll uint64
+	var total7 uint64
+	var total30 uint64
+	for i := range results {
+		res := &results[i]
+		totalAll += res.TotalBytes
+		ts := runTimestamp(res)
+		if !ts.IsZero() {
+			if ts.After(cutoff7) {
+				total7 += res.TotalBytes
+			}
+			if ts.After(cutoff30) {
+				total30 += res.TotalBytes
+			}
+		}
+	}
+
+	lines := []string{
+		fmt.Sprintf("Runs: %d", len(results)),
+		fmt.Sprintf("Total estimated cleaned: %s", HumanBytes(totalAll)),
+		fmt.Sprintf("Last 7 days: %s", HumanBytes(total7)),
+		fmt.Sprintf("Last 30 days: %s", HumanBytes(total30)),
+	}
+	if skipped > 0 {
+		lines[0] = fmt.Sprintf("Runs: %d (skipped unreadable files: %d)", len(results), skipped)
+	}
+
+	return strings.Join(lines, "\n")
 }

@@ -31,6 +31,7 @@ func BuildRegistry(rc RegistryConfig) Registry {
 	localAppData := os.Getenv("LOCALAPPDATA")
 	appData := os.Getenv("APPDATA")
 	userProfile := os.Getenv("USERPROFILE")
+	programFilesX86 := os.Getenv("ProgramFiles(x86)")
 
 	// Guard: basic sanity; if we can't detect essential envs, no-op.
 	if programData == "" || localAppData == "" || appData == "" || userProfile == "" {
@@ -171,6 +172,67 @@ func BuildRegistry(rc RegistryConfig) Registry {
 		),
 	})
 
+	// Microsoft Teams (classic)
+	items = append(items, Item{
+		App:       "Teams (classic)",
+		Label:     "cache + logs",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(appData, "Microsoft", "Teams", "Cache"),
+			filepath.Join(appData, "Microsoft", "Teams", "Code Cache"),
+			filepath.Join(appData, "Microsoft", "Teams", "GPUCache"),
+			filepath.Join(appData, "Microsoft", "Teams", "Service Worker", "CacheStorage"),
+			filepath.Join(appData, "Microsoft", "Teams", "logs"),
+		},
+	})
+
+	// Microsoft Teams (new)
+	items = append(items, Item{
+		App:       "Teams (new)",
+		Label:     "local cache",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "Packages", "MSTeams_8wekyb3d8bbwe", "LocalCache", "Microsoft", "MSTeams"),
+		},
+	})
+
+	// Slack (Electron)
+	items = append(items, Item{
+		App:       "Slack",
+		Label:     "cache + logs",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(appData, "Slack", "Cache"),
+			filepath.Join(appData, "Slack", "Code Cache"),
+			filepath.Join(appData, "Slack", "GPUCache"),
+			filepath.Join(appData, "Slack", "Service Worker", "CacheStorage"),
+			filepath.Join(appData, "Slack", "logs"),
+		},
+	})
+
+	// Zoom
+	items = append(items, Item{
+		App:       "Zoom",
+		Label:     "logs",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(appData, "Zoom", "logs"),
+		},
+	})
+
+	// Notion (Electron)
+	items = append(items, Item{
+		App:       "Notion",
+		Label:     "cache",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(appData, "Notion", "Cache"),
+			filepath.Join(appData, "Notion", "Code Cache"),
+			filepath.Join(appData, "Notion", "GPUCache"),
+			filepath.Join(appData, "Notion", "Service Worker", "CacheStorage"),
+		},
+	})
+
 	// VSCode (Electron)
 	items = append(items, Item{
 		App:       "VSCode",
@@ -281,6 +343,57 @@ func BuildRegistry(rc RegistryConfig) Registry {
 		),
 	})
 
+	// Epic Games Launcher
+	items = append(items, Item{
+		App:       "Epic Games Launcher",
+		Label:     "webcache",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "EpicGamesLauncher", "Saved", "webcache"),
+		},
+		Globs: []string{
+			filepath.Join(localAppData, "EpicGamesLauncher", "Saved", "webcache_*"),
+		},
+	})
+
+	// Ubisoft Connect
+	ubisoftPaths := []string{}
+	if programFilesX86 != "" {
+		ubisoftPaths = append(ubisoftPaths,
+			filepath.Join(programFilesX86, "Ubisoft", "Ubisoft Game Launcher", "cache"),
+			filepath.Join(programFilesX86, "Ubisoft", "Ubisoft Game Launcher", "logs"),
+		)
+	}
+	items = append(items, Item{
+		App:       "Ubisoft Connect",
+		Label:     "cache + logs",
+		DefaultOn: true,
+		Paths:     ubisoftPaths,
+	})
+
+	// GOG Galaxy
+	items = append(items, Item{
+		App:       "GOG Galaxy",
+		Label:     "cache",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "GOG.com", "Galaxy"),
+			filepath.Join(programData, "GOG.com", "Galaxy", "webcache"),
+		},
+	})
+
+	// Rockstar Games Launcher
+	items = append(items, Item{
+		App:       "Rockstar Games Launcher",
+		Label:     "cache + logs",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "Rockstar Games", "Launcher", "Cache"),
+			filepath.Join(localAppData, "Rockstar Games", "Launcher", "webcache"),
+			filepath.Join(localAppData, "Rockstar Games", "Launcher", "Logs"),
+		},
+	})
+
 	// Spotify
 	items = append(items, Item{
 		App:       "Spotify",
@@ -299,6 +412,48 @@ func BuildRegistry(rc RegistryConfig) Registry {
 				localAppData, "Packages", "SpotifyAB.SpotifyMusic_*", "LocalCache", "Spotify",
 			))...,
 		),
+	})
+
+	// NuGet cache
+	items = append(items, Item{
+		App:       "NuGet",
+		Label:     "packages cache",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(userProfile, ".nuget", "packages"),
+		},
+	})
+
+	// Windows Error Reporting (WER)
+	items = append(items, Item{
+		App:       "Windows Error Reporting",
+		Label:     "report archives",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "Microsoft", "Windows", "WER", "ReportArchive"),
+			filepath.Join(localAppData, "Microsoft", "Windows", "WER", "ReportQueue"),
+		},
+	})
+
+	// Crash dumps
+	items = append(items, Item{
+		App:       "Crash dumps",
+		Label:     "local crash dumps",
+		DefaultOn: true,
+		Paths: []string{
+			filepath.Join(localAppData, "CrashDumps"),
+		},
+	})
+
+	// Windows icon/thumb caches
+	items = append(items, Item{
+		App:       "Icon caches",
+		Label:     "thumbcache + iconcache",
+		DefaultOn: true,
+		Globs: []string{
+			filepath.Join(localAppData, "Microsoft", "Windows", "Explorer", "thumbcache*.db"),
+			filepath.Join(localAppData, "Microsoft", "Windows", "Explorer", "iconcache*"),
+		},
 	})
 
 	// Windows Temp

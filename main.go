@@ -63,7 +63,8 @@ func main() {
 				fmt.Println("Cancelled.")
 				return
 			}
-			log.Fatalf("GUI failed: %v", err)
+			log.Printf("Cleanup finished with errors: %v", err)
+			return
 		}
 		return
 	}
@@ -90,7 +91,13 @@ func main() {
 		return
 	}
 
-	if err := cleaner.Execute(plan, opts); err != nil {
+	result, err := cleaner.ExecuteWithResult(plan, opts, nil)
+	if !opts.DryRun {
+		if _, statErr := cleaner.WriteStats(&result); statErr != nil {
+			log.Printf("Failed to write stats: %v", statErr)
+		}
+	}
+	if err != nil {
 		log.Fatalf("Cleanup failed: %v", err)
 	}
 

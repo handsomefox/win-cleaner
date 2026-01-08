@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"text/tabwriter"
+	"time"
 )
 
 type Options struct {
@@ -39,6 +40,32 @@ type ProgressUpdate struct {
 	Current int
 	Total   int
 	Message string
+}
+
+type PathError struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
+}
+
+type GroupResult struct {
+	App            string      `json:"app"`
+	Label          string      `json:"label"`
+	Bytes          uint64      `json:"bytes"`
+	PathsAttempted int         `json:"paths_attempted"`
+	PathsFailed    int         `json:"paths_failed"`
+	Errors         []PathError `json:"errors,omitempty"`
+}
+
+type ExecResult struct {
+	SchemaVersion int           `json:"schema_version"`
+	StartedAt     time.Time     `json:"started_at"`
+	FinishedAt    time.Time     `json:"finished_at"`
+	DurationMs    int64         `json:"duration_ms"`
+	DryRun        bool          `json:"dry_run"`
+	TotalSelected int           `json:"total_selected"`
+	TotalBytes    uint64        `json:"total_bytes"`
+	Groups        []GroupResult `json:"groups"`
+	ErrorCount    int           `json:"error_count"`
 }
 
 func BuildPlan(reg Registry) (Plan, error) {
@@ -256,17 +283,25 @@ func ReportPlan(plan Plan) string {
 }
 
 func Execute(plan Plan, opts Options) error {
-	return execute(plan, opts, nil)
+	_, err := executeWithResult(plan, opts, nil)
+	return err
 }
 
 func ExecuteWithProgress(plan Plan, opts Options, cb func(ProgressUpdate)) error {
-	return execute(plan, opts, cb)
+	_, err := executeWithResult(plan, opts, cb)
+	return err
 }
 
-func execute(plan Plan, opts Options, cb func(ProgressUpdate)) error {
+func ExecuteWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecResult, error) {
+	return executeWithResult(plan, opts, cb)
+}
+
+func executeWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecResult, error) {
+	result := NewExecResult(plan, opts)
 	if plan.Selected == 0 {
 		fmt.Println("Nothing selected. No deletions performed.")
-		return nil
+		finishExecResult(&result)
+		return result, nil
 	}
 	var anyErr error
 	total := 0
@@ -290,24 +325,42 @@ func execute(plan Plan, opts Options, cb func(ProgressUpdate)) error {
 			})
 		}
 		fmt.Printf("Deleting: %s | %s\n", g.App, g.Label)
+		groupResult := GroupResult{
+			App:   g.App,
+			Label: g.Label,
+			Bytes: g.Bytes,
+		}
 		for _, p := range g.Paths {
 			if !isSafePath(p) {
 				fmt.Printf("  Skipping unsafe path (guard): %s\n", p)
+				groupResult.Errors = append(groupResult.Errors, PathError{
+					Path:  p,
+					Error: "unsafe path (guard)",
+				})
 				continue
 			}
 			if _, err := os.Lstat(p); err != nil {
 				// Skip silently if path no longer exists
 				continue
 			}
+			groupResult.PathsAttempted++
 			if err := DeletePathSmart(p); err != nil {
 				fmt.Printf("  Recycle Bin move failed (%v)\n", err)
+				groupResult.PathsFailed++
+				groupResult.Errors = append(groupResult.Errors, PathError{
+					Path:  p,
+					Error: err.Error(),
+				})
 				if anyErr == nil {
 					anyErr = err
 				}
 			}
 		}
+		result.Groups = append(result.Groups, groupResult)
+		result.ErrorCount += len(groupResult.Errors)
 	}
-	return anyErr
+	finishExecResult(&result)
+	return result, anyErr
 }
 
 func recomputeTotals(plan *Plan) {

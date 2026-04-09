@@ -27,10 +27,7 @@ func RunGUI(reg Registry, opts Options) error {
 
 	a := app.NewWithID("win-cleaner")
 	w := a.NewWindow("win-cleaner")
-	w.Resize(fyne.NewSize(980, 680))
-
-	title := widget.NewLabelWithStyle("win-cleaner", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	subtitle := widget.NewLabel("Windows cache cleaner")
+	w.Resize(fyne.NewSize(980, 720))
 
 	result := ErrCancelled
 	var closing atomic.Bool
@@ -46,7 +43,7 @@ func RunGUI(reg Registry, opts Options) error {
 		safeClose(ErrCancelled)
 	})
 
-	showScan(a, w, reg, title, subtitle, opts, safeClose)
+	showScan(a, w, reg, opts, safeClose)
 	w.ShowAndRun()
 	if errors.Is(result, ErrCancelled) {
 		return ErrCancelled
@@ -54,15 +51,17 @@ func RunGUI(reg Registry, opts Options) error {
 	return result
 }
 
-func showScan(a fyne.App, w fyne.Window, reg Registry, title, subtitle *widget.Label, opts Options, safeClose func(error)) {
+func showScan(a fyne.App, w fyne.Window, reg Registry, opts Options, safeClose func(error)) {
 	status := widget.NewLabel("Scanning cache locations...")
+	status.Alignment = fyne.TextAlignCenter
 	progress := widget.NewProgressBar()
-	progress.Min = 0
-	progress.Max = 1
 
-	scanCard := widget.NewCard("Scanning", "Looking for cache locations", container.NewVBox(status, progress))
+	scanCard := widget.NewCard("Scanning", "Looking for cache locations to clean", container.NewVBox(
+		widget.NewSeparator(),
+		container.NewPadded(container.NewVBox(status, progress)),
+	))
 	content := container.NewPadded(container.NewBorder(
-		container.NewVBox(title, subtitle),
+		appHeader(),
 		container.NewHBox(layout.NewSpacer(), widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
 			safeClose(ErrCancelled)
 		})),
@@ -72,7 +71,6 @@ func showScan(a fyne.App, w fyne.Window, reg Registry, title, subtitle *widget.L
 	w.SetContent(content)
 
 	var closing atomic.Bool
-
 	go func() {
 		plan, err := BuildPlanWithProgress(reg, func(u ProgressUpdate) {
 			if closing.Load() {
@@ -96,44 +94,62 @@ func showScan(a fyne.App, w fyne.Window, reg Registry, title, subtitle *widget.L
 				safeClose(err)
 				return
 			}
-			showSelect(&plan, opts, a, w, title, subtitle, safeClose)
+			showSelect(&plan, opts, a, w, safeClose)
 		}, false)
 	}()
 }
 
-func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subtitle *widget.Label, safeClose func(error)) {
+func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, safeClose func(error)) {
 	filterEntry := widget.NewEntry()
-	filterEntry.SetPlaceHolder("Filter apps or labels")
+	filterEntry.SetPlaceHolder("Search apps or labels...")
 
 	dryRun := opts.DryRun
 
 	selectedLabel := widget.NewLabel("")
-	savingsLabel := widget.NewLabel("")
+	savingsLabel := widget.NewLabelWithStyle("", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true})
 
 	updateSummary := func() {
 		recomputeTotals(plan)
-		selectedLabel.SetText(fmt.Sprintf("Selected: %d", plan.Selected))
-		savingsLabel.SetText("Est. savings: " + HumanBytes(plan.TotalBytes))
+		selectedLabel.SetText(fmt.Sprintf("%d groups selected", plan.Selected))
+		if plan.TotalBytes > 0 {
+			savingsLabel.SetText("Est. savings: " + HumanBytes(plan.TotalBytes))
+		} else {
+			savingsLabel.SetText("")
+		}
 	}
 
 	expanded := map[string]bool{} // collapsed by default
+	sortMode := "name"            // "name" | "size-desc" | "size-asc"
 	var listScroll *container.Scroll
+
+	setAllExpanded := func(state bool) {
+		for _, ag := range plan.ByApp() {
+			expanded[ag.App] = state
+		}
+	}
 
 	rebuildList := func(filter string) {
 		filter = strings.ToLower(strings.TrimSpace(filter))
 		appGroups := plan.ByApp()
 
+		// Apply sort to app groups
+		switch sortMode {
+		case "size-desc":
+			sort.SliceStable(appGroups, func(i, j int) bool {
+				return appGroups[i].Bytes > appGroups[j].Bytes
+			})
+		case "size-asc":
+			sort.SliceStable(appGroups, func(i, j int) bool {
+				return appGroups[i].Bytes < appGroups[j].Bytes
+			})
+		}
+
 		sections := make([]fyne.CanvasObject, 0, len(appGroups)*4)
 		for _, ag := range appGroups {
-			// Apply filter — skip entire app section if nothing matches
+			// Apply filter
 			var visible []*Group
 			for _, g := range ag.Items {
-				if filter == "" {
-					visible = append(visible, g)
-					continue
-				}
-				hay := strings.ToLower(g.App + " " + g.Label)
-				if strings.Contains(hay, filter) {
+				if filter == "" || strings.Contains(strings.ToLower(g.App+" "+g.Label), filter) {
 					visible = append(visible, g)
 				}
 			}
@@ -141,40 +157,46 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 				continue
 			}
 
-			// Push 0-byte items to the bottom (not found on disk)
+			// Largest items first; 0-byte (not found) sink to bottom
 			sort.SliceStable(visible, func(i, j int) bool {
 				return visible[i].Bytes > visible[j].Bytes
 			})
 
-			// Build item rows first so the app header checkbox can reference them
+			// Build item rows
 			itemChecks := make([]*widget.Check, len(visible))
 			itemRows := make([]fyne.CanvasObject, 0, len(visible))
 			for i, g := range visible {
 				grp := g
 				sizeText := HumanBytes(grp.Bytes)
 				if grp.Bytes == 0 {
-					sizeText = "-"
+					sizeText = "not found"
 				}
 				chk := widget.NewCheck("", nil)
 				chk.Checked = grp.On
 				itemChecks[i] = chk
 
+				sizeLabel := widget.NewLabelWithStyle(sizeText, fyne.TextAlignTrailing, fyne.TextStyle{})
+				if grp.Bytes == 0 {
+					sizeLabel.TextStyle = fyne.TextStyle{Italic: true}
+				}
+
 				itemRows = append(itemRows, container.NewHBox(
-					widget.NewLabel("    "), // indent
+					widget.NewLabel("      "),
 					chk,
 					widget.NewLabel(grp.Label),
 					layout.NewSpacer(),
-					widget.NewLabelWithStyle(sizeText, fyne.TextAlignTrailing, fyne.TextStyle{}),
+					sizeLabel,
 				))
 			}
 
-			// App header checkbox — toggles all visible items in this group
+			// App header totals
 			var appTotalBytes uint64
 			for _, g := range visible {
 				appTotalBytes += g.Bytes
 			}
 			appSizeText := HumanBytes(appTotalBytes)
 
+			// App-level checkbox
 			appCheck := widget.NewCheck("", nil)
 			onCount := 0
 			for _, g := range visible {
@@ -184,7 +206,6 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 			}
 			appCheck.Checked = onCount == len(visible)
 
-			// Wire up item checkboxes: update group state + re-evaluate app header
 			for i, g := range visible {
 				grp := g
 				chk := itemChecks[i]
@@ -201,8 +222,6 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 					updateSummary()
 				}
 			}
-
-			// Wire up app header checkbox: toggle all items
 			appCheck.OnChanged = func(checked bool) {
 				for i, g := range visible {
 					g.On = checked
@@ -212,28 +231,28 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 				updateSummary()
 			}
 
-			// Items container — hidden when collapsed
+			// Items container — collapsed by default
 			itemsBox := container.NewVBox(itemRows...)
 			isExpanded := expanded[ag.App] || filter != ""
 			if !isExpanded {
 				itemsBox.Hide()
 			}
 
-			expandIcon := "▶"
-			if isExpanded {
-				expandIcon = "▼"
-			}
-			expandBtn := widget.NewButton(expandIcon, nil)
+			// Collapse toggle — icon-only button, stable size
+			expandBtn := widget.NewButtonWithIcon("", theme.MenuExpandIcon(), nil)
 			expandBtn.Importance = widget.LowImportance
-			appName := ag.App // capture for closure
+			if isExpanded {
+				expandBtn.SetIcon(theme.MenuDropDownIcon())
+			}
+			appName := ag.App
 			expandBtn.OnTapped = func() {
 				expanded[appName] = !expanded[appName]
 				if expanded[appName] {
 					itemsBox.Show()
-					expandBtn.SetText("▼")
+					expandBtn.SetIcon(theme.MenuDropDownIcon())
 				} else {
 					itemsBox.Hide()
-					expandBtn.SetText("▶")
+					expandBtn.SetIcon(theme.MenuExpandIcon())
 				}
 				if listScroll != nil {
 					listScroll.Refresh()
@@ -273,75 +292,113 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 		rebuildList(filterEntry.Text)
 		updateSummary()
 	})
-	selectNone := widget.NewButtonWithIcon("Select None", theme.ContentRemoveIcon(), func() {
+	selectNonEmpty := widget.NewButton("Select Non-Empty", func() {
+		for i := range plan.Groups {
+			plan.Groups[i].On = plan.Groups[i].Bytes > 0
+		}
+		rebuildList(filterEntry.Text)
+		updateSummary()
+	})
+	selectNone := widget.NewButtonWithIcon("Deselect All", theme.ContentRemoveIcon(), func() {
 		for i := range plan.Groups {
 			plan.Groups[i].On = false
 		}
 		rebuildList(filterEntry.Text)
 		updateSummary()
 	})
+	expandAll := widget.NewButton("Expand All", func() {
+		setAllExpanded(true)
+		rebuildList(filterEntry.Text)
+	})
+	collapseAll := widget.NewButton("Collapse All", func() {
+		setAllExpanded(false)
+		rebuildList(filterEntry.Text)
+	})
+
+	sortSelect := widget.NewSelect([]string{"Sort: Name", "Sort: Largest first", "Sort: Smallest first"}, func(s string) {
+		switch s {
+		case "Sort: Largest first":
+			sortMode = "size-desc"
+		case "Sort: Smallest first":
+			sortMode = "size-asc"
+		default:
+			sortMode = "name"
+		}
+		rebuildList(filterEntry.Text)
+	})
+	sortSelect.SetSelected("Sort: Name")
 
 	applyLabel := func() string {
 		if dryRun {
-			return "Show Dry Run"
+			return "Preview"
 		}
-		return "Apply (Recycle Bin)"
+		return "Clean Up"
 	}
 
 	apply := widget.NewButtonWithIcon(applyLabel(), theme.ConfirmIcon(), func() {
 		updateSummary()
 		if plan.Selected == 0 {
-			dialog.ShowInformation("Nothing Selected", "Select at least one group to delete.", w)
+			dialog.ShowInformation("Nothing Selected", "Select at least one group to clean.", w)
 			return
 		}
 		if dryRun {
 			showDryRunDialog(*plan, w)
 			return
 		}
-		confirmText := fmt.Sprintf("Move %d selected groups to the Recycle Bin?\nEstimated savings: %s",
-			plan.Selected, HumanBytes(plan.TotalBytes))
+		confirmText := fmt.Sprintf(
+			"Move %d selected groups to the Recycle Bin?\nEstimated savings: %s\n\nFiles can be restored from the Recycle Bin.",
+			plan.Selected, HumanBytes(plan.TotalBytes),
+		)
 		dialog.NewConfirm("Confirm Cleanup", confirmText, func(ok bool) {
 			if !ok {
 				return
 			}
 			nextOpts := opts
 			nextOpts.DryRun = dryRun
-			showDelete(plan, nextOpts, a, w, title, subtitle, safeClose)
+			showDelete(plan, nextOpts, a, w, safeClose)
 		}, w).Show()
 	})
+	apply.Importance = widget.HighImportance
 
-	dryRunToggle := widget.NewCheck("Dry run", func(checked bool) {
+	dryRunToggle := widget.NewCheck("Preview only", func(checked bool) {
 		dryRun = checked
 		apply.SetText(applyLabel())
 	})
 	dryRunToggle.Checked = dryRun
 	dryRunToggle.Refresh()
 
-	cancel := widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
-		safeClose(ErrCancelled)
+	rescanBtn := widget.NewButtonWithIcon("Rescan", theme.ViewRefreshIcon(), func() {
+		showScan(a, w, BuildRegistry(), opts, safeClose)
 	})
 
-	statsBtn := widget.NewButton("Stats", func() {
+	statsBtn := widget.NewButtonWithIcon("History", theme.HistoryIcon(), func() {
 		showStatsDialog(w)
 	})
 
-	header := container.NewVBox(
-		container.NewHBox(title, layout.NewSpacer(), statsBtn, dryRunToggle),
-		subtitle,
+	topBar := container.NewHBox(
+		appHeader(),
+		layout.NewSpacer(),
+		statsBtn,
+		rescanBtn,
 	)
-	filterRow := container.NewBorder(nil, nil,
+	searchRow := container.NewBorder(nil, nil,
 		widget.NewLabelWithStyle("Filter:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		nil, filterEntry,
 	)
-	controls := container.NewHBox(selectAll, selectNone, layout.NewSpacer(), selectedLabel, savingsLabel)
-	footer := container.NewHBox(layout.NewSpacer(), cancel, apply)
+	selectionRow := container.NewHBox(selectAll, selectNonEmpty, selectNone, widget.NewSeparator(), expandAll, collapseAll, layout.NewSpacer(), sortSelect)
+	summaryRow := container.NewHBox(dryRunToggle, layout.NewSpacer(), selectedLabel, widget.NewLabel("  "), savingsLabel)
+	footer := container.NewHBox(
+		widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() { safeClose(ErrCancelled) }),
+		layout.NewSpacer(),
+		apply,
+	)
 
 	rebuildList("")
 	updateSummary()
 
-	listCard := widget.NewCard("Cleanup targets", "", listScroll)
+	listCard := widget.NewCard("Cleanup Targets", "", listScroll)
 	content := container.NewPadded(container.NewBorder(
-		container.NewVBox(header, filterRow, controls),
+		container.NewVBox(topBar, widget.NewSeparator(), searchRow, selectionRow, summaryRow),
 		footer,
 		nil, nil,
 		listCard,
@@ -349,17 +406,18 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 	w.SetContent(content)
 }
 
-func showDelete(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subtitle *widget.Label, safeClose func(error)) {
-	status := widget.NewLabel("Deleting selected caches...")
-	remainingLabel := widget.NewLabel("Remaining: --")
+func showDelete(plan *Plan, opts Options, a fyne.App, w fyne.Window, safeClose func(error)) {
+	currentGroup := widget.NewLabel("Preparing...")
+	currentGroup.Truncation = fyne.TextTruncateEllipsis
 	progress := widget.NewProgressBar()
-	progress.Min = 0
-	progress.Max = 1
+	progressLabel := widget.NewLabel("0 / 0")
 
-	progressCard := widget.NewCard("Cleanup in progress", "Moving files to Recycle Bin",
-		container.NewVBox(status, remainingLabel, progress))
+	progressCard := widget.NewCard("Cleanup in progress", "Moving files to the Recycle Bin", container.NewVBox(
+		widget.NewSeparator(),
+		container.NewPadded(container.NewVBox(currentGroup, progress, progressLabel)),
+	))
 	content := container.NewPadded(container.NewBorder(
-		container.NewVBox(title, subtitle),
+		appHeader(),
 		nil, nil, nil,
 		progressCard,
 	))
@@ -370,10 +428,10 @@ func showDelete(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 			a.Driver().DoFromGoroutine(func() {
 				if u.Total > 0 {
 					progress.SetValue(float64(u.Current) / float64(u.Total))
-					remainingLabel.SetText(fmt.Sprintf("Remaining: %d", u.Total-u.Current))
+					progressLabel.SetText(fmt.Sprintf("%d / %d groups", u.Current, u.Total))
 				}
 				if u.Message != "" {
-					status.SetText(fmt.Sprintf("Deleting (%d/%d): %s", u.Current, u.Total, u.Message))
+					currentGroup.SetText(u.Message)
 				}
 			}, false)
 		})
@@ -383,41 +441,98 @@ func showDelete(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 			}
 		}
 		a.Driver().DoFromGoroutine(func() {
-			finalMsg := "Cleanup complete."
-			if err != nil {
-				finalMsg = "Cleanup finished with errors."
-			}
-			doneLabel := widget.NewLabelWithStyle(finalMsg, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-			summaryLabel := widget.NewLabel(fmt.Sprintf(
-				"Selected groups: %d  •  Estimated savings: %s",
-				result.TotalSelected, HumanBytes(result.TotalBytes),
-			))
-			errorSummary, errorDetails := buildErrorSummary(&result)
-			errorLabel := widget.NewLabel(errorSummary)
-			detailsBtn := widget.NewButton("View error details", func() {
-				details := widget.NewLabel(errorDetails)
-				details.Wrapping = fyne.TextWrapWord
-				scroll := container.NewVScroll(details)
-				scroll.SetMinSize(fyne.NewSize(720, 360))
-				dialog.NewCustom("Cleanup errors", "Close", scroll, w).Show()
-			})
-			if errorSummary == "" {
-				errorLabel.Hide()
-				detailsBtn.Hide()
-			}
-			closeBtn := widget.NewButtonWithIcon("Close", theme.ConfirmIcon(), func() {
-				safeClose(err)
-			})
-			finalCard := widget.NewCard("Summary", "",
-				container.NewVBox(doneLabel, summaryLabel, errorLabel, detailsBtn))
-			w.SetContent(container.NewPadded(container.NewBorder(
-				container.NewVBox(title, subtitle),
-				container.NewHBox(layout.NewSpacer(), closeBtn),
-				nil, nil,
-				finalCard,
-			)))
+			showResults(&result, err, a, w, safeClose)
 		}, false)
 	}()
+}
+
+func showResults(result *ExecResult, execErr error, a fyne.App, w fyne.Window, safeClose func(error)) {
+	// Headline
+	headline := "Cleanup complete"
+	if execErr != nil {
+		headline = "Cleanup finished with errors"
+	}
+	headlineLabel := widget.NewLabelWithStyle(headline, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+
+	statsLine := fmt.Sprintf("%d groups cleaned  •  est. %s freed  •  %s",
+		result.TotalSelected,
+		HumanBytes(result.TotalBytes),
+		formatDuration(result.DurationMs),
+	)
+	statsLabel := widget.NewLabel(statsLine)
+
+	// Per-group results table
+	tableHeader := container.NewGridWithColumns(4,
+		widget.NewLabelWithStyle("App", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Label", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Est. size", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Status", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+	)
+	rows := []fyne.CanvasObject{tableHeader, widget.NewSeparator()}
+	for i := range result.Groups {
+		g := &result.Groups[i]
+		statusText := "ok"
+		if g.PathsFailed > 0 {
+			statusText = fmt.Sprintf("%d failed", g.PathsFailed)
+		} else if g.PathsAttempted == 0 {
+			statusText = "skipped"
+		}
+		rows = append(rows, container.NewGridWithColumns(4,
+			widget.NewLabel(g.App),
+			widget.NewLabel(g.Label),
+			widget.NewLabelWithStyle(HumanBytes(g.Bytes), fyne.TextAlignTrailing, fyne.TextStyle{}),
+			widget.NewLabel(statusText),
+		))
+	}
+	tableScroll := container.NewVScroll(container.NewVBox(rows...))
+	tableScroll.SetMinSize(fyne.NewSize(0, 300))
+
+	// Error details (if any)
+	errorSummary, errorDetails := buildErrorSummary(result)
+	errBox := container.NewVBox()
+	if errorSummary != "" {
+		errLabel := widget.NewLabel(errorSummary)
+		errLabel.Wrapping = fyne.TextWrapWord
+		viewErrBtn := widget.NewButtonWithIcon("View error details", theme.WarningIcon(), func() {
+			det := widget.NewLabel(errorDetails)
+			det.Wrapping = fyne.TextWrapWord
+			scr := container.NewVScroll(det)
+			scr.SetMinSize(fyne.NewSize(720, 360))
+			dialog.NewCustom("Cleanup errors", "Close", scr, w).Show()
+		})
+		errBox.Add(widget.NewSeparator())
+		errBox.Add(errLabel)
+		errBox.Add(viewErrBtn)
+	}
+
+	resultsCard := widget.NewCard(headline, statsLine, container.NewVBox(
+		widget.NewSeparator(),
+		container.NewPadded(container.NewVBox(
+			headlineLabel,
+			statsLabel,
+			widget.NewSeparator(),
+			tableScroll,
+			errBox,
+		)),
+	))
+
+	// Buttons
+	closeBtn := widget.NewButtonWithIcon("Close", theme.ConfirmIcon(), func() {
+		safeClose(execErr)
+	})
+	closeBtn.Importance = widget.HighImportance
+	runAgainBtn := widget.NewButtonWithIcon("Clean Again", theme.ViewRefreshIcon(), func() {
+		showScan(a, w, BuildRegistry(), Options{DryRun: false}, safeClose)
+	})
+
+	footer := container.NewHBox(runAgainBtn, layout.NewSpacer(), closeBtn)
+
+	w.SetContent(container.NewPadded(container.NewBorder(
+		appHeader(),
+		footer,
+		nil, nil,
+		resultsCard,
+	)))
 }
 
 func buildErrorSummary(result *ExecResult) (summary, details string) {
@@ -439,31 +554,26 @@ func buildErrorSummary(result *ExecResult) (summary, details string) {
 		detailBuilder.WriteString("\n")
 	}
 	limit := min(3, len(groupNames))
-	summary = fmt.Sprintf("Errors in %d group(s).", len(groupNames))
-	if limit > 0 {
-		summary = fmt.Sprintf("Errors in %d group(s): %s", len(groupNames), strings.Join(groupNames[:limit], ", "))
-		if len(groupNames) > limit {
-			summary += ", ..."
-		}
+	summary = fmt.Sprintf("Errors in %d group(s): %s", len(groupNames), strings.Join(groupNames[:limit], ", "))
+	if len(groupNames) > limit {
+		summary += ", ..."
 	}
 	return summary, detailBuilder.String()
 }
 
-// showDryRunDialog shows a simple per-group summary of what would be deleted.
+// showDryRunDialog shows a per-group summary of what would be deleted.
 func showDryRunDialog(plan Plan, w fyne.Window) {
 	if plan.Selected == 0 {
-		dialog.ShowInformation("Dry Run", "Nothing selected.", w)
+		dialog.ShowInformation("Preview", "Nothing selected.", w)
 		return
 	}
 
-	// Build table rows: App | Label | Size
-	header := container.NewGridWithColumns(3,
+	headerRow := container.NewGridWithColumns(3,
 		widget.NewLabelWithStyle("App", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Label", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Est. size", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true}),
 	)
-	rows := make([]fyne.CanvasObject, 0, plan.Selected+1)
-	rows = append(rows, header, widget.NewSeparator())
+	rows := []fyne.CanvasObject{headerRow, widget.NewSeparator()}
 	for i := range plan.Groups {
 		g := &plan.Groups[i]
 		if !g.On {
@@ -471,7 +581,7 @@ func showDryRunDialog(plan Plan, w fyne.Window) {
 		}
 		sizeText := HumanBytes(g.Bytes)
 		if g.Bytes == 0 {
-			sizeText = "—"
+			sizeText = "not found"
 		}
 		rows = append(rows, container.NewGridWithColumns(3,
 			widget.NewLabel(g.App),
@@ -481,16 +591,14 @@ func showDryRunDialog(plan Plan, w fyne.Window) {
 	}
 
 	totalLabel := widget.NewLabelWithStyle(
-		fmt.Sprintf("Total: %d groups  •  Est. savings: %s", plan.Selected, HumanBytes(plan.TotalBytes)),
+		fmt.Sprintf("%d groups  •  est. %s", plan.Selected, HumanBytes(plan.TotalBytes)),
 		fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
 	)
 
-	table := container.NewVBox(rows...)
-	scroll := container.NewVScroll(table)
+	scroll := container.NewVScroll(container.NewVBox(rows...))
 	scroll.SetMinSize(fyne.NewSize(600, 400))
-
 	content := container.NewBorder(nil, totalLabel, nil, nil, scroll)
-	dialog.NewCustom("Dry run — what would be deleted", "Close", content, w).Show()
+	dialog.NewCustom("Preview: what would be cleaned", "Close", content, w).Show()
 }
 
 func showStatsDialog(w fyne.Window) {
@@ -500,11 +608,11 @@ func showStatsDialog(w fyne.Window) {
 		return
 	}
 	if len(results) == 0 {
-		message := "No cleanup history yet."
+		msg := "No cleanup history yet."
 		if skipped > 0 {
-			message = fmt.Sprintf("No cleanup history yet. (%d files could not be read)", skipped)
+			msg = fmt.Sprintf("No cleanup history yet. (%d files could not be read)", skipped)
 		}
-		dialog.ShowInformation("Cleanup history", message, w)
+		dialog.ShowInformation("Cleanup history", msg, w)
 		return
 	}
 
@@ -522,12 +630,12 @@ func showStatsDialog(w fyne.Window) {
 		},
 	)
 	listScroll := container.NewVScroll(list)
-	listScroll.SetMinSize(fyne.NewSize(240, 420))
+	listScroll.SetMinSize(fyne.NewSize(200, 420))
 
 	detailsLabel := widget.NewLabel("")
 	detailsLabel.Wrapping = fyne.TextWrapWord
 	detailsScroll := container.NewVScroll(detailsLabel)
-	detailsScroll.SetMinSize(fyne.NewSize(520, 420))
+	detailsScroll.SetMinSize(fyne.NewSize(560, 420))
 
 	updateDetails := func(idx int) {
 		if idx >= 0 && idx < len(results) {
@@ -546,6 +654,11 @@ func showStatsDialog(w fyne.Window) {
 	split := container.NewGridWithColumns(2, listScroll, detailsScroll)
 	content := container.NewPadded(container.NewBorder(meta, nil, nil, nil, split))
 	dialog.NewCustom("Cleanup history", "Close", content, w).Show()
+}
+
+// appHeader returns the shared top-of-window branding label.
+func appHeader() *widget.Label {
+	return widget.NewLabelWithStyle("win-cleaner", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 }
 
 func runTimestamp(res *ExecResult) time.Time {
@@ -569,7 +682,7 @@ func runSummaryLine(res *ExecResult) string {
 	if res == nil {
 		return ""
 	}
-	return runTimestamp(res).Format("Jan 02 15:04")
+	return fmt.Sprintf("%s  %s", runTimestamp(res).Format("Jan 02 15:04"), HumanBytes(res.TotalBytes))
 }
 
 func runDetailsText(res *ExecResult) string {
@@ -579,8 +692,8 @@ func runDetailsText(res *ExecResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Run: %s\n", runTimestamp(res).Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(&b, "Duration: %s\n", formatDuration(res.DurationMs))
-	fmt.Fprintf(&b, "Selected groups: %d\n", res.TotalSelected)
-	fmt.Fprintf(&b, "Estimated savings: %s\n", HumanBytes(res.TotalBytes))
+	fmt.Fprintf(&b, "Groups cleaned: %d\n", res.TotalSelected)
+	fmt.Fprintf(&b, "Est. freed: %s\n", HumanBytes(res.TotalBytes))
 	fmt.Fprintf(&b, "Errors: %d\n", res.ErrorCount)
 	b.WriteString("\n")
 
@@ -589,17 +702,16 @@ func runDetailsText(res *ExecResult) string {
 		return b.String()
 	}
 	for _, g := range res.Groups {
-		fmt.Fprintf(&b, "%s - %s\n", g.App, g.Label)
-		fmt.Fprintf(&b, "  Estimated: %s\n", HumanBytes(g.Bytes))
-		fmt.Fprintf(&b, "  Paths attempted: %d\n", g.PathsAttempted)
-		fmt.Fprintf(&b, "  Paths failed: %d\n", g.PathsFailed)
-		if len(g.Errors) > 0 {
-			b.WriteString("  Errors:\n")
-			for _, e := range g.Errors {
-				fmt.Fprintf(&b, "    - %s: %s\n", e.Path, e.Error)
-			}
+		status := "ok"
+		if g.PathsFailed > 0 {
+			status = fmt.Sprintf("%d failed", g.PathsFailed)
+		} else if g.PathsAttempted == 0 {
+			status = "skipped"
 		}
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "%s - %s  [%s  %s]\n", g.App, g.Label, HumanBytes(g.Bytes), status)
+		for _, e := range g.Errors {
+			fmt.Fprintf(&b, "  ! %s: %s\n", e.Path, e.Error)
+		}
 	}
 	return b.String()
 }
@@ -626,11 +738,11 @@ func statsSummaryText(results []ExecResult, skipped int) string {
 
 	runs := fmt.Sprintf("Runs: %d", len(results))
 	if skipped > 0 {
-		runs = fmt.Sprintf("Runs: %d (skipped unreadable files: %d)", len(results), skipped)
+		runs = fmt.Sprintf("Runs: %d  (%d unreadable)", len(results), skipped)
 	}
 	return strings.Join([]string{
 		runs,
-		"Total estimated cleaned: " + HumanBytes(totalAll),
+		"Total freed: " + HumanBytes(totalAll),
 		"Last 7 days: " + HumanBytes(total7),
 		"Last 30 days: " + HumanBytes(total30),
 	}, "\n")

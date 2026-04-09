@@ -150,7 +150,7 @@ func buildPlan(reg Registry, cb func(ProgressUpdate)) (Plan, error) {
 			App:   it.App,
 			Label: it.Label,
 			Paths: resolved,
-			On:    it.DefaultOn,
+			On:    it.DefaultOn && total > 0, // never pre-select items with nothing to clean
 			Bytes: total,
 			Errs:  errs,
 		})

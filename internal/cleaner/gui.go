@@ -116,6 +116,7 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 		savingsLabel.SetText("Est. savings: " + HumanBytes(plan.TotalBytes))
 	}
 
+	expanded := map[string]bool{} // collapsed by default
 	var listScroll *container.Scroll
 
 	rebuildList := func(filter string) {
@@ -140,6 +141,11 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 				continue
 			}
 
+			// Push 0-byte items to the bottom (not found on disk)
+			sort.SliceStable(visible, func(i, j int) bool {
+				return visible[i].Bytes > visible[j].Bytes
+			})
+
 			// Build item rows first so the app header checkbox can reference them
 			itemChecks := make([]*widget.Check, len(visible))
 			itemRows := make([]fyne.CanvasObject, 0, len(visible))
@@ -163,17 +169,13 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 			}
 
 			// App header checkbox — toggles all visible items in this group
-			appTotalBytes := func() uint64 {
-				var t uint64
-				for _, g := range visible {
-					t += g.Bytes
-				}
-				return t
+			var appTotalBytes uint64
+			for _, g := range visible {
+				appTotalBytes += g.Bytes
 			}
-			appSizeText := HumanBytes(appTotalBytes())
+			appSizeText := HumanBytes(appTotalBytes)
 
 			appCheck := widget.NewCheck("", nil)
-			// Determine initial state
 			onCount := 0
 			for _, g := range visible {
 				if g.On {
@@ -210,15 +212,39 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 				updateSummary()
 			}
 
+			// Items container — hidden when collapsed
+			itemsBox := container.NewVBox(itemRows...)
+			isExpanded := expanded[ag.App] || filter != ""
+			if !isExpanded {
+				itemsBox.Hide()
+			}
+
+			expandIcon := "▶"
+			if isExpanded {
+				expandIcon = "▼"
+			}
+			expandBtn := widget.NewButton(expandIcon, nil)
+			expandBtn.Importance = widget.LowImportance
+			appName := ag.App // capture for closure
+			expandBtn.OnTapped = func() {
+				expanded[appName] = !expanded[appName]
+				if expanded[appName] {
+					itemsBox.Show()
+					expandBtn.SetText("▼")
+				} else {
+					itemsBox.Hide()
+					expandBtn.SetText("▶")
+				}
+				if listScroll != nil {
+					listScroll.Refresh()
+				}
+			}
+
 			appNameLabel := widget.NewLabelWithStyle(ag.App, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 			appSizeLabel := widget.NewLabelWithStyle(appSizeText, fyne.TextAlignTrailing, fyne.TextStyle{})
-			headerRow := container.NewHBox(appCheck, appNameLabel, layout.NewSpacer(), appSizeLabel)
+			headerRow := container.NewHBox(expandBtn, appCheck, appNameLabel, layout.NewSpacer(), appSizeLabel)
 
-			sectionContent := make([]fyne.CanvasObject, 0, len(itemRows)+2)
-			sectionContent = append(sectionContent, headerRow)
-			sectionContent = append(sectionContent, itemRows...)
-			sectionContent = append(sectionContent, widget.NewSeparator())
-			section := container.NewVBox(sectionContent...)
+			section := container.NewVBox(headerRow, itemsBox, widget.NewSeparator())
 			sections = append(sections, section)
 		}
 

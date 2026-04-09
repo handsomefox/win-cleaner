@@ -29,9 +29,9 @@ type Group struct {
 	App   string
 	Label string
 	Paths []string // resolved paths (globs expanded)
-	On    bool     // selected for deletion
-	Bytes uint64   // estimated reclaimable bytes
 	Errs  []error
+	Bytes uint64 // estimated reclaimable bytes
+	On    bool   // selected for deletion
 }
 
 // AppGroup is used by the GUI to render the 2-level grouped list.
@@ -68,9 +68,9 @@ func (p *Plan) ByApp() []AppGroup {
 
 type ProgressUpdate struct {
 	Phase   string
+	Message string
 	Current int
 	Total   int
-	Message string
 }
 
 type PathError struct {
@@ -81,22 +81,22 @@ type PathError struct {
 type GroupResult struct {
 	App            string      `json:"app"`
 	Label          string      `json:"label"`
+	Errors         []PathError `json:"errors,omitempty"`
 	Bytes          uint64      `json:"bytes"`
 	PathsAttempted int         `json:"paths_attempted"`
 	PathsFailed    int         `json:"paths_failed"`
-	Errors         []PathError `json:"errors,omitempty"`
 }
 
 type ExecResult struct {
-	SchemaVersion int           `json:"schema_version"`
 	StartedAt     time.Time     `json:"started_at"`
 	FinishedAt    time.Time     `json:"finished_at"`
+	Groups        []GroupResult `json:"groups"`
+	SchemaVersion int           `json:"schema_version"`
 	DurationMs    int64         `json:"duration_ms"`
-	DryRun        bool          `json:"dry_run"`
 	TotalSelected int           `json:"total_selected"`
 	TotalBytes    uint64        `json:"total_bytes"`
-	Groups        []GroupResult `json:"groups"`
 	ErrorCount    int           `json:"error_count"`
+	DryRun        bool          `json:"dry_run"`
 }
 
 func BuildPlan(reg Registry) (Plan, error) {
@@ -216,11 +216,6 @@ func ReportPlan(plan Plan) string {
 	return b.String()
 }
 
-func Execute(plan Plan, opts Options) error {
-	_, err := executeWithResult(plan, opts, nil)
-	return err
-}
-
 func ExecuteWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecResult, error) {
 	return executeWithResult(plan, opts, cb)
 }
@@ -331,15 +326,12 @@ func dirSize(p string) (uint64, error) {
 		return 0, err
 	}
 	if !info.IsDir() {
-		return uint64(info.Size()), nil
+		return uint64(max(0, info.Size())), nil
 	}
 
 	var total uint64
 	var mu sync.Mutex
-	err = filepath.WalkDir(p, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
+	err = filepath.WalkDir(p, func(_ string, d fs.DirEntry, _ error) error {
 		if d.Type()&os.ModeSymlink != 0 {
 			if d.IsDir() {
 				return filepath.SkipDir
@@ -350,7 +342,7 @@ func dirSize(p string) (uint64, error) {
 			fi, e := d.Info()
 			if e == nil {
 				mu.Lock()
-				total += uint64(fi.Size())
+				total += uint64(max(0, fi.Size()))
 				mu.Unlock()
 			}
 		}

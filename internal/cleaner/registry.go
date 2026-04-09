@@ -3,7 +3,6 @@ package cleaner
 import (
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 type Registry struct{ Items []Item }
@@ -79,12 +78,8 @@ func BuildRegistry() Registry {
 		}
 	}
 
-	items := make([]Item, 0, 96)
-
-	// --- Browsers ---
-
-	items = append(items,
-		Item{
+	items := []Item{
+		{
 			App:       "Chrome",
 			Label:     "all profiles cache",
 			DefaultOn: true,
@@ -96,7 +91,7 @@ func BuildRegistry() Registry {
 			},
 			Globs: chromiumProfileGlobs(filepath.Join(localAppData, "Google", "Chrome", "User Data")),
 		},
-		Item{
+		{
 			App:       "Edge",
 			Label:     "all profiles cache",
 			DefaultOn: true,
@@ -108,7 +103,7 @@ func BuildRegistry() Registry {
 			},
 			Globs: chromiumProfileGlobs(filepath.Join(localAppData, "Microsoft", "Edge", "User Data")),
 		},
-		Item{
+		{
 			App:       "Firefox",
 			Label:     "cache + crash reports",
 			DefaultOn: true,
@@ -121,7 +116,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "Mozilla", "Firefox", "Profiles", "*default-release", "jumpListCache"),
 			},
 		},
-		Item{
+		{
 			App:       "Brave",
 			Label:     "all profiles cache",
 			DefaultOn: true,
@@ -131,24 +126,19 @@ func BuildRegistry() Registry {
 			},
 			Globs: chromiumProfileGlobs(filepath.Join(localAppData, "BraveSoftware", "Brave-Browser", "User Data")),
 		},
-		Item{
+		{
 			App:       "Opera",
 			Label:     "cache",
 			DefaultOn: true,
 			Paths:     chromiumSet(filepath.Join(localAppData, "Opera Software", "Opera Stable")),
 		},
-		Item{
+		{
 			App:       "Vivaldi",
 			Label:     "all profiles cache",
 			DefaultOn: true,
 			Globs:     chromiumProfileGlobs(filepath.Join(localAppData, "Vivaldi", "User Data")),
 		},
-	)
-
-	// --- Communication ---
-
-	items = append(items,
-		Item{
+		{
 			App:       "Discord",
 			Label:     "cache + logs",
 			DefaultOn: true,
@@ -157,7 +147,7 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "discord", "logs"),
 			),
 		},
-		Item{
+		{
 			App:       "Slack",
 			Label:     "cache + logs",
 			DefaultOn: true,
@@ -166,7 +156,7 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "Slack", "logs"),
 			),
 		},
-		Item{
+		{
 			App:       "Teams (classic)",
 			Label:     "cache + logs",
 			DefaultOn: true,
@@ -178,7 +168,7 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "Microsoft", "Teams", "logs"),
 			},
 		},
-		Item{
+		{
 			App:       "Teams (new)",
 			Label:     "local cache",
 			DefaultOn: true,
@@ -186,7 +176,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "Packages", "MSTeams_8wekyb3d8bbwe", "LocalCache", "Microsoft", "MSTeams"),
 			},
 		},
-		Item{
+		{
 			App:       "Zoom",
 			Label:     "cache + logs",
 			DefaultOn: true,
@@ -195,7 +185,7 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "Zoom", "logs"),
 			},
 		},
-		Item{
+		{
 			App:       "Telegram",
 			Label:     "cache/media/temp/dumps",
 			DefaultOn: true,
@@ -206,7 +196,7 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "Telegram Desktop", "tdata", "dumps"),
 			},
 		},
-		Item{
+		{
 			App:       "WhatsApp",
 			Label:     "cache",
 			DefaultOn: true,
@@ -214,18 +204,13 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "WhatsApp", "Cache"),
 			},
 		},
-	)
-
-	// --- Games ---
-
-	items = append(items,
-		Item{
+		{
 			App:       "Steam",
 			Label:     "HTML cache",
 			DefaultOn: true,
 			Paths:     chromiumSet(filepath.Join(localAppData, "Steam", "htmlcache")),
 		},
-		Item{
+		{
 			App:       "Battle.net",
 			Label:     "browser caches + logs",
 			DefaultOn: true,
@@ -235,7 +220,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "Battle.net", "Logs"),
 			),
 		},
-		Item{
+		{
 			App:       "Epic Games Launcher",
 			Label:     "webcache",
 			DefaultOn: true,
@@ -246,7 +231,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "EpicGamesLauncher", "Saved", "webcache_*"),
 			},
 		},
-		Item{
+		{
 			App:       "Ubisoft Connect",
 			Label:     "cache + logs",
 			DefaultOn: true,
@@ -260,7 +245,7 @@ func BuildRegistry() Registry {
 				}
 			}(),
 		},
-		Item{
+		{
 			App:       "GOG Galaxy",
 			Label:     "cache",
 			DefaultOn: true,
@@ -269,7 +254,7 @@ func BuildRegistry() Registry {
 				filepath.Join(programData, "GOG.com", "Galaxy", "webcache"),
 			},
 		},
-		Item{
+		{
 			App:       "EA/Origin",
 			Label:     "logs + anti-cheat + CEF cache",
 			DefaultOn: true,
@@ -286,7 +271,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "EALaunchHelper", "cache"),
 			),
 		},
-		Item{
+		{
 			App:       "Rockstar Games Launcher",
 			Label:     "cache + logs",
 			DefaultOn: true,
@@ -296,7 +281,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "Rockstar Games", "Launcher", "Logs"),
 			},
 		},
-		Item{
+		{
 			App:       "Battlefield 2042",
 			Label:     "cache",
 			DefaultOn: true,
@@ -304,7 +289,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "BattlefieldGameData.kin-release.Win32", "cache"),
 			},
 		},
-		Item{
+		{
 			App:       "osu! (lazer)",
 			Label:     "cache + logs",
 			DefaultOn: true,
@@ -313,12 +298,7 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "osu", "logs"),
 			},
 		},
-	)
-
-	// --- Dev Tools ---
-
-	items = append(items,
-		Item{
+		{
 			App:       "VSCode",
 			Label:     "cache + logs",
 			DefaultOn: true,
@@ -329,7 +309,7 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "Code", "logs"),
 			),
 		},
-		Item{
+		{
 			App:       "JetBrains",
 			Label:     "IDE caches",
 			DefaultOn: true,
@@ -337,7 +317,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "JetBrains", "*", "caches"),
 			},
 		},
-		Item{
+		{
 			App:       "JetBrains",
 			Label:     "IDE logs",
 			DefaultOn: false,
@@ -345,7 +325,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "JetBrains", "*", "log"),
 			},
 		},
-		Item{
+		{
 			App:       "npm",
 			Label:     "package cache",
 			DefaultOn: true,
@@ -353,7 +333,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "npm-cache"),
 			},
 		},
-		Item{
+		{
 			App:       "Yarn",
 			Label:     "package cache",
 			DefaultOn: true,
@@ -361,7 +341,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "Yarn", "Cache"),
 			},
 		},
-		Item{
+		{
 			App:       "Go modules",
 			Label:     "module download cache",
 			DefaultOn: false,
@@ -369,7 +349,7 @@ func BuildRegistry() Registry {
 				filepath.Join(userProfile, "go", "pkg", "mod", "cache"),
 			},
 		},
-		Item{
+		{
 			App:       "Cargo",
 			Label:     "registry cache",
 			DefaultOn: false,
@@ -377,7 +357,7 @@ func BuildRegistry() Registry {
 				filepath.Join(userProfile, ".cargo", "registry", "cache"),
 			},
 		},
-		Item{
+		{
 			App:       "Cargo",
 			Label:     "git cache",
 			DefaultOn: false,
@@ -385,7 +365,7 @@ func BuildRegistry() Registry {
 				filepath.Join(userProfile, ".cargo", "git", "db"),
 			},
 		},
-		Item{
+		{
 			App:       "Gradle",
 			Label:     "build cache",
 			DefaultOn: false,
@@ -393,7 +373,7 @@ func BuildRegistry() Registry {
 				filepath.Join(userProfile, ".gradle", "caches"),
 			},
 		},
-		Item{
+		{
 			App:       "Maven",
 			Label:     "local repository",
 			DefaultOn: false,
@@ -401,7 +381,7 @@ func BuildRegistry() Registry {
 				filepath.Join(userProfile, ".m2", "repository"),
 			},
 		},
-		Item{
+		{
 			App:       "NuGet",
 			Label:     "packages cache",
 			DefaultOn: true,
@@ -409,12 +389,7 @@ func BuildRegistry() Registry {
 				filepath.Join(userProfile, ".nuget", "packages"),
 			},
 		},
-	)
-
-	// --- Hardware ---
-
-	items = append(items,
-		Item{
+		{
 			App:       "NVIDIA",
 			Label:     "CEF cache + OTA + logs",
 			DefaultOn: true,
@@ -425,7 +400,7 @@ func BuildRegistry() Registry {
 				filepath.Join(programData, "NVIDIA Corporation", "NVIDIA App", "Logs"),
 			),
 		},
-		Item{
+		{
 			App:       "NVIDIA",
 			Label:     "shader cache (DX + GL)",
 			DefaultOn: false,
@@ -434,7 +409,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "NVIDIA", "GLCache"),
 			},
 		},
-		Item{
+		{
 			App:       "AMD",
 			Label:     "shader cache",
 			DefaultOn: false,
@@ -444,18 +419,13 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "AMD", "OglCache"),
 			},
 		},
-		Item{
+		{
 			App:       "Razer Synapse",
 			Label:     "cache",
 			DefaultOn: true,
 			Paths:     chromiumSet(filepath.Join(localAppData, "Razer", "RazerAppEngine", "User Data", "Default")),
 		},
-	)
-
-	// --- Creative ---
-
-	items = append(items,
-		Item{
+		{
 			App:       "Spotify",
 			Label:     "streaming cache",
 			DefaultOn: true,
@@ -471,7 +441,7 @@ func BuildRegistry() Registry {
 				chromiumSet(filepath.Join(localAppData, "Packages", "SpotifyAB.SpotifyMusic_*", "LocalCache", "Spotify"))...,
 			),
 		},
-		Item{
+		{
 			App:       "Adobe",
 			Label:     "media cache",
 			DefaultOn: false,
@@ -479,7 +449,7 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "Adobe", "Common", "Media Cache Files"),
 			},
 		},
-		Item{
+		{
 			App:       "Blender",
 			Label:     "cache",
 			DefaultOn: true,
@@ -487,7 +457,7 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "Blender Foundation", "Blender", "*", "cache"),
 			},
 		},
-		Item{
+		{
 			App:       "Figma",
 			Label:     "desktop cache",
 			DefaultOn: true,
@@ -495,24 +465,19 @@ func BuildRegistry() Registry {
 				filepath.Join(appData, "Figma", "Desktop"),
 			},
 		},
-		Item{
+		{
 			App:       "Notion",
 			Label:     "cache",
 			DefaultOn: true,
 			Paths:     electronSet(filepath.Join(appData, "Notion")),
 		},
-		Item{
+		{
 			App:       "Vortex",
 			Label:     "cache",
 			DefaultOn: true,
 			Paths:     chromiumSet(filepath.Join(appData, "Vortex")),
 		},
-	)
-
-	// --- System ---
-
-	items = append(items,
-		Item{
+		{
 			App:       "Windows",
 			Label:     "Temp folder",
 			DefaultOn: true,
@@ -520,7 +485,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "Temp"),
 			},
 		},
-		Item{
+		{
 			App:       "Windows",
 			Label:     "update download cache",
 			DefaultOn: true,
@@ -531,7 +496,7 @@ func BuildRegistry() Registry {
 				return []string{filepath.Join(systemRoot, "SoftwareDistribution", "Download")}
 			}(),
 		},
-		Item{
+		{
 			App:       "Windows",
 			Label:     "prefetch",
 			DefaultOn: false,
@@ -542,7 +507,7 @@ func BuildRegistry() Registry {
 				return []string{filepath.Join(systemRoot, "Prefetch")}
 			}(),
 		},
-		Item{
+		{
 			App:       "Windows",
 			Label:     "thumbnail + icon cache",
 			DefaultOn: true,
@@ -551,7 +516,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "Microsoft", "Windows", "Explorer", "iconcache*"),
 			},
 		},
-		Item{
+		{
 			App:       "Windows Error Reporting",
 			Label:     "report archives",
 			DefaultOn: true,
@@ -560,7 +525,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "Microsoft", "Windows", "WER", "ReportQueue"),
 			},
 		},
-		Item{
+		{
 			App:       "Crash dumps",
 			Label:     "local crash dumps",
 			DefaultOn: true,
@@ -568,7 +533,7 @@ func BuildRegistry() Registry {
 				filepath.Join(localAppData, "CrashDumps"),
 			},
 		},
-		Item{
+		{
 			App:       "Misc",
 			Label:     "misc caches",
 			DefaultOn: true,
@@ -580,7 +545,7 @@ func BuildRegistry() Registry {
 				filepath.Join(userProfile, "ansel"),
 			},
 		},
-	)
+	}
 
 	return Registry{Items: items}
 }
@@ -593,41 +558,6 @@ func (r Registry) Apps() []string {
 			seen[it.App] = struct{}{}
 			out = append(out, it.App)
 		}
-	}
-	return out
-}
-
-func (r Registry) FilterInclude(apps []string) Registry {
-	if len(apps) == 0 {
-		return r
-	}
-	allow := make(map[string]struct{}, len(apps))
-	for _, a := range apps {
-		allow[strings.ToLower(strings.TrimSpace(a))] = struct{}{}
-	}
-	var out Registry
-	for _, it := range r.Items {
-		if _, ok := allow[strings.ToLower(it.App)]; ok {
-			out.Items = append(out.Items, it)
-		}
-	}
-	return out
-}
-
-func (r Registry) FilterExclude(apps []string) Registry {
-	if len(apps) == 0 {
-		return r
-	}
-	block := make(map[string]struct{}, len(apps))
-	for _, a := range apps {
-		block[strings.ToLower(strings.TrimSpace(a))] = struct{}{}
-	}
-	var out Registry
-	for _, it := range r.Items {
-		if _, ok := block[strings.ToLower(it.App)]; ok {
-			continue
-		}
-		out.Items = append(out.Items, it)
 	}
 	return out
 }

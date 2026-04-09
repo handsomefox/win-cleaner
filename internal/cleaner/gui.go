@@ -1,3 +1,5 @@
+// Package cleaner implements the scanning, planning, execution, and GUI
+// for the win-cleaner Windows cache-cleaning tool.
 package cleaner
 
 import (
@@ -140,28 +142,24 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 
 			// Build item rows first so the app header checkbox can reference them
 			itemChecks := make([]*widget.Check, len(visible))
-			itemRows := make([]fyne.CanvasObject, len(visible))
+			itemRows := make([]fyne.CanvasObject, 0, len(visible))
 			for i, g := range visible {
 				grp := g
-				idx := i
 				sizeText := HumanBytes(grp.Bytes)
 				if grp.Bytes == 0 {
-					sizeText = "—"
+					sizeText = "-"
 				}
 				chk := widget.NewCheck("", nil)
 				chk.Checked = grp.On
-				itemChecks[idx] = chk
+				itemChecks[i] = chk
 
-				labelObj := widget.NewLabel(grp.Label)
-				sizeObj := widget.NewLabelWithStyle(sizeText, fyne.TextAlignTrailing, fyne.TextStyle{})
-
-				itemRows[idx] = container.NewHBox(
+				itemRows = append(itemRows, container.NewHBox(
 					widget.NewLabel("    "), // indent
 					chk,
-					labelObj,
+					widget.NewLabel(grp.Label),
 					layout.NewSpacer(),
-					sizeObj,
-				)
+					widget.NewLabelWithStyle(sizeText, fyne.TextAlignTrailing, fyne.TextStyle{}),
+				))
 			}
 
 			// App header checkbox — toggles all visible items in this group
@@ -216,9 +214,11 @@ func showSelect(plan *Plan, opts Options, a fyne.App, w fyne.Window, title, subt
 			appSizeLabel := widget.NewLabelWithStyle(appSizeText, fyne.TextAlignTrailing, fyne.TextStyle{})
 			headerRow := container.NewHBox(appCheck, appNameLabel, layout.NewSpacer(), appSizeLabel)
 
-			section := container.NewVBox(
-				append([]fyne.CanvasObject{headerRow}, append(itemRows, widget.NewSeparator())...)...,
-			)
+			sectionContent := make([]fyne.CanvasObject, 0, len(itemRows)+2)
+			sectionContent = append(sectionContent, headerRow)
+			sectionContent = append(sectionContent, itemRows...)
+			sectionContent = append(sectionContent, widget.NewSeparator())
+			section := container.NewVBox(sectionContent...)
 			sections = append(sections, section)
 		}
 
@@ -412,10 +412,7 @@ func buildErrorSummary(result *ExecResult) (summary, details string) {
 		}
 		detailBuilder.WriteString("\n")
 	}
-	limit := 3
-	if len(groupNames) < limit {
-		limit = len(groupNames)
-	}
+	limit := min(3, len(groupNames))
 	summary = fmt.Sprintf("Errors in %d group(s).", len(groupNames))
 	if limit > 0 {
 		summary = fmt.Sprintf("Errors in %d group(s): %s", len(groupNames), strings.Join(groupNames[:limit], ", "))
@@ -607,8 +604,8 @@ func statsSummaryText(results []ExecResult, skipped int) string {
 	}
 	return strings.Join([]string{
 		runs,
-		fmt.Sprintf("Total estimated cleaned: %s", HumanBytes(totalAll)),
-		fmt.Sprintf("Last 7 days: %s", HumanBytes(total7)),
-		fmt.Sprintf("Last 30 days: %s", HumanBytes(total30)),
+		"Total estimated cleaned: " + HumanBytes(totalAll),
+		"Last 7 days: " + HumanBytes(total7),
+		"Last 30 days: " + HumanBytes(total30),
 	}, "\n")
 }

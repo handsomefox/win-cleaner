@@ -20,8 +20,7 @@ type Options struct {
 }
 
 type Plan struct {
-	Groups []Group // one per Item
-	// Totals
+	Groups     []Group
 	TotalBytes uint64
 	Selected   int
 }
@@ -33,6 +32,38 @@ type Group struct {
 	On    bool     // selected for deletion
 	Bytes uint64   // estimated reclaimable bytes
 	Errs  []error
+}
+
+// AppGroup is used by the GUI to render the 2-level grouped list.
+// Items are pointers into the Plan so toggling On is reflected immediately.
+type AppGroup struct {
+	App   string
+	Items []*Group
+	Bytes uint64 // sum of all items
+}
+
+// ByApp groups Plan.Groups by App name, sorted alphabetically.
+func (p *Plan) ByApp() []AppGroup {
+	order := make([]string, 0)
+	byName := make(map[string][]*Group)
+	for i := range p.Groups {
+		g := &p.Groups[i]
+		if _, seen := byName[g.App]; !seen {
+			order = append(order, g.App)
+		}
+		byName[g.App] = append(byName[g.App], g)
+	}
+	sort.Strings(order)
+	out := make([]AppGroup, 0, len(order))
+	for _, app := range order {
+		grps := byName[app]
+		var total uint64
+		for _, g := range grps {
+			total += g.Bytes
+		}
+		out = append(out, AppGroup{App: app, Items: grps, Bytes: total})
+	}
+	return out
 }
 
 type ProgressUpdate struct {
@@ -107,7 +138,6 @@ func buildPlan(reg Registry, cb func(ProgressUpdate)) (Plan, error) {
 			}
 			b, err := dirSize(p)
 			if err != nil {
-				// Ignore not-exist to reduce noise
 				if !os.IsNotExist(err) {
 					errs = append(errs, fmt.Errorf("%s: %w", p, err))
 				}
@@ -151,91 +181,7 @@ func buildPlan(reg Registry, cb func(ProgressUpdate)) (Plan, error) {
 		}
 	}
 
-	return Plan{
-		Groups:     groups,
-		TotalBytes: total,
-		Selected:   selected,
-	}, nil
-}
-
-func InteractiveSelect(plan *Plan) error {
-	if plan == nil {
-		return errors.New("nil plan")
-	}
-	fmt.Println("Interactive selection:")
-	for {
-		printSelection(plan)
-		fmt.Println("Commands:")
-		fmt.Println("- toggle <number>   Toggle a group on/off")
-		fmt.Println("- all on            Select all")
-		fmt.Println("- all off           Deselect all")
-		fmt.Println("- done              Finish selection")
-		fmt.Print("> ")
-
-		var cmd string
-		if _, err := fmt.Scan(&cmd); err != nil {
-			return err
-		}
-		cmd = strings.ToLower(strings.TrimSpace(cmd))
-		switch cmd {
-		case "toggle":
-			var idx int
-			if _, err := fmt.Scan(&idx); err != nil {
-				fmt.Println("Please provide a group number after 'toggle'.")
-				continue
-			}
-			if idx < 1 || idx > len(plan.Groups) {
-				fmt.Println("Invalid group number.")
-				continue
-			}
-			plan.Groups[idx-1].On = !plan.Groups[idx-1].On
-		case "all":
-			var arg string
-			if _, err := fmt.Scan(&arg); err != nil {
-				fmt.Println("Use 'all on' or 'all off'.")
-				continue
-			}
-			switch strings.ToLower(strings.TrimSpace(arg)) {
-			case "on":
-				for i := range plan.Groups {
-					plan.Groups[i].On = true
-				}
-			case "off":
-				for i := range plan.Groups {
-					plan.Groups[i].On = false
-				}
-			default:
-				fmt.Println("Use 'all on' or 'all off'.")
-			}
-		case "done":
-			recomputeTotals(plan)
-			return nil
-		default:
-			fmt.Println("Unknown command.")
-		}
-		recomputeTotals(plan)
-	}
-}
-
-func printSelection(plan *Plan) {
-	fmt.Println("------------------------------------------------------------")
-	// Compact interactive table with row numbers:
-	// [x]  #  App  Label  Size
-	w := tabwriter.NewWriter(os.Stdout, 2, 4, 1, ' ', 0)
-	gs := plan.Groups
-	for i, g := range gs {
-		sel := " "
-		if g.On {
-			sel = "x"
-		}
-		fmt.Fprintf(w, "[%s]\t%2d\t%s\t%s\t%s\n",
-			sel, i+1, g.App, g.Label, HumanBytes(g.Bytes))
-	}
-	_ = w.Flush()
-	fmt.Println("------------------------------------------------------------")
-	recomputeTotals(plan)
-	fmt.Printf("Selected groups: %d, Estimated savings: %s\n",
-		plan.Selected, HumanBytes(plan.TotalBytes))
+	return Plan{Groups: groups, TotalBytes: total, Selected: selected}, nil
 }
 
 func ConfirmProceed(plan Plan, opts Options) (bool, error) {
@@ -254,27 +200,15 @@ func ConfirmProceed(plan Plan, opts Options) (bool, error) {
 
 func ReportPlan(plan Plan) string {
 	var b strings.Builder
-	fmt.Fprintln(&b, "Scan results (dry-run by default):")
+	fmt.Fprintln(&b, "Scan results:")
 
-	// Single compact table: [x]  App  Label  Size
 	w := tabwriter.NewWriter(&b, 2, 4, 1, ' ', 0)
-
-	// Sort by App then Label for stable viewing
-	gs := append([]Group(nil), plan.Groups...)
-	sort.SliceStable(gs, func(i, j int) bool {
-		if gs[i].App == gs[j].App {
-			return gs[i].Label < gs[j].Label
-		}
-		return gs[i].App < gs[j].App
-	})
-
-	for _, g := range gs {
+	for _, g := range plan.Groups {
 		flag := " "
 		if g.On {
 			flag = "x"
 		}
-		fmt.Fprintf(w, "[%s]\t%s\t%s\t%s\n",
-			flag, g.App, g.Label, HumanBytes(g.Bytes))
+		fmt.Fprintf(w, "[%s]\t%s\t%s\t%s\n", flag, g.App, g.Label, HumanBytes(g.Bytes))
 	}
 	_ = w.Flush()
 
@@ -284,11 +218,6 @@ func ReportPlan(plan Plan) string {
 
 func Execute(plan Plan, opts Options) error {
 	_, err := executeWithResult(plan, opts, nil)
-	return err
-}
-
-func ExecuteWithProgress(plan Plan, opts Options, cb func(ProgressUpdate)) error {
-	_, err := executeWithResult(plan, opts, cb)
 	return err
 }
 
@@ -303,6 +232,7 @@ func executeWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecRe
 		finishExecResult(&result)
 		return result, nil
 	}
+
 	var anyErr error
 	total := 0
 	for _, g := range plan.Groups {
@@ -340,7 +270,6 @@ func executeWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecRe
 				continue
 			}
 			if _, err := os.Lstat(p); err != nil {
-				// Skip silently if path no longer exists
 				continue
 			}
 			groupResult.PathsAttempted++
@@ -391,8 +320,8 @@ func uniqueStrings(in []string) []string {
 	return out
 }
 
-// dirSize calculates total size. If the path doesn't exist, it returns (0, nil)
-// to avoid noisy "not found" notes. It skips symlinks/reparse points.
+// dirSize returns the total byte size of a path. Returns (0, nil) for
+// non-existent paths to avoid noisy errors. Skips symlinks/reparse points.
 func dirSize(p string) (uint64, error) {
 	info, err := os.Lstat(p)
 	if err != nil {
@@ -409,10 +338,8 @@ func dirSize(p string) (uint64, error) {
 	var mu sync.Mutex
 	err = filepath.WalkDir(p, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			// Permission or path issues; continue
 			return nil
 		}
-		// Skip symlinks/reparse points
 		if d.Type()&os.ModeSymlink != 0 {
 			if d.IsDir() {
 				return filepath.SkipDir
@@ -432,8 +359,8 @@ func dirSize(p string) (uint64, error) {
 	return total, err
 }
 
-// Conservative guard: allow under LOCALAPPDATA, APPDATA, PROGRAMDATA, and USERPROFILE,
-// but never allow the root of those trees themselves.
+// isSafePath guards against deleting anything outside the four known safe roots,
+// or the roots themselves.
 func isSafePath(p string) bool {
 	p = filepath.Clean(strings.ToLower(p))
 	roots := []string{
@@ -444,11 +371,8 @@ func isSafePath(p string) bool {
 	}
 	for _, r := range roots {
 		r = filepath.Clean(r)
-		if r == "" {
+		if r == "" || p == r {
 			continue
-		}
-		if p == r {
-			return false
 		}
 		if strings.HasPrefix(p, r+string(filepath.Separator)) {
 			return true

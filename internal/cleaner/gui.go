@@ -468,7 +468,9 @@ func showResults(result *ExecResult, execErr error, a fyne.App, w fyne.Window, s
 		widget.NewLabelWithStyle("Est. size", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Status", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 	)
-	rows := []fyne.CanvasObject{tableHeader, widget.NewSeparator()}
+	rows := make([]fyne.CanvasObject, 2, 2+len(result.Groups))
+	rows[0] = tableHeader
+	rows[1] = widget.NewSeparator()
 	for i := range result.Groups {
 		g := &result.Groups[i]
 		statusText := "ok"

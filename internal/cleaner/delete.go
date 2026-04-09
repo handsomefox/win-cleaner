@@ -70,10 +70,7 @@ func DeletePathSmart(path string) error {
 
 	// Batch children to Recycle Bin in chunks
 	for i := 0; i < len(children); i += chunkSize {
-		j := i + chunkSize
-		if j > len(children) {
-			j = len(children)
-		}
+		j := min(i+chunkSize, len(children))
 		if err := trash.MoveToRecycleBin(children[i:j]); err != nil {
 			// Bulk move failed; attempt per-item to salvage progress
 			for _, c := range children[i:j] {

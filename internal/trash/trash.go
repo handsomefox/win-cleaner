@@ -4,6 +4,10 @@
 // This file is the non-Windows stub.
 package trash
 
+import "errors"
+
+var ErrUnsupportedPlatform = errors.New("recycle bin is only supported on Windows")
+
 func MoveToRecycleBin(paths []string) error {
-	panic("unimplemented")
+	return ErrUnsupportedPlatform
 }

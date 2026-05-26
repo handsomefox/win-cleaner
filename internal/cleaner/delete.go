@@ -1,7 +1,7 @@
 package cleaner
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -51,7 +51,6 @@ func DeletePathSmart(path string) error {
 		}
 		// Enumeration failed (permission issues); try the folder itself anyway.
 		if e := recycleOne(clean); e != nil {
-			fmt.Printf("  Could not recycle folder %s (%v).\n", clean, e)
 			return e
 		}
 		return nil
@@ -73,17 +72,20 @@ func DeletePathSmart(path string) error {
 		j := min(i+chunkSize, len(children))
 		if err := trash.MoveToRecycleBin(children[i:j]); err != nil {
 			// Bulk move failed; attempt per-item to salvage progress
+			var itemErrs []error
 			for _, c := range children[i:j] {
 				if e := recycleOne(c); e != nil {
-					fmt.Printf("  Recycle Bin move failed for %s (%v). Skipping.\n", c, e)
+					itemErrs = append(itemErrs, e)
 				}
+			}
+			if len(itemErrs) > 0 {
+				return errors.Join(itemErrs...)
 			}
 		}
 	}
 
 	// Recycle the (now hopefully empty) directory itself
 	if err := recycleOne(clean); err != nil {
-		fmt.Printf("  Could not recycle folder %s (%v). Leaving folder.\n", clean, err)
 		return err
 	}
 

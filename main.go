@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"win-clear/internal/cleaner"
+	"win-clear/internal/gui"
 )
 
 func main() {
@@ -16,7 +17,7 @@ func main() {
 	}
 
 	reg := cleaner.BuildRegistry()
-	if err := cleaner.RunGUI(reg, opts); err != nil {
+	if err := gui.Run(reg, opts); err != nil {
 		if errors.Is(err, cleaner.ErrCancelled) {
 			fmt.Println("Cancelled.")
 			return

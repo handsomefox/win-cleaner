@@ -1,14 +1,18 @@
 package cleaner
 
 import (
+	"context"
 	"errors"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+)
+
+const (
+	defaultEmptyScanMaxErrors     = 100
+	defaultEmptyScanMaxCandidates = 10000
 )
 
 type EmptyFolderRoot struct {
@@ -18,12 +22,16 @@ type EmptyFolderRoot struct {
 }
 
 type EmptyFolderPlan struct {
-	Roots      []EmptyFolderRoot
-	Folders    []EmptyFolderCandidate
-	Errs       []PathError
-	Selected   int
-	StartedAt  time.Time
-	FinishedAt time.Time
+	Roots             []EmptyFolderRoot
+	Folders           []EmptyFolderCandidate
+	Errs              []PathError
+	Selected          int
+	VisitedDirs       int
+	Cancelled         bool
+	ErrorLimitHit     bool
+	CandidateLimitHit bool
+	StartedAt         time.Time
+	FinishedAt        time.Time
 }
 
 type EmptyFolderCandidate struct {
@@ -41,11 +49,32 @@ type EmptyFolderResult struct {
 	Errors        []PathError
 }
 
-type emptyScanState struct {
-	empty    bool
-	blocked  bool
-	errs     []PathError
-	children []string
+type EmptyFolderScanOptions struct {
+	MaxErrors     int
+	MaxCandidates int
+}
+
+type emptyScanResult struct {
+	Candidates        []string
+	Errs              []PathError
+	VisitedDirs       int
+	Cancelled         bool
+	ErrorLimitHit     bool
+	CandidateLimitHit bool
+}
+
+type emptySubtreeResult struct {
+	empty      bool
+	candidates []string
+}
+
+type emptyScanCollector struct {
+	opts              EmptyFolderScanOptions
+	errs              []PathError
+	visitedDirs       int
+	cancelled         bool
+	errorLimitHit     bool
+	candidateLimitHit bool
 }
 
 func DefaultEmptyFolderRoots() []EmptyFolderRoot {
@@ -102,8 +131,11 @@ func profileAppConfigRoots(userProfile string) []EmptyFolderRoot {
 	return roots
 }
 
-func BuildEmptyFolderPlan(roots []EmptyFolderRoot, cb func(ProgressUpdate)) EmptyFolderPlan {
+func BuildEmptyFolderPlanWithCancel(roots []EmptyFolderRoot, shouldCancel func() bool, cb func(ProgressUpdate)) EmptyFolderPlan {
 	started := time.Now()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	selectedRoots := make([]EmptyFolderRoot, 0, len(roots))
 	for _, root := range roots {
 		root.Path = filepath.Clean(root.Path)
@@ -111,26 +143,64 @@ func BuildEmptyFolderPlan(roots []EmptyFolderRoot, cb func(ProgressUpdate)) Empt
 			selectedRoots = append(selectedRoots, root)
 		}
 	}
+	selectedRoots = dedupeEnabledEmptyRoots(selectedRoots)
 
 	var folders []EmptyFolderCandidate
 	var errs []PathError
+	var visitedDirs int
+	var cancelled bool
+	var errorLimitHit bool
+	var candidateLimitHit bool
 	for i, root := range selectedRoots {
+		if shouldCancel != nil && shouldCancel() {
+			cancel()
+		}
+		if ctx.Err() != nil {
+			cancelled = true
+			break
+		}
 		if cb != nil {
 			cb(ProgressUpdate{
 				Phase:   "empty-scan",
 				Current: i + 1,
 				Total:   len(selectedRoots),
 				Message: root.Label,
+				Visited: visitedDirs,
 			})
 		}
 		if !isSafeEmptyRoot(root.Path) {
 			errs = append(errs, PathError{Path: root.Path, Error: "unsafe root"})
 			continue
 		}
-		found, rootErrs := scanEmptyFolders(root.Path)
-		errs = append(errs, rootErrs...)
-		for _, path := range found {
+		result := scanEmptyFoldersWithOptions(ctx, root.Path, EmptyFolderScanOptions{
+			MaxErrors:     defaultEmptyScanMaxErrors,
+			MaxCandidates: defaultEmptyScanMaxCandidates,
+		}, func(visited int) {
+			if shouldCancel != nil && shouldCancel() {
+				cancel()
+				return
+			}
+			if cb == nil {
+				return
+			}
+			cb(ProgressUpdate{
+				Phase:   "empty-scan",
+				Current: i + 1,
+				Total:   len(selectedRoots),
+				Message: root.Label,
+				Visited: visitedDirs + visited,
+			})
+		})
+		visitedDirs += result.VisitedDirs
+		errs = append(errs, result.Errs...)
+		cancelled = cancelled || result.Cancelled
+		errorLimitHit = errorLimitHit || result.ErrorLimitHit
+		candidateLimitHit = candidateLimitHit || result.CandidateLimitHit
+		for _, path := range result.Candidates {
 			folders = append(folders, EmptyFolderCandidate{Path: path, On: true})
+		}
+		if result.Cancelled {
+			break
 		}
 	}
 
@@ -140,110 +210,92 @@ func BuildEmptyFolderPlan(roots []EmptyFolderRoot, cb func(ProgressUpdate)) Empt
 	})
 
 	return EmptyFolderPlan{
-		Roots:      roots,
-		Folders:    folders,
-		Errs:       errs,
-		Selected:   len(folders),
-		StartedAt:  started,
-		FinishedAt: time.Now(),
+		Roots:             roots,
+		Folders:           folders,
+		Errs:              errs,
+		Selected:          len(folders),
+		VisitedDirs:       visitedDirs,
+		Cancelled:         cancelled,
+		ErrorLimitHit:     errorLimitHit,
+		CandidateLimitHit: candidateLimitHit,
+		StartedAt:         started,
+		FinishedAt:        time.Now(),
 	}
 }
 
-func scanEmptyFolders(root string) ([]string, []PathError) {
+func scanEmptyFoldersWithOptions(ctx context.Context, root string, opts EmptyFolderScanOptions, progress func(int)) emptyScanResult {
+	opts = normalizeEmptyScanOptions(opts)
 	root = filepath.Clean(root)
 	info, err := os.Lstat(root)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return emptyScanResult{}
 		}
-		return nil, []PathError{{Path: root, Error: err.Error()}}
+		return emptyScanResult{Errs: []PathError{{Path: root, Error: err.Error()}}}
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, nil
+		return emptyScanResult{}
 	}
 
-	states := make(map[string]*emptyScanState)
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		clean := filepath.Clean(path)
-		if walkErr != nil {
-			state := ensureEmptyState(states, clean)
-			state.blocked = true
-			state.errs = append(state.errs, PathError{Path: clean, Error: walkErr.Error()})
-			if d != nil && d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		state := ensureEmptyState(states, clean)
-		if d.Type()&os.ModeSymlink != 0 {
-			state.blocked = true
-			parent := filepath.Dir(clean)
-			ensureEmptyState(states, parent).children = append(ensureEmptyState(states, parent).children, clean)
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.IsDir() {
-			state.empty = false
-			parent := filepath.Dir(clean)
-			ensureEmptyState(states, parent).children = append(ensureEmptyState(states, parent).children, clean)
-			return nil
-		}
-		state.empty = true
-		if clean != root {
-			parent := filepath.Dir(clean)
-			ensureEmptyState(states, parent).children = append(ensureEmptyState(states, parent).children, clean)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, []PathError{{Path: root, Error: err.Error()}}
-	}
-
-	paths := make([]string, 0, len(states))
-	for path := range states {
-		paths = append(paths, path)
-	}
-	sort.SliceStable(paths, func(i, j int) bool {
-		return len(paths[i]) > len(paths[j])
-	})
-
-	var errs []PathError
-	for _, path := range paths {
-		state := states[path]
-		for _, child := range state.children {
-			childState := states[child]
-			if childState == nil || !childState.empty || childState.blocked {
-				state.empty = false
-			}
-		}
-		if state.blocked {
-			state.empty = false
-		}
-		errs = append(errs, state.errs...)
-	}
-
-	candidates := make([]string, 0)
-	for _, path := range paths {
-		if path == root {
-			continue
-		}
-		state := states[path]
-		if state == nil || !state.empty || state.blocked {
-			continue
-		}
-		parent := states[filepath.Dir(path)]
-		if parent != nil && parent.empty && !parent.blocked && filepath.Dir(path) != root {
-			continue
-		}
-		candidates = append(candidates, path)
-	}
+	collector := &emptyScanCollector{opts: opts}
+	subtree := scanEmptySubtree(ctx, root, root, collector, progress)
+	candidates := collector.limitCandidates(subtree.candidates)
 
 	sort.SliceStable(candidates, func(i, j int) bool {
 		return strings.ToLower(candidates[i]) < strings.ToLower(candidates[j])
 	})
-	return candidates, errs
+	return emptyScanResult{
+		Candidates:        candidates,
+		Errs:              collector.errs,
+		VisitedDirs:       collector.visitedDirs,
+		Cancelled:         collector.cancelled,
+		ErrorLimitHit:     collector.errorLimitHit,
+		CandidateLimitHit: collector.candidateLimitHit,
+	}
+}
+
+func scanEmptySubtree(ctx context.Context, path, root string, collector *emptyScanCollector, progress func(int)) emptySubtreeResult {
+	if ctx.Err() != nil {
+		collector.cancelled = true
+		return emptySubtreeResult{}
+	}
+
+	entries, err := os.ReadDir(path)
+	collector.visitedDirs++
+	if progress != nil {
+		progress(collector.visitedDirs)
+	}
+	if err != nil {
+		collector.addError(path, err)
+		return emptySubtreeResult{}
+	}
+
+	empty := true
+	candidates := make([]string, 0)
+	for _, entry := range entries {
+		child := filepath.Join(path, entry.Name())
+		if entry.Type()&os.ModeSymlink != 0 {
+			empty = false
+			continue
+		}
+		if !entry.IsDir() {
+			empty = false
+			continue
+		}
+
+		childResult := scanEmptySubtree(ctx, child, root, collector, progress)
+		if collector.cancelled {
+			return emptySubtreeResult{candidates: collector.limitCandidates(candidates)}
+		}
+		if !childResult.empty {
+			empty = false
+		}
+		candidates = append(candidates, childResult.candidates...)
+	}
+	if empty && path != root {
+		return emptySubtreeResult{empty: true, candidates: []string{path}}
+	}
+	return emptySubtreeResult{empty: empty, candidates: collector.limitCandidates(candidates)}
 }
 
 func ExecuteEmptyFolderPlan(plan *EmptyFolderPlan, cb func(ProgressUpdate)) EmptyFolderResult {
@@ -306,31 +358,12 @@ func isRecursivelyEmptyDir(path string) (bool, error) {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return false, nil
 	}
-
-	empty := true
-	err = filepath.WalkDir(path, func(current string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			empty = false
-			if d != nil && d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if current == path {
-			return nil
-		}
-		if d.Type()&os.ModeSymlink != 0 || !d.IsDir() {
-			empty = false
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return false, err
+	collector := &emptyScanCollector{opts: normalizeEmptyScanOptions(EmptyFolderScanOptions{MaxErrors: 1})}
+	result := scanEmptySubtree(context.Background(), path, path, collector, nil)
+	if len(collector.errs) > 0 {
+		return false, errors.New(collector.errs[0].Error)
 	}
-	return empty, nil
+	return result.empty, nil
 }
 
 func countSelectedEmptyFolders(plan *EmptyFolderPlan) int {
@@ -341,16 +374,6 @@ func countSelectedEmptyFolders(plan *EmptyFolderPlan) int {
 		}
 	}
 	return selected
-}
-
-func ensureEmptyState(states map[string]*emptyScanState, path string) *emptyScanState {
-	path = filepath.Clean(path)
-	state := states[path]
-	if state == nil {
-		state = &emptyScanState{empty: true}
-		states[path] = state
-	}
-	return state
 }
 
 func isSafeEmptyRoot(path string) bool {
@@ -365,22 +388,14 @@ func isSafeEmptyRoot(path string) bool {
 }
 
 func isSafeEmptyCandidate(path string, roots []EmptyFolderRoot) bool {
-	path = filepath.Clean(path)
-	lowPath := strings.ToLower(path)
+	rootPaths := make([]string, 0, len(roots))
 	for _, root := range roots {
 		if !root.On || root.Path == "" {
 			continue
 		}
-		rootPath := filepath.Clean(root.Path)
-		lowRoot := strings.ToLower(rootPath)
-		if lowPath == lowRoot {
-			return false
-		}
-		if strings.HasPrefix(lowPath, lowRoot+string(filepath.Separator)) {
-			return true
-		}
+		rootPaths = append(rootPaths, root.Path)
 	}
-	return false
+	return isPathUnderAnyRoot(path, rootPaths)
 }
 
 func uniqueEmptyRoots(in []EmptyFolderRoot) []EmptyFolderRoot {
@@ -416,7 +431,77 @@ func uniqueEmptyCandidates(in []EmptyFolderCandidate) []EmptyFolderCandidate {
 	return out
 }
 
-func selectedEmptySummary(plan *EmptyFolderPlan) string {
-	selected := countSelectedEmptyFolders(plan)
-	return fmt.Sprintf("%d folders selected", selected)
+func normalizeEmptyScanOptions(opts EmptyFolderScanOptions) EmptyFolderScanOptions {
+	if opts.MaxErrors <= 0 {
+		opts.MaxErrors = defaultEmptyScanMaxErrors
+	}
+	if opts.MaxCandidates <= 0 {
+		opts.MaxCandidates = defaultEmptyScanMaxCandidates
+	}
+	return opts
+}
+
+func (collector *emptyScanCollector) addError(path string, err error) {
+	if len(collector.errs) >= collector.opts.MaxErrors {
+		collector.errorLimitHit = true
+		return
+	}
+	collector.errs = append(collector.errs, PathError{Path: filepath.Clean(path), Error: err.Error()})
+}
+
+func (collector *emptyScanCollector) limitCandidates(candidates []string) []string {
+	if len(candidates) <= collector.opts.MaxCandidates {
+		return candidates
+	}
+	collector.candidateLimitHit = true
+	return candidates[:collector.opts.MaxCandidates]
+}
+
+func dedupeEnabledEmptyRoots(in []EmptyFolderRoot) []EmptyFolderRoot {
+	roots := uniqueEmptyRoots(in)
+	sort.SliceStable(roots, func(i, j int) bool {
+		return len(roots[i].Path) < len(roots[j].Path)
+	})
+	out := make([]EmptyFolderRoot, 0, len(roots))
+	for _, root := range roots {
+		covered := false
+		for _, parent := range out {
+			if isPathUnderRoot(root.Path, parent.Path) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, root)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path)
+	})
+	return out
+}
+
+func isPathUnderAnyRoot(path string, roots []string) bool {
+	for _, root := range roots {
+		if isPathUnderRoot(path, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func isPathUnderRoot(path, root string) bool {
+	if path == "" || root == "" {
+		return false
+	}
+	pathKey := normalizedPathKey(path)
+	rootKey := normalizedPathKey(root)
+	if pathKey == rootKey {
+		return false
+	}
+	return strings.HasPrefix(pathKey, rootKey+string(filepath.Separator))
+}
+
+func normalizedPathKey(path string) string {
+	return strings.ToLower(filepath.Clean(path))
 }

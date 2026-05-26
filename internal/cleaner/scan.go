@@ -69,6 +69,7 @@ type ProgressUpdate struct {
 	Message string
 	Current int
 	Total   int
+	Visited int
 }
 
 type PathError struct {
@@ -185,7 +186,6 @@ func ExecuteWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecRe
 func executeWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecResult, error) {
 	result := NewExecResult(plan, opts)
 	if plan.Selected == 0 {
-		fmt.Println("Nothing selected. No deletions performed.")
 		finishExecResult(&result)
 		return result, nil
 	}
@@ -211,7 +211,6 @@ func executeWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecRe
 				Message: fmt.Sprintf("%s - %s", g.App, g.Label),
 			})
 		}
-		fmt.Printf("Deleting: %s | %s\n", g.App, g.Label)
 		groupResult := GroupResult{
 			App:   g.App,
 			Label: g.Label,
@@ -219,7 +218,6 @@ func executeWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecRe
 		}
 		for _, p := range g.Paths {
 			if !isSafePath(p) {
-				fmt.Printf("  Skipping unsafe path (guard): %s\n", p)
 				groupResult.Errors = append(groupResult.Errors, PathError{
 					Path:  p,
 					Error: "unsafe path (guard)",
@@ -231,7 +229,6 @@ func executeWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecRe
 			}
 			groupResult.PathsAttempted++
 			if err := DeletePathSmart(p); err != nil {
-				fmt.Printf("  Recycle Bin move failed (%v)\n", err)
 				groupResult.PathsFailed++
 				groupResult.Errors = append(groupResult.Errors, PathError{
 					Path:  p,
@@ -247,19 +244,6 @@ func executeWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecRe
 	}
 	finishExecResult(&result)
 	return result, anyErr
-}
-
-func recomputeTotals(plan *Plan) {
-	var total uint64
-	var selected int
-	for _, g := range plan.Groups {
-		if g.On {
-			selected++
-			total += g.Bytes
-		}
-	}
-	plan.TotalBytes = total
-	plan.Selected = selected
 }
 
 func uniqueStrings(in []string) []string {
@@ -316,21 +300,11 @@ func dirSize(p string) (uint64, error) {
 // isSafePath guards against deleting anything outside the four known safe roots,
 // or the roots themselves.
 func isSafePath(p string) bool {
-	p = filepath.Clean(strings.ToLower(p))
 	roots := []string{
-		strings.ToLower(os.Getenv("LOCALAPPDATA")),
-		strings.ToLower(os.Getenv("APPDATA")),
-		strings.ToLower(os.Getenv("PROGRAMDATA")),
-		strings.ToLower(os.Getenv("USERPROFILE")),
+		os.Getenv("LOCALAPPDATA"),
+		os.Getenv("APPDATA"),
+		os.Getenv("PROGRAMDATA"),
+		os.Getenv("USERPROFILE"),
 	}
-	for _, r := range roots {
-		r = filepath.Clean(r)
-		if r == "" || p == r {
-			continue
-		}
-		if strings.HasPrefix(p, r+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
+	return isPathUnderAnyRoot(p, roots)
 }

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadStatsEmpty(t *testing.T) {
@@ -12,15 +14,9 @@ func TestLoadStatsEmpty(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	results, skipped, err := LoadStats()
-	if err != nil {
-		t.Fatalf("LoadStats returned error: %v", err)
-	}
-	if len(results) != 0 {
-		t.Fatalf("expected no results, got %d", len(results))
-	}
-	if skipped != 0 {
-		t.Fatalf("expected no skipped files, got %d", skipped)
-	}
+	require.NoError(t, err)
+	require.Empty(t, results)
+	require.Zero(t, skipped)
 }
 
 func TestWriteAndLoadStats(t *testing.T) {
@@ -38,32 +34,17 @@ func TestWriteAndLoadStats(t *testing.T) {
 	}
 
 	path, err := WriteStats(&res)
-	if err != nil {
-		t.Fatalf("WriteStats returned error: %v", err)
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("expected stats file to exist: %v", err)
-	}
+	require.NoError(t, err)
+	_, err = os.Stat(path)
+	require.NoError(t, err)
 
 	results, skipped, err := LoadStats()
-	if err != nil {
-		t.Fatalf("LoadStats returned error: %v", err)
-	}
-	if skipped != 0 {
-		t.Fatalf("expected no skipped files, got %d", skipped)
-	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-	if results[0].SchemaVersion != statsSchemaVersion {
-		t.Fatalf("expected schema version %d, got %d", statsSchemaVersion, results[0].SchemaVersion)
-	}
-	if results[0].TotalSelected != res.TotalSelected {
-		t.Fatalf("expected total selected %d, got %d", res.TotalSelected, results[0].TotalSelected)
-	}
-	if results[0].TotalBytes != res.TotalBytes {
-		t.Fatalf("expected total bytes %d, got %d", res.TotalBytes, results[0].TotalBytes)
-	}
+	require.NoError(t, err)
+	require.Zero(t, skipped)
+	require.Len(t, results, 1)
+	require.Equal(t, statsSchemaVersion, results[0].SchemaVersion)
+	require.Equal(t, res.TotalSelected, results[0].TotalSelected)
+	require.Equal(t, res.TotalBytes, results[0].TotalBytes)
 }
 
 func TestLoadStatsSkipsInvalidFiles(t *testing.T) {
@@ -71,25 +52,13 @@ func TestLoadStatsSkipsInvalidFiles(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	statsDir, err := statsDirectory()
-	if err != nil {
-		t.Fatalf("statsDirectory returned error: %v", err)
-	}
-	if err := os.MkdirAll(statsDir, 0o700); err != nil {
-		t.Fatalf("failed to create stats dir: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(statsDir, 0o700))
 	badPath := filepath.Join(statsDir, "bad.json")
-	if err := os.WriteFile(badPath, []byte("{"), 0o600); err != nil {
-		t.Fatalf("failed to write bad stats file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(badPath, []byte("{"), 0o600))
 
 	results, skipped, err := LoadStats()
-	if err != nil {
-		t.Fatalf("LoadStats returned error: %v", err)
-	}
-	if len(results) != 0 {
-		t.Fatalf("expected no results, got %d", len(results))
-	}
-	if skipped != 1 {
-		t.Fatalf("expected 1 skipped file, got %d", skipped)
-	}
+	require.NoError(t, err)
+	require.Empty(t, results)
+	require.Equal(t, 1, skipped)
 }

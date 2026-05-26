@@ -10,13 +10,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"text/tabwriter"
 	"time"
 )
 
 type Options struct {
-	DryRun      bool
-	Interactive bool
+	DryRun bool
 }
 
 type Plan struct {
@@ -99,10 +97,6 @@ type ExecResult struct {
 	DryRun        bool          `json:"dry_run"`
 }
 
-func BuildPlan(reg Registry) (Plan, error) {
-	return buildPlan(reg, nil)
-}
-
 func BuildPlanWithProgress(reg Registry, cb func(ProgressUpdate)) (Plan, error) {
 	return buildPlan(reg, cb)
 }
@@ -182,38 +176,6 @@ func buildPlan(reg Registry, cb func(ProgressUpdate)) (Plan, error) {
 	}
 
 	return Plan{Groups: groups, TotalBytes: total, Selected: selected}, nil
-}
-
-func ConfirmProceed(plan Plan, opts Options) (bool, error) {
-	fmt.Printf("About to delete %d selected groups. Estimated savings: %s\n",
-		plan.Selected, HumanBytes(plan.TotalBytes))
-	fmt.Println("Deletion target: Recycle Bin")
-	fmt.Print("Proceed? [y/N]: ")
-	var ans string
-	_, err := fmt.Scanln(&ans)
-	if err != nil && err.Error() != "unexpected newline" {
-		return false, err
-	}
-	ans = strings.TrimSpace(strings.ToLower(ans))
-	return ans == "y" || ans == "yes", nil
-}
-
-func ReportPlan(plan Plan) string {
-	var b strings.Builder
-	fmt.Fprintln(&b, "Scan results:")
-
-	w := tabwriter.NewWriter(&b, 2, 4, 1, ' ', 0)
-	for _, g := range plan.Groups {
-		flag := " "
-		if g.On {
-			flag = "x"
-		}
-		fmt.Fprintf(w, "[%s]\t%s\t%s\t%s\n", flag, g.App, g.Label, HumanBytes(g.Bytes))
-	}
-	_ = w.Flush()
-
-	fmt.Fprintf(&b, "Estimated savings (selected): %s\n", HumanBytes(plan.TotalBytes))
-	return b.String()
 }
 
 func ExecuteWithResult(plan Plan, opts Options, cb func(ProgressUpdate)) (ExecResult, error) {

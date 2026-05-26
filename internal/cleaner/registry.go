@@ -549,15 +549,3 @@ func BuildRegistry() Registry {
 
 	return Registry{Items: items}
 }
-
-func (r Registry) Apps() []string {
-	seen := map[string]struct{}{}
-	var out []string
-	for _, it := range r.Items {
-		if _, ok := seen[it.App]; !ok {
-			seen[it.App] = struct{}{}
-			out = append(out, it.App)
-		}
-	}
-	return out
-}

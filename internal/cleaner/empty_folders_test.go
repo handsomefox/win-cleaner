@@ -77,14 +77,14 @@ func TestBuildEmptyFolderGroups(t *testing.T) {
 
 func mustMkdirAll(t *testing.T, path string) {
 	t.Helper()
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		t.Fatalf("mkdir %q: %v", path, err)
 	}
 }
 
 func mustWriteFile(t *testing.T, path string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 		t.Fatalf("write %q: %v", path, err)
 	}
 }

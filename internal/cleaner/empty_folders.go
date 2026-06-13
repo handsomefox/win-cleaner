@@ -108,11 +108,11 @@ func isPlainDir(mode fs.FileMode) bool {
 // cannot read is treated as non-empty (returns false) so we never recycle on a
 // read error.
 func subtreeHasNoFiles(dir string) bool {
-	f, err := os.Open(dir)
+	f, err := os.Open(dir) //nolint:gosec // dir is confined to the known cache roots; deletion is separately guarded by isSafePath.
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only directory handle; a close error is not actionable.
 
 	for {
 		entries, readErr := f.ReadDir(emptyScanBatch)

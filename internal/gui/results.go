@@ -62,7 +62,7 @@ func (ws *workspace) showResults(result *cleaner.ExecResult, execErr error) {
 			widget.NewButtonWithIcon(ws.texts.ActionClose, theme.ConfirmIcon(), func() { ws.safeClose(execErr) }),
 		),
 		nil, nil,
-		widget.NewCard(headline, summary, container.NewPadded(container.NewVBox(headlineLabel, summaryLabel, errorBox, widget.NewSeparator(), detailScroll))),
+		titledCard(headline, summary, container.NewPadded(container.NewVBox(headlineLabel, summaryLabel, errorBox, widget.NewSeparator(), detailScroll))),
 	)))
 }
 

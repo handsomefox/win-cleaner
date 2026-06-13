@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
@@ -15,19 +16,43 @@ import (
 	"win-clear/internal/cleaner"
 )
 
-func headerBar(title, task, selection, savings *widget.Label, action *widget.Button) fyne.CanvasObject {
-	return container.NewPadded(container.NewVBox(
-		container.NewHBox(
-			title,
-			widget.NewSeparator(),
-			task,
-			layout.NewSpacer(),
-			selection,
-			savings,
-			action,
-		),
-		widget.NewSeparator(),
-	))
+// surfaceCard wraps content in a rounded, bordered surface panel — the building
+// block that replaces flat widget.Card / separator stacks across the UI.
+func surfaceCard(content fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(colSurface)
+	bg.CornerRadius = 14
+	bg.StrokeColor = colBorder
+	bg.StrokeWidth = 1
+	return container.NewStack(bg, container.NewPadded(content))
+}
+
+// chip renders a compact rounded pill around content, used for header stats.
+func chip(content fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(colSurfaceRaised)
+	bg.CornerRadius = 9
+	bg.StrokeColor = colBorder
+	bg.StrokeWidth = 1
+	return container.NewStack(bg, container.NewPadded(content))
+}
+
+// titledCard is a surfaceCard with a bold title, muted subtitle, and body.
+func titledCard(title, subtitle string, body fyne.CanvasObject) fyne.CanvasObject {
+	parts := []fyne.CanvasObject{widget.NewLabelWithStyle(title, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})}
+	if subtitle != "" {
+		sub := widget.NewLabel(subtitle)
+		sub.Wrapping = fyne.TextWrapWord
+		sub.Importance = widget.LowImportance
+		parts = append(parts, sub)
+	}
+	head := container.NewVBox(append(parts, widget.NewSeparator())...)
+	return surfaceCard(container.NewBorder(head, nil, nil, nil, body))
+}
+
+func headerBar(title fyne.CanvasObject, task *widget.Label, selectionChip, savingsChip fyne.CanvasObject, action *widget.Button) fyne.CanvasObject {
+	bg := canvas.NewRectangle(colSurface)
+	topRow := container.NewBorder(nil, nil, title, container.NewHBox(selectionChip, savingsChip, action))
+	inner := container.NewPadded(container.NewVBox(topRow, task))
+	return container.NewVBox(container.NewStack(bg, inner), widget.NewSeparator())
 }
 
 func centeredStatus(text string) fyne.CanvasObject {
@@ -49,14 +74,7 @@ func controlsPanel(searchRow, actions fyne.CanvasObject) fyne.CanvasObject {
 }
 
 func contentPanel(title, subtitle string, body fyne.CanvasObject) fyne.CanvasObject {
-	titleLabel := widget.NewLabelWithStyle(title, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	subtitleLabel := widget.NewLabel(subtitle)
-	subtitleLabel.Wrapping = fyne.TextWrapWord
-	return container.NewBorder(
-		container.NewPadded(container.NewVBox(titleLabel, subtitleLabel, widget.NewSeparator())),
-		nil, nil, nil,
-		body,
-	)
+	return titledCard(title, subtitle, body)
 }
 
 func scanPanel(title, subtitle string, body ...fyne.CanvasObject) fyne.CanvasObject {
@@ -74,6 +92,8 @@ type cleanupProgressPanel struct {
 func newCleanupProgressPanel(title, subtitle, selectedText, scopeText string) *cleanupProgressPanel {
 	progress := widget.NewProgressBar()
 	percent := widget.NewLabelWithStyle("0%", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true})
+	percent.SizeName = theme.SizeNameHeadingText
+	percent.Importance = widget.HighImportance
 	count := widget.NewLabelWithStyle("0 / 0", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	current := widget.NewLabel("Preparing...")
 	current.Wrapping = fyne.TextWrapWord
@@ -113,7 +133,8 @@ func newCleanupProgressPanel(title, subtitle, selectedText, scopeText string) *c
 func progressStat(icon fyne.Resource, label, value string) fyne.CanvasObject {
 	valueLabel := widget.NewLabelWithStyle(value, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	labelWidget := widget.NewLabel(label)
-	return container.NewPadded(container.NewHBox(widget.NewIcon(icon), container.NewVBox(valueLabel, labelWidget)))
+	labelWidget.Importance = widget.LowImportance
+	return chip(container.NewHBox(widget.NewIcon(icon), container.NewVBox(valueLabel, labelWidget)))
 }
 
 func (p *cleanupProgressPanel) SetProgress(current, total int, message, unit string) {
@@ -133,7 +154,7 @@ func (p *cleanupProgressPanel) SetProgress(current, total int, message, unit str
 }
 
 func cacheListPanel(texts *uiText, list fyne.CanvasObject) fyne.CanvasObject {
-	return list
+	return surfaceCard(list)
 }
 
 func cacheCategorySection(category cacheCategoryView, expanded map[string]bool, appRows []fyne.CanvasObject, toggleSelected func()) fyne.CanvasObject {

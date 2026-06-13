@@ -7,6 +7,27 @@ import (
 	"fyne.io/fyne/v2/theme"
 )
 
+// Refined dark palette with an indigo accent. These are the single source of
+// truth for the theme: Color() returns them, and custom canvas surfaces
+// (surfaceCard, chip, ...) reference the same vars so everything stays in sync.
+var (
+	colBackground    = color.NRGBA{R: 0x0f, G: 0x11, B: 0x15, A: 0xff} // deep app background
+	colSurface       = color.NRGBA{R: 0x18, G: 0x1b, B: 0x22, A: 0xff} // cards / header / menus
+	colSurfaceRaised = color.NRGBA{R: 0x1f, G: 0x23, B: 0x2c, A: 0xff} // buttons / chips
+	colSurfaceSunken = color.NRGBA{R: 0x16, G: 0x19, B: 0x22, A: 0xff} // inputs
+	colDisabledBtn   = color.NRGBA{R: 0x17, G: 0x1a, B: 0x20, A: 0xff}
+	colBorder        = color.NRGBA{R: 0x2a, G: 0x2f, B: 0x3a, A: 0xff}
+	colHover         = color.NRGBA{R: 0x25, G: 0x2b, B: 0x36, A: 0xff}
+	colPressed       = color.NRGBA{R: 0x2f, G: 0x36, B: 0x43, A: 0xff}
+	colAccent        = color.NRGBA{R: 0x63, G: 0x66, B: 0xf1, A: 0xff} // indigo
+	colSelection     = color.NRGBA{R: 0x63, G: 0x66, B: 0xf1, A: 0x55} // translucent indigo
+	colOnAccent      = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	colText          = color.NRGBA{R: 0xe6, G: 0xe9, B: 0xef, A: 0xff}
+	colMuted         = color.NRGBA{R: 0x8b, G: 0x93, B: 0xa3, A: 0xff}
+	colScrollBar     = color.NRGBA{R: 0x3a, G: 0x41, B: 0x50, A: 0xcc}
+	colScrollBarBg   = color.NRGBA{R: 0x16, G: 0x19, B: 0x22, A: 0x66}
+)
+
 type winCleanerTheme struct {
 	base fyne.Theme
 }
@@ -18,38 +39,45 @@ func newWinCleanerTheme() fyne.Theme {
 func (t *winCleanerTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
 	case theme.ColorNameBackground:
-		return color.NRGBA{R: 0x18, G: 0x18, B: 0x1b, A: 0xff}
+		return colBackground
 	case theme.ColorNameButton:
-		return color.NRGBA{R: 0x2d, G: 0x2f, B: 0x35, A: 0xff}
+		return colSurfaceRaised
 	case theme.ColorNameDisabledButton:
-		return color.NRGBA{R: 0x23, G: 0x24, B: 0x28, A: 0xff}
+		return colDisabledBtn
 	case theme.ColorNameHeaderBackground, theme.ColorNameMenuBackground, theme.ColorNameOverlayBackground:
-		return color.NRGBA{R: 0x20, G: 0x21, B: 0x26, A: 0xff}
+		return colSurface
 	case theme.ColorNameInputBackground:
-		return color.NRGBA{R: 0x22, G: 0x23, B: 0x28, A: 0xff}
+		return colSurfaceSunken
 	case theme.ColorNameInputBorder, theme.ColorNameSeparator:
-		return color.NRGBA{R: 0x3b, G: 0x3d, B: 0x45, A: 0xff}
+		return colBorder
 	case theme.ColorNameHover:
-		return color.NRGBA{R: 0x36, G: 0x38, B: 0x40, A: 0xff}
+		return colHover
 	case theme.ColorNamePressed:
-		return color.NRGBA{R: 0x43, G: 0x45, B: 0x4e, A: 0xff}
+		return colPressed
 	case theme.ColorNamePrimary, theme.ColorNameFocus, theme.ColorNameHyperlink:
-		return color.NRGBA{R: 0x4f, G: 0xc3, B: 0xa6, A: 0xff}
+		return colAccent
 	case theme.ColorNameSelection:
-		return color.NRGBA{R: 0x3a, G: 0x6f, B: 0x66, A: 0xff}
+		return colSelection
+	case theme.ColorNameForeground:
+		return colText
 	case theme.ColorNameForegroundOnPrimary:
-		return color.NRGBA{R: 0x0d, G: 0x12, B: 0x13, A: 0xff}
+		return colOnAccent
+	case theme.ColorNamePlaceHolder, theme.ColorNameDisabled:
+		return colMuted
 	case theme.ColorNameScrollBar:
-		return color.NRGBA{R: 0x68, G: 0x6b, B: 0x75, A: 0xdd}
+		return colScrollBar
 	case theme.ColorNameScrollBarBackground:
-		return color.NRGBA{R: 0x26, G: 0x27, B: 0x2d, A: 0x99}
+		return colScrollBarBg
 	default:
 		return t.base.Color(name, theme.VariantDark)
 	}
 }
 
 func (t *winCleanerTheme) Font(style fyne.TextStyle) fyne.Resource {
-	return t.base.Font(style)
+	if style.Monospace || style.Symbol {
+		return t.base.Font(style)
+	}
+	return interFont(style)
 }
 
 func (t *winCleanerTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
@@ -67,13 +95,13 @@ func (t *winCleanerTheme) Size(name fyne.ThemeSizeName) float32 {
 	case theme.SizeNameWindowButtonRadius:
 		return 10
 	case theme.SizeNamePadding:
-		return 4
+		return 6
 	case theme.SizeNameInnerPadding:
-		return 7
+		return 9
 	case theme.SizeNameText:
 		return 15
 	case theme.SizeNameHeadingText:
-		return 23
+		return 22
 	case theme.SizeNameSubHeadingText:
 		return 18
 	case theme.SizeNameCaptionText:

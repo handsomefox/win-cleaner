@@ -80,8 +80,10 @@ func (ws *workspace) showHistory() {
 func newHistoryListRow() fyne.CanvasObject {
 	title := widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	meta := widget.NewLabel("")
+	meta.Importance = widget.LowImportance
 	bytes := widget.NewLabelWithStyle("", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true})
-	status := widget.NewLabel("")
+	bytes.Importance = widget.HighImportance
+	status := widget.NewLabelWithStyle("", fyne.TextAlignTrailing, fyne.TextStyle{})
 	return container.NewHBox(
 		widget.NewIcon(theme.HistoryIcon()),
 		container.NewVBox(title, meta),
@@ -124,8 +126,11 @@ func updateHistoryListRow(o fyne.CanvasObject, res *cleaner.ExecResult) {
 	meta.SetText(fmt.Sprintf("%d groups  |  %s", res.TotalSelected, formatDuration(res.DurationMs)))
 	bytes.SetText(cleaner.HumanBytes(res.TotalBytes))
 	if res.ErrorCount > 0 {
+		status.Importance = widget.DangerImportance
 		status.SetText(fmt.Sprintf("%d errors", res.ErrorCount))
 	} else {
+		status.Importance = widget.LowImportance
 		status.SetText("ok")
 	}
+	status.Refresh()
 }

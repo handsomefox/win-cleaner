@@ -34,6 +34,8 @@ type workspace struct {
 	taskLabel      *widget.Label
 	selectionLabel *widget.Label
 	savingsLabel   *widget.Label
+	selectionChip  fyne.CanvasObject
+	savingsChip    fyne.CanvasObject
 	actionButton   *widget.Button
 	states         map[string]headerState
 }
@@ -76,9 +78,16 @@ func newWorkspace(a fyne.App, w fyne.Window, reg cleaner.Registry, opts cleaner.
 
 func (ws *workspace) header() fyne.CanvasObject {
 	title := widget.NewLabelWithStyle(ws.texts.AppTitle, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	ws.selectionLabel.Hide()
-	ws.savingsLabel.Hide()
-	return headerBar(title, ws.taskLabel, ws.selectionLabel, ws.savingsLabel, ws.actionButton)
+	title.SizeName = theme.SizeNameHeadingText
+	titleRow := container.NewHBox(widget.NewIcon(theme.StorageIcon()), title)
+
+	ws.taskLabel.Importance = widget.LowImportance
+	ws.savingsLabel.Importance = widget.HighImportance
+	ws.selectionChip = chip(ws.selectionLabel)
+	ws.savingsChip = chip(ws.savingsLabel)
+	ws.selectionChip.Hide()
+	ws.savingsChip.Hide()
+	return headerBar(titleRow, ws.taskLabel, ws.selectionChip, ws.savingsChip, ws.actionButton)
 }
 
 func (ws *workspace) setTabState(tab string, state *headerState) {
@@ -93,8 +102,8 @@ func (ws *workspace) applyHeader(tab string) {
 	ws.taskLabel.SetText(state.Task)
 	ws.selectionLabel.SetText(state.Selection)
 	ws.savingsLabel.SetText(state.Savings)
-	setLabelVisible(ws.selectionLabel, state.Selection != "")
-	setLabelVisible(ws.savingsLabel, state.Savings != "")
+	setObjectVisible(ws.selectionChip, state.Selection != "")
+	setObjectVisible(ws.savingsChip, state.Savings != "")
 	if state.ActionText == "" {
 		ws.actionButton.SetText(ws.texts.ActionNone)
 		ws.actionButton.SetIcon(theme.CancelIcon())
@@ -115,12 +124,15 @@ func (ws *workspace) applyHeader(tab string) {
 	}
 }
 
-func setLabelVisible(label *widget.Label, visible bool) {
-	if visible {
-		label.Show()
+func setObjectVisible(obj fyne.CanvasObject, visible bool) {
+	if obj == nil {
 		return
 	}
-	label.Hide()
+	if visible {
+		obj.Show()
+		return
+	}
+	obj.Hide()
 }
 
 func (ws *workspace) activeTab() string {

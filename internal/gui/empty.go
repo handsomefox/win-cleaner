@@ -99,7 +99,7 @@ func (ws *workspace) showEmptyRootSelectWithRoots(roots []cleaner.EmptyFolderRoo
 			container.NewHBox(selectAll, selectNone, layout.NewSpacer(), selectedLabel),
 		),
 		nil, nil, nil,
-		widget.NewCard(ws.texts.EmptyRootsCardTitle, ws.texts.EmptyRootsCardSubtitle, scroll),
+		titledCard(ws.texts.EmptyRootsCardTitle, ws.texts.EmptyRootsCardSubtitle, scroll),
 	)))
 }
 
@@ -119,7 +119,7 @@ func (ws *workspace) showEmptyScan(roots []cleaner.EmptyFolderRoot) {
 			ws.showEmptyRootSelectWithRoots(roots)
 		},
 	})
-	ws.setTabContent(ws.texts.TabEmpty, container.NewPadded(widget.NewCard(ws.texts.EmptyScanCardTitle, ws.texts.EmptyScanCardSubtitle, container.NewPadded(container.NewVBox(status, progress)))))
+	ws.setTabContent(ws.texts.TabEmpty, container.NewPadded(titledCard(ws.texts.EmptyScanCardTitle, ws.texts.EmptyScanCardSubtitle, container.NewPadded(container.NewVBox(status, progress)))))
 
 	go func() {
 		plan := cleaner.BuildEmptyFolderPlanWithCancel(roots, stale.Load, func(u cleaner.ProgressUpdate) {
@@ -244,7 +244,7 @@ func (ws *workspace) showEmptySelect(plan *cleaner.EmptyFolderPlan) {
 	ws.setTabContent(ws.texts.TabEmpty, container.NewPadded(container.NewBorder(
 		container.NewVBox(searchRow, actions, errLabel),
 		nil, nil, nil,
-		widget.NewCard(ws.texts.EmptyFoldersCardTitle, ws.texts.EmptyFoldersCardSubtitle, listScroll),
+		titledCard(ws.texts.EmptyFoldersCardTitle, ws.texts.EmptyFoldersCardSubtitle, listScroll),
 	)))
 }
 
@@ -314,6 +314,6 @@ func (ws *workspace) showEmptyResults(result *cleaner.EmptyFolderResult) {
 			widget.NewButtonWithIcon(ws.texts.ActionClose, theme.ConfirmIcon(), func() { ws.safeClose(nil) }),
 		),
 		nil, nil,
-		widget.NewCard(headline, summary, container.NewPadded(container.NewVBox(headlineLabel, summaryLabel, errorBox))),
+		titledCard(headline, summary, container.NewPadded(container.NewVBox(headlineLabel, summaryLabel, errorBox))),
 	)))
 }

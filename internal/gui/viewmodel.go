@@ -137,13 +137,13 @@ func cacheCategoryName(texts *uiText, appName string) string {
 		return texts.CacheCategoryChat
 	case "cargo", "go modules", "npm", "vscode":
 		return texts.CacheCategoryDevelopment
-	case "battle.net", "ea/origin", "epic games launcher", "gog galaxy", "steam", "ubisoft connect":
+	case "battle.net", "battlefield 2042", "ea/origin", "epic games launcher", "gog galaxy", "steam", "ubisoft connect":
 		return texts.CacheCategoryGaming
 	case "spotify":
 		return texts.CacheCategoryMedia
 	case "amd", "crash dumps", "directx shader cache", "nvidia", "windows":
 		return texts.CacheCategorySystem
-	case "adobe", "battlefield 2042", "blender", "figma":
+	case "adobe", "blender", "figma":
 		return texts.CacheCategoryCreative
 	default:
 		return texts.CacheCategoryOther

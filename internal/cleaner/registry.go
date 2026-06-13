@@ -190,10 +190,12 @@ func BuildRegistry() Registry {
 			Label:     "cache/media/temp/dumps",
 			DefaultOn: true,
 			Paths: []string{
-				filepath.Join(appData, "Telegram Desktop", "tdata", "user_data", "cache"),
-				filepath.Join(appData, "Telegram Desktop", "tdata", "user_data", "media_cache"),
 				filepath.Join(appData, "Telegram Desktop", "tdata", "temp"),
 				filepath.Join(appData, "Telegram Desktop", "tdata", "dumps"),
+			},
+			Globs: []string{
+				filepath.Join(appData, "Telegram Desktop", "tdata", "user_data*", "cache"),
+				filepath.Join(appData, "Telegram Desktop", "tdata", "user_data*", "media_cache"),
 			},
 		},
 		{

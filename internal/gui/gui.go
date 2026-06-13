@@ -20,7 +20,9 @@ func Run(reg cleaner.Registry, opts cleaner.Options) error {
 	texts := englishText()
 	a := app.NewWithID("win-cleaner")
 	a.Settings().SetTheme(newWinCleanerTheme())
+	a.SetIcon(appIcon)
 	w := a.NewWindow(texts.AppTitle)
+	w.SetIcon(appIcon)
 	w.Resize(fyne.NewSize(1320, 860))
 	w.CenterOnScreen()
 
@@ -40,8 +42,6 @@ func Run(reg cleaner.Registry, opts cleaner.Options) error {
 
 	ws := newWorkspace(a, w, reg, opts, texts, safeClose)
 	ws.showCacheScan()
-	ws.showEmptyRootSelect()
-	ws.showHistory()
 
 	w.ShowAndRun()
 	if errors.Is(result, cleaner.ErrCancelled) {

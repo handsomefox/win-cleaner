@@ -30,7 +30,7 @@ func (ws *workspace) showResults(result *cleaner.ExecResult, execErr error) {
 	detailScroll := container.NewVScroll(container.NewVBox(detailRows...))
 	detailScroll.SetMinSize(fyne.NewSize(0, 380))
 
-	errorSummary, errorDetails := buildErrorSummary(result)
+	errorSummary, errorDetails := buildErrorSummary(ws.texts, result)
 	errorBox := container.NewVBox()
 	if errorSummary != "" {
 		errLabel := widget.NewLabel(errorSummary)
@@ -46,48 +46,51 @@ func (ws *workspace) showResults(result *cleaner.ExecResult, execErr error) {
 		}))
 	}
 
-	ws.setTabState(ws.texts.TabCache, &headerState{
-		Task:       headline,
-		Selection:  fmt.Sprintf("%d groups", result.TotalSelected),
-		Savings:    "Freed: " + cleaner.HumanBytes(result.TotalBytes),
-		ActionText: ws.texts.ActionCleanAgain,
-		ActionIcon: theme.ViewRefreshIcon(),
-		Action:     ws.showCacheScan,
-	})
-	ws.setTabContent(ws.texts.TabCache, container.NewPadded(container.NewBorder(
+	doneBtn := widget.NewButtonWithIcon(ws.texts.ActionDone, theme.ConfirmIcon(), ws.showCacheScan)
+	doneBtn.Importance = widget.HighImportance
+	content := container.NewPadded(container.NewBorder(
 		nil,
 		container.NewHBox(
-			widget.NewButtonWithIcon(ws.texts.ActionHistory, theme.HistoryIcon(), func() { ws.selectTab(ws.texts.TabHistory) }),
+			widget.NewButtonWithIcon(ws.texts.ActionHistory, theme.HistoryIcon(), ws.showHistory),
 			layout.NewSpacer(),
-			widget.NewButtonWithIcon(ws.texts.ActionClose, theme.ConfirmIcon(), func() { ws.safeClose(execErr) }),
+			doneBtn,
 		),
 		nil, nil,
 		titledCard(headline, summary, container.NewPadded(container.NewVBox(headlineLabel, summaryLabel, errorBox, widget.NewSeparator(), detailScroll))),
-	)))
+	))
+	ws.showCache(content, &headerState{
+		Task:         headline,
+		Selection:    ws.texts.ItemsCount(result.TotalSelected),
+		Savings:      ws.texts.FreedSummary(result.TotalBytes),
+		SavingsBytes: result.TotalBytes,
+		ActionText:   ws.texts.ActionCleanAgain,
+		ActionIcon:   theme.ViewRefreshIcon(),
+		Action:       ws.showCacheScan,
+	})
 }
 
-func buildErrorSummary(result *cleaner.ExecResult) (summary, details string) {
+func buildErrorSummary(texts *uiText, result *cleaner.ExecResult) (summary, details string) {
 	if result == nil || result.ErrorCount == 0 {
 		return "", ""
 	}
-	var groupNames []string
+	groupNames := make([]string, 0, len(result.Groups))
 	var detailBuilder strings.Builder
-	fmt.Fprintf(&detailBuilder, "Errors: %d\n\n", result.ErrorCount)
+	fmt.Fprintf(&detailBuilder, "%s %d\n\n", texts.RunLabelErrors, result.ErrorCount)
 	for _, g := range result.Groups {
 		if len(g.Errors) == 0 {
 			continue
 		}
 		groupNames = append(groupNames, fmt.Sprintf("%s - %s", g.App, g.Label))
-		fmt.Fprintf(&detailBuilder, "%s - %s (%d issues)\n", g.App, g.Label, len(g.Errors))
+		fmt.Fprintf(&detailBuilder, "%s - %s (%s)\n", g.App, g.Label, texts.IssuesCount(len(g.Errors)))
 		for _, e := range g.Errors {
 			fmt.Fprintf(&detailBuilder, "- %s: %s\n", e.Path, e.Error)
 		}
 		detailBuilder.WriteString("\n")
 	}
 	limit := min(3, len(groupNames))
-	summary = fmt.Sprintf("Errors in %d group(s): %s", len(groupNames), strings.Join(groupNames[:limit], ", "))
+	summary = fmt.Sprintf("Errors in %s: %s", texts.ItemsCount(len(groupNames)), strings.Join(groupNames[:limit], ", "))
 	if len(groupNames) > limit {
-		summary += ", ..."
+		summary += ", …"
 	}
 	return summary, detailBuilder.String()
 }

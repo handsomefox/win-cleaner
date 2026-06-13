@@ -20,8 +20,8 @@ func TestCacheSelectionSummaryRecomputesTotals(t *testing.T) {
 
 	selection, savings := cacheSelectionSummary(texts, &plan)
 
-	if selection != "2 groups selected" {
-		t.Fatalf("selection summary = %q, want %q", selection, "2 groups selected")
+	if selection != "2 items selected" {
+		t.Fatalf("selection summary = %q, want %q", selection, "2 items selected")
 	}
 	if plan.Selected != 2 {
 		t.Fatalf("plan.Selected = %d, want 2", plan.Selected)
@@ -31,40 +31,6 @@ func TestCacheSelectionSummaryRecomputesTotals(t *testing.T) {
 	}
 	if !strings.Contains(savings, "Est. savings:") || !strings.Contains(savings, "5.00 KB") {
 		t.Fatalf("savings summary = %q, want estimated 5.00 KB", savings)
-	}
-}
-
-func TestEmptyRootSelectionSummary(t *testing.T) {
-	texts := englishText()
-	roots := []cleaner.EmptyFolderRoot{
-		{Label: "Temp", On: true},
-		{Label: "Downloads", On: false},
-		{Label: "Cache", On: true},
-	}
-
-	got := emptyRootSelectionSummary(texts, roots)
-	if got != "2 roots selected" {
-		t.Fatalf("emptyRootSelectionSummary = %q, want %q", got, "2 roots selected")
-	}
-}
-
-func TestEmptySelectionSummary(t *testing.T) {
-	texts := englishText()
-	plan := cleaner.EmptyFolderPlan{
-		Folders: []cleaner.EmptyFolderCandidate{
-			{Path: "a", On: true},
-			{Path: "b", On: false},
-			{Path: "c", On: true},
-		},
-	}
-
-	selection, savings := emptySelectionSummary(texts, &plan)
-
-	if selection != "2 folders selected" {
-		t.Fatalf("selection summary = %q, want %q", selection, "2 folders selected")
-	}
-	if savings != "" {
-		t.Fatalf("savings summary = %q, want empty", savings)
 	}
 }
 
@@ -82,86 +48,10 @@ func TestCleanupResultSummaryReportsErrors(t *testing.T) {
 	if headline != "Cleanup finished with errors" {
 		t.Fatalf("headline = %q, want error headline", headline)
 	}
-	for _, want := range []string{"3 groups cleaned", "1.50 KB", "2s", "2 errors"} {
+	for _, want := range []string{"3 items cleaned", "1.50 KB", "2s", "2 errors"} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary = %q, want to contain %q", summary, want)
 		}
-	}
-}
-
-func TestEmptyScanStatusText(t *testing.T) {
-	texts := englishText()
-	plan := cleaner.EmptyFolderPlan{
-		Folders:           []cleaner.EmptyFolderCandidate{{Path: "a"}},
-		VisitedDirs:       12,
-		CandidateLimitHit: true,
-		Errs:              []cleaner.PathError{{Path: "bad", Error: "denied"}},
-	}
-
-	got := emptyScanStatusText(texts, &plan)
-
-	for _, want := range []string{
-		"Found 1 empty folders after scanning 12 folders.",
-		"Candidate limit reached",
-		"bad: denied",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("status = %q, want to contain %q", got, want)
-		}
-	}
-}
-
-func TestEmptyScanStatusTextCancellationAndLimits(t *testing.T) {
-	texts := englishText()
-	plan := cleaner.EmptyFolderPlan{
-		Cancelled:         true,
-		ErrorLimitHit:     true,
-		CandidateLimitHit: true,
-		Errs: []cleaner.PathError{
-			{Path: "one", Error: "denied"},
-			{Path: "two", Error: "busy"},
-			{Path: "three", Error: "gone"},
-			{Path: "four", Error: "hidden"},
-		},
-	}
-
-	got := emptyScanStatusText(texts, &plan)
-
-	for _, want := range []string{
-		"Scan cancelled; showing partial results.",
-		"Candidate limit reached",
-		"Error detail limit reached",
-		"one: denied",
-		"1 more scan errors",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("status = %q, want to contain %q", got, want)
-		}
-	}
-}
-
-func TestEmptyResultSummarySuccessAndError(t *testing.T) {
-	texts := englishText()
-	success := cleaner.EmptyFolderResult{
-		Removed:    4,
-		Failed:     0,
-		DurationMs: 2100,
-	}
-	headline, summary := emptyResultSummary(texts, &success)
-	if headline != "Empty folder cleanup complete" {
-		t.Fatalf("headline = %q, want success headline", headline)
-	}
-	for _, want := range []string{"4 removed", "0 failed", "2s"} {
-		if !strings.Contains(summary, want) {
-			t.Fatalf("summary = %q, want to contain %q", summary, want)
-		}
-	}
-
-	failed := success
-	failed.Failed = 1
-	headline, _ = emptyResultSummary(texts, &failed)
-	if headline != "Empty folder cleanup finished with errors" {
-		t.Fatalf("headline = %q, want error headline", headline)
 	}
 }
 
@@ -207,9 +97,9 @@ func TestRunDetailsTextFormatsGroupErrors(t *testing.T) {
 		},
 	}
 
-	got := runDetailsText(&res)
+	got := runDetailsText(englishText(), &res)
 
-	for _, want := range []string{"Run: 2026-05-26 12:30:00", "Groups cleaned: 1", "App - Cache", "bad: denied"} {
+	for _, want := range []string{"Run: May 26, 2026 12:30:00", "Items cleaned: 1", "App - Cache", "bad: denied"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("details = %q, want to contain %q", got, want)
 		}

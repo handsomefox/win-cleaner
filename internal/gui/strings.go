@@ -12,23 +12,17 @@ const (
 	cacheSortSizeAsc
 )
 
+// appVersion is the human-facing version shown in Help ▸ About.
+const appVersion = "1.0.0"
+
 type uiText struct {
 	AppTitle string
 
-	TabCache   string
-	TabEmpty   string
-	TabHistory string
-
-	TaskReady            string
-	TaskCacheScanning    string
-	TaskCacheReview      string
-	TaskCacheDeleting    string
-	TaskEmptyChooseRoots string
-	TaskEmptyScanning    string
-	TaskEmptyReview      string
-	TaskEmptyDeleting    string
-	TaskHistory          string
-	TaskHistoryFailed    string
+	TaskReady         string
+	TaskCacheScanning string
+	TaskCacheDeleting string
+	TaskHistory       string
+	TaskHistoryFailed string
 
 	ActionStart          string
 	ActionNone           string
@@ -41,26 +35,18 @@ type uiText struct {
 	ActionExpandAll      string
 	ActionCollapseAll    string
 	ActionRescan         string
-	ActionScan           string
-	ActionRemove         string
-	ActionRoots          string
-	ActionScanAgain      string
 	ActionCleanAgain     string
 	ActionHistory        string
-	ActionClose          string
-	ActionCacheCleanup   string
+	ActionDone           string
+	ActionBack           string
 	ActionRefresh        string
 
-	LabelSearch string
-
 	PreparingCache string
-	PreparingEmpty string
 	LoadingHistory string
 
 	CacheScanStatus          string
 	CacheScanCardTitle       string
 	CacheScanCardSubtitle    string
-	CacheSearchPlaceholder   string
 	CacheSortName            string
 	CacheSortLargest         string
 	CacheSortSmallest        string
@@ -74,40 +60,26 @@ type uiText struct {
 	CacheCategoryOther       string
 	TogglePreviewOnly        string
 	NoMatchingCacheTargets   string
-	CacheTargetsCardTitle    string
-	CacheTargetsCardSubtitle string
 	CacheDeleteCardTitle     string
 	CacheDeleteCardSubtitle  string
-
-	EmptyNoRootsTask         string
-	EmptyNoRootsMessage      string
-	EmptyRootLead            string
-	EmptyRootsCardTitle      string
-	EmptyRootsCardSubtitle   string
-	EmptyScanStatus          string
-	EmptyScanCardTitle       string
-	EmptyScanCardSubtitle    string
-	EmptySearchPlaceholder   string
-	NoEmptyFoldersFound      string
-	EmptyFoldersCardTitle    string
-	EmptyFoldersCardSubtitle string
-	EmptyDeleteCardTitle     string
-	EmptyDeleteCardSubtitle  string
 
 	StatusPreparing string
 	NotFound        string
 
+	// Progress panel.
+	ProgressMovingTitle string
+	StatSelected        string
+	StatScope           string
+	StatDestination     string
+	RecycleBin          string
+	UnitItems           string
+
 	DialogNothingSelectedTitle string
 	DialogSelectCacheGroup     string
-	DialogNoRootsTitle         string
-	DialogNoRootsMessage       string
-	DialogSelectEmptyFolder    string
 	DialogConfirmCacheTitle    string
-	DialogConfirmEmptyTitle    string
 	DialogPreviewTitle         string
 	DialogPreviewEmpty         string
 	DialogCleanupErrors        string
-	DialogEmptyErrors          string
 	DialogClose                string
 	DialogCleanupDetailsTitle  string
 
@@ -121,39 +93,44 @@ type uiText struct {
 	ResultCleanupDidNotRun  string
 	ResultCleanupComplete   string
 	ResultCleanupWithErrors string
-	ResultEmptyDidNotRun    string
-	ResultEmptyComplete     string
-	ResultEmptyWithErrors   string
+	FreedPrefix             string
 
 	HistoryNoRuns               string
-	HistoryRunsTitle            string
-	HistoryDetailsTitle         string
 	HistoryPreviousRunsTitle    string
 	HistoryPreviousRunsSubtitle string
 
-	EmptyScanCancelledPartial string
-	EmptyScanCandidateLimit   string
-	EmptyScanErrorLimit       string
+	// Run details + stats labels.
+	RunLabelRun          string
+	RunLabelDuration     string
+	RunLabelItems        string
+	RunLabelFreed        string
+	RunLabelErrors       string
+	StatsRunsLabel       string
+	StatsUnreadable      string
+	StatsTotalFreedLabel string
+	StatsLast7Label      string
+	StatsLast30Label     string
+
+	// Burger menu + About.
+	MenuCacheCleanup  string
+	MenuHistory       string
+	MenuAbout         string
+	MenuQuit          string
+	AboutVersionLabel string
+	AboutFonts        string
+	AboutRepoLabel    string
+	AboutRepoURL      string
 }
 
 func englishText() *uiText {
 	return &uiText{
 		AppTitle: "win-cleaner",
 
-		TabCache:   "Cache Cleanup",
-		TabEmpty:   "Empty Folders",
-		TabHistory: "History",
-
-		TaskReady:            "Ready",
-		TaskCacheScanning:    "Scanning cache locations",
-		TaskCacheReview:      "Review cache cleanup targets",
-		TaskCacheDeleting:    "Moving selected cache files to the Recycle Bin",
-		TaskEmptyChooseRoots: "Choose roots to scan",
-		TaskEmptyScanning:    "Scanning for empty folders",
-		TaskEmptyReview:      "Review empty folders",
-		TaskEmptyDeleting:    "Moving empty folders to the Recycle Bin",
-		TaskHistory:          "Cleanup history",
-		TaskHistoryFailed:    "Cleanup history unavailable",
+		TaskReady:         "Ready",
+		TaskCacheScanning: "Scanning cache locations…",
+		TaskCacheDeleting: "Moving selected cache files to the Recycle Bin",
+		TaskHistory:       "Cleanup history",
+		TaskHistoryFailed: "Cleanup history unavailable",
 
 		ActionStart:          "Start",
 		ActionNone:           "No action",
@@ -166,26 +143,18 @@ func englishText() *uiText {
 		ActionExpandAll:      "Expand All",
 		ActionCollapseAll:    "Collapse All",
 		ActionRescan:         "Rescan",
-		ActionScan:           "Scan",
-		ActionRemove:         "Remove",
-		ActionRoots:          "Roots",
-		ActionScanAgain:      "Scan Again",
 		ActionCleanAgain:     "Clean Again",
-		ActionHistory:        "History",
-		ActionClose:          "Close",
-		ActionCacheCleanup:   "Cache Cleanup",
+		ActionHistory:        "View History",
+		ActionDone:           "Done",
+		ActionBack:           "Back",
 		ActionRefresh:        "Refresh",
 
-		LabelSearch: "Search:",
+		PreparingCache: "Preparing cache cleanup…",
+		LoadingHistory: "Loading history…",
 
-		PreparingCache: "Preparing cache cleanup...",
-		PreparingEmpty: "Preparing empty-folder cleanup...",
-		LoadingHistory: "Loading history...",
-
-		CacheScanStatus:          "Scanning cache locations...",
-		CacheScanCardTitle:       "Scanning",
-		CacheScanCardSubtitle:    "Looking for cache locations to clean",
-		CacheSearchPlaceholder:   "Search apps or labels...",
+		CacheScanStatus:          "Scanning cache locations…",
+		CacheScanCardTitle:       "Scanning Cache",
+		CacheScanCardSubtitle:    "Looking for cache locations to clean.",
 		CacheSortName:            "Name",
 		CacheSortLargest:         "Largest first",
 		CacheSortSmallest:        "Smallest first",
@@ -198,67 +167,64 @@ func englishText() *uiText {
 		CacheCategoryCreative:    "Creative",
 		CacheCategoryOther:       "Other",
 		TogglePreviewOnly:        "Preview only",
-		NoMatchingCacheTargets:   "No matching cleanup targets",
-		CacheTargetsCardTitle:    "Cleanup Targets",
-		CacheTargetsCardSubtitle: "Apps are collapsed by default. Expand an app to review paths and scan issues.",
-		CacheDeleteCardTitle:     "Cleanup in progress",
-		CacheDeleteCardSubtitle:  "Moving files to the Recycle Bin",
+		NoMatchingCacheTargets:   "No matching cleanup targets.",
+		CacheDeleteCardTitle:     "Cleaning Up",
+		CacheDeleteCardSubtitle:  "Moving files to the Recycle Bin.",
 
-		EmptyNoRootsTask:         "No default roots available",
-		EmptyNoRootsMessage:      "No default empty-folder roots are available in this environment.",
-		EmptyRootLead:            "Select roots to scan for recursively empty folders.",
-		EmptyRootsCardTitle:      "Empty Folder Roots",
-		EmptyRootsCardSubtitle:   "Root selection stays here so scans can be repeated without leaving the tab.",
-		EmptyScanStatus:          "Scanning for empty folders...",
-		EmptyScanCardTitle:       "Scanning Empty Folders",
-		EmptyScanCardSubtitle:    "Searching selected roots",
-		EmptySearchPlaceholder:   "Search folder paths...",
-		NoEmptyFoldersFound:      "No empty folders found",
-		EmptyFoldersCardTitle:    "Empty Folders",
-		EmptyFoldersCardSubtitle: "Selected folders will be rechecked before removal.",
-		EmptyDeleteCardTitle:     "Removing Empty Folders",
-		EmptyDeleteCardSubtitle:  "Moving folders to the Recycle Bin",
+		StatusPreparing: "Preparing…",
+		NotFound:        "Not found",
 
-		StatusPreparing: "Preparing...",
-		NotFound:        "not found",
+		ProgressMovingTitle: "Moving selected items",
+		StatSelected:        "Selected",
+		StatScope:           "Scope",
+		StatDestination:     "Destination",
+		RecycleBin:          "Recycle Bin",
+		UnitItems:           "items",
 
 		DialogNothingSelectedTitle: "Nothing Selected",
-		DialogSelectCacheGroup:     "Select at least one group to clean.",
-		DialogNoRootsTitle:         "No Roots Selected",
-		DialogNoRootsMessage:       "Select at least one root to scan.",
-		DialogSelectEmptyFolder:    "Select at least one empty folder to remove.",
+		DialogSelectCacheGroup:     "Select at least one item to clean.",
 		DialogConfirmCacheTitle:    "Confirm Cleanup",
-		DialogConfirmEmptyTitle:    "Confirm Empty Folder Removal",
-		DialogPreviewTitle:         "Preview: what would be cleaned",
+		DialogPreviewTitle:         "Preview — what would be cleaned",
 		DialogPreviewEmpty:         "Nothing selected.",
-		DialogCleanupErrors:        "Cleanup errors",
-		DialogEmptyErrors:          "Empty folder errors",
+		DialogCleanupErrors:        "Cleanup Errors",
 		DialogClose:                "Close",
-		DialogCleanupDetailsTitle:  "Cleanup target details",
+		DialogCleanupDetailsTitle:  "Cleanup Target Details",
 
-		ResultNoGroupDetails:    "No group details recorded.",
+		ResultNoGroupDetails:    "No item details recorded.",
 		ResultErrorDetails:      "View error details",
 		ResultDetails:           "Details",
-		ResultStatusOK:          "ok",
-		ResultStatusSkipped:     "skipped",
+		ResultStatusOK:          "OK",
+		ResultStatusSkipped:     "Skipped",
 		ResultNoMatchingPaths:   "No matching paths",
 		ResultScanIssues:        "Scan issues:",
 		ResultCleanupDidNotRun:  "Cleanup did not run",
 		ResultCleanupComplete:   "Cleanup complete",
 		ResultCleanupWithErrors: "Cleanup finished with errors",
-		ResultEmptyDidNotRun:    "Empty folder cleanup did not run",
-		ResultEmptyComplete:     "Empty folder cleanup complete",
-		ResultEmptyWithErrors:   "Empty folder cleanup finished with errors",
+		FreedPrefix:             "Freed: ",
 
 		HistoryNoRuns:               "No cleanup history yet.",
-		HistoryRunsTitle:            "Runs",
-		HistoryDetailsTitle:         "Run details",
 		HistoryPreviousRunsTitle:    "Previous Cleanup Runs",
 		HistoryPreviousRunsSubtitle: "Unreadable stats files are counted and skipped.",
 
-		EmptyScanCancelledPartial: "Scan cancelled; showing partial results.",
-		EmptyScanCandidateLimit:   "Candidate limit reached; narrow the selected roots and scan again.",
-		EmptyScanErrorLimit:       "Error detail limit reached; additional scan errors were hidden.",
+		RunLabelRun:          "Run:",
+		RunLabelDuration:     "Duration:",
+		RunLabelItems:        "Items cleaned:",
+		RunLabelFreed:        "Est. freed:",
+		RunLabelErrors:       "Errors:",
+		StatsRunsLabel:       "Runs:",
+		StatsUnreadable:      "unreadable",
+		StatsTotalFreedLabel: "Total freed:",
+		StatsLast7Label:      "Last 7 days:",
+		StatsLast30Label:     "Last 30 days:",
+
+		MenuCacheCleanup:  "Cache Cleanup",
+		MenuHistory:       "History",
+		MenuAbout:         "About win-cleaner",
+		MenuQuit:          "Quit",
+		AboutVersionLabel: "Version",
+		AboutFonts:        "Inter — SIL Open Font License 1.1",
+		AboutRepoLabel:    "Project page",
+		AboutRepoURL:      "https://github.com/handsomefox/win-cleaner",
 	}
 }
 
@@ -277,16 +243,35 @@ func (t *uiText) CacheSortMode(label string) int {
 	}
 }
 
-func (t *uiText) GroupsSelected(n int) string {
-	return fmt.Sprintf("%d groups selected", n)
+// Pluralized count helpers.
+
+func (t *uiText) ItemsCount(n int) string { return fmt.Sprintf("%d %s", n, plural(n, "item", "items")) }
+
+func (t *uiText) AppsCount(n int) string { return fmt.Sprintf("%d %s", n, plural(n, "app", "apps")) }
+
+func (t *uiText) RunsCount(n int) string   { return fmt.Sprintf("%d %s", n, plural(n, "run", "runs")) }
+func (t *uiText) FailedCount(n int) string { return fmt.Sprintf("%d failed", n) }
+
+func (t *uiText) IssuesCount(n int) string {
+	return fmt.Sprintf("%d %s", n, plural(n, "issue", "issues"))
 }
 
-func (t *uiText) RootsSelected(n int) string {
-	return fmt.Sprintf("%d roots selected", n)
+func (t *uiText) ErrorsCount(n int) string {
+	return fmt.Sprintf("%d %s", n, plural(n, "error", "errors"))
 }
 
-func (t *uiText) FoldersSelected(n int) string {
-	return fmt.Sprintf("%d folders selected", n)
+func (t *uiText) ItemsSelected(n int) string { return t.ItemsCount(n) + " selected" }
+
+func (t *uiText) SelectedOfCount(selected, total int) string {
+	return fmt.Sprintf("%d/%d selected", selected, total)
+}
+
+func (t *uiText) DetailsWithIssues(n int) string {
+	return fmt.Sprintf("%s (%s)", t.ResultDetails, t.IssuesCount(n))
+}
+
+func (t *uiText) FreedSummary(bytes uint64) string {
+	return t.FreedPrefix + cleaner.HumanBytes(bytes)
 }
 
 func (t *uiText) EstimatedSavings(bytes uint64) string {
@@ -305,53 +290,18 @@ func (t *uiText) CacheDeleteTaskProgress(u cleaner.ProgressUpdate) string {
 	return fmt.Sprintf("Cleaning cache (%d/%d)", u.Current, u.Total)
 }
 
-func (t *uiText) EmptyScanProgress(u cleaner.ProgressUpdate) string {
-	return fmt.Sprintf("Scanning (%d/%d, %d folders): %s", u.Current, u.Total, u.Visited, u.Message)
-}
-
-func (t *uiText) EmptyScanTaskProgress(u cleaner.ProgressUpdate) string {
-	return fmt.Sprintf("Scanning empty folders (%d/%d)", u.Current, u.Total)
-}
-
-func (t *uiText) EmptyDeleteTaskProgress(u cleaner.ProgressUpdate) string {
-	return fmt.Sprintf("Removing empty folders (%d/%d)", u.Current, u.Total)
-}
-
 func (t *uiText) ConfirmCacheCleanup(plan *cleaner.Plan) string {
 	return fmt.Sprintf(
-		"Move %d selected groups to the Recycle Bin?\nEstimated savings: %s\n\nFiles can be restored from the Recycle Bin.",
-		plan.Selected, cleaner.HumanBytes(plan.TotalBytes),
-	)
-}
-
-func (t *uiText) ConfirmEmptyRemoval(selected int) string {
-	return fmt.Sprintf(
-		"Move %d selected empty folders to the Recycle Bin?\n\nFolders can be restored from the Recycle Bin.",
-		selected,
+		"Move %s to the Recycle Bin?\nEstimated savings: %s\n\nFiles can be restored from the Recycle Bin.",
+		t.ItemsCount(plan.Selected), cleaner.HumanBytes(plan.TotalBytes),
 	)
 }
 
 func (t *uiText) CacheResultSummary(result *cleaner.ExecResult) string {
 	return summaryLine(
-		fmt.Sprintf("%d groups cleaned", result.TotalSelected),
+		t.ItemsCount(result.TotalSelected)+" cleaned",
 		"est. "+cleaner.HumanBytes(result.TotalBytes)+" freed",
 		formatDuration(result.DurationMs),
-		fmt.Sprintf("%d errors", result.ErrorCount),
+		t.ErrorsCount(result.ErrorCount),
 	)
-}
-
-func (t *uiText) EmptyResultSummary(result *cleaner.EmptyFolderResult) string {
-	return summaryLine(
-		fmt.Sprintf("%d removed", result.Removed),
-		fmt.Sprintf("%d failed", result.Failed),
-		formatDuration(result.DurationMs),
-	)
-}
-
-func (t *uiText) EmptyScanFound(folders, visited int) string {
-	return fmt.Sprintf("Found %d empty folders after scanning %d folders.", folders, visited)
-}
-
-func (t *uiText) MoreScanErrors(count int) string {
-	return fmt.Sprintf("%d more scan errors", count)
 }

@@ -305,6 +305,38 @@ func isSafePath(p string) bool {
 		os.Getenv("APPDATA"),
 		os.Getenv("PROGRAMDATA"),
 		os.Getenv("USERPROFILE"),
+		// The registry also curates targets under the Windows and Program Files
+		// trees (e.g. Prefetch, SoftwareDistribution\Download, Ubisoft launcher).
+		os.Getenv("SystemRoot"),
+		os.Getenv("windir"),
+		os.Getenv("ProgramFiles"),
+		os.Getenv("ProgramFiles(x86)"),
+		os.Getenv("ProgramW6432"),
 	}
 	return isPathUnderAnyRoot(p, roots)
+}
+
+func isPathUnderAnyRoot(path string, roots []string) bool {
+	for _, root := range roots {
+		if isPathUnderRoot(path, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func isPathUnderRoot(path, root string) bool {
+	if path == "" || root == "" {
+		return false
+	}
+	pathKey := normalizedPathKey(path)
+	rootKey := normalizedPathKey(root)
+	if pathKey == rootKey {
+		return false
+	}
+	return strings.HasPrefix(pathKey, rootKey+string(filepath.Separator))
+}
+
+func normalizedPathKey(path string) string {
+	return strings.ToLower(filepath.Clean(path))
 }

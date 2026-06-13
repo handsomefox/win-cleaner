@@ -18,18 +18,17 @@ func (ws *workspace) showCacheScan() {
 	status.Alignment = fyne.TextAlignCenter
 	progress := widget.NewProgressBar()
 
-	ws.setTabState(ws.texts.TabCache, &headerState{
+	ws.showCache(scanPanel(
+		ws.texts.CacheScanCardTitle,
+		ws.texts.CacheScanCardSubtitle,
+		status,
+		progress,
+	), &headerState{
 		Task:       ws.texts.TaskCacheScanning,
 		ActionText: ws.texts.ActionCancel,
 		ActionIcon: theme.CancelIcon(),
 		Action:     func() { ws.safeClose(cleaner.ErrCancelled) },
 	})
-	ws.setTabContent(ws.texts.TabCache, scanPanel(
-		ws.texts.CacheScanCardTitle,
-		ws.texts.CacheScanCardSubtitle,
-		status,
-		progress,
-	))
 
 	var stale atomic.Bool
 	go func() {
@@ -43,7 +42,7 @@ func (ws *workspace) showCacheScan() {
 				}
 				if u.Message != "" {
 					status.SetText(ws.texts.CacheScanProgress(u))
-					ws.setTabState(ws.texts.TabCache, &headerState{Task: ws.texts.CacheScanTaskProgress(u)})
+					ws.updateCacheHeader(&headerState{Task: ws.texts.CacheScanTaskProgress(u)})
 				}
 			}, false)
 		})
@@ -62,13 +61,10 @@ func (ws *workspace) showCacheScan() {
 }
 
 func (ws *workspace) showCacheSelect(plan *cleaner.Plan) {
-	filterEntry := widget.NewEntry()
-	filterEntry.SetPlaceHolder(ws.texts.CacheSearchPlaceholder)
-
 	dryRun := ws.opts.DryRun
 	expanded := map[string]bool{}
 	categoryExpanded := map[string]bool{}
-	sortMode := cacheSortSizeDesc
+	sortMode := cacheSortName
 	var listScroll *container.Scroll
 	var apply func()
 
@@ -78,13 +74,13 @@ func (ws *workspace) showCacheSelect(plan *cleaner.Plan) {
 		if dryRun {
 			actionText = ws.texts.ActionPreview
 		}
-		ws.setTabState(ws.texts.TabCache, &headerState{
-			Task:       ws.texts.TaskCacheReview,
-			Selection:  selection,
-			Savings:    savings,
-			ActionText: actionText,
-			ActionIcon: theme.ConfirmIcon(),
-			Action:     apply,
+		ws.updateCacheHeader(&headerState{
+			Selection:    selection,
+			Savings:      savings,
+			SavingsBytes: plan.TotalBytes,
+			ActionText:   actionText,
+			ActionIcon:   theme.ConfirmIcon(),
+			Action:       apply,
 		})
 	}
 
@@ -92,30 +88,26 @@ func (ws *workspace) showCacheSelect(plan *cleaner.Plan) {
 		for _, ag := range plan.ByApp() {
 			expanded[ag.App] = state
 		}
-		for _, category := range categorizedCacheAppGroups(ws.texts, plan, filterEntry.Text, sortMode) {
+		for _, category := range categorizedCacheAppGroups(ws.texts, plan, "", sortMode) {
 			categoryExpanded[category.Name] = state
 		}
 	}
 
-	var rebuildList func(string)
-	rebuildList = func(filter string) {
-		categories := categorizedCacheAppGroups(ws.texts, plan, filter, sortMode)
+	var rebuildList func()
+	rebuildList = func() {
+		categories := categorizedCacheAppGroups(ws.texts, plan, "", sortMode)
 		sections := make([]fyne.CanvasObject, 0)
-		for _, category := range categories {
-			if _, ok := categoryExpanded[category.Name]; !ok {
-				categoryExpanded[category.Name] = true
-			}
-			category := category
+		for ci, category := range categories {
 			appRows := make([]fyne.CanvasObject, 0, len(category.Groups))
-			for _, ag := range category.Groups {
-				appRows = append(appRows, cacheAppSection(ws.texts, ag.App, ag.Items, expanded, ws.window, func() {
-					rebuildList(filterEntry.Text)
+			for ai, ag := range category.Groups {
+				appRows = append(appRows, cacheAppSection(ws.texts, ag.App, ag.Items, ai%2 == 1, expanded, ws.window, func() {
+					rebuildList()
 					updateHeader(apply)
 				}))
 			}
-			sections = append(sections, cacheCategorySection(category, categoryExpanded, appRows, func() {
+			sections = append(sections, cacheCategorySection(ws.texts, category, ci%2 == 1, categoryExpanded, appRows, func() {
 				setCategorySelected(category.Groups, !allCategoryGroupsSelected(category.Groups))
-				rebuildList(filterEntry.Text)
+				rebuildList()
 				updateHeader(apply)
 			}))
 		}
@@ -150,97 +142,99 @@ func (ws *workspace) showCacheSelect(plan *cleaner.Plan) {
 		}, ws.window).Show()
 	}
 
-	filterEntry.OnChanged = func(s string) {
-		rebuildList(s)
-		updateHeader(apply)
-	}
-
 	selectAll := widget.NewButtonWithIcon(ws.texts.ActionSelectAll, theme.ContentAddIcon(), func() {
 		for i := range plan.Groups {
 			plan.Groups[i].On = true
 		}
-		rebuildList(filterEntry.Text)
+		rebuildList()
 		updateHeader(apply)
 	})
 	selectNonEmpty := widget.NewButtonWithIcon(ws.texts.ActionSelectNonEmpty, theme.CheckButtonCheckedIcon(), func() {
 		for i := range plan.Groups {
 			plan.Groups[i].On = plan.Groups[i].Bytes > 0
 		}
-		rebuildList(filterEntry.Text)
+		rebuildList()
 		updateHeader(apply)
 	})
 	selectNone := widget.NewButtonWithIcon(ws.texts.ActionDeselectAll, theme.ContentRemoveIcon(), func() {
 		for i := range plan.Groups {
 			plan.Groups[i].On = false
 		}
-		rebuildList(filterEntry.Text)
+		rebuildList()
 		updateHeader(apply)
 	})
 	expandAll := widget.NewButtonWithIcon(ws.texts.ActionExpandAll, theme.MenuDropDownIcon(), func() {
 		setAllExpanded(true)
-		rebuildList(filterEntry.Text)
+		rebuildList()
 	})
 	collapseAll := widget.NewButtonWithIcon(ws.texts.ActionCollapseAll, theme.MenuExpandIcon(), func() {
 		setAllExpanded(false)
-		rebuildList(filterEntry.Text)
+		rebuildList()
 	})
 	sortSelect := widget.NewSelect(ws.texts.CacheSortOptions(), func(s string) {
 		sortMode = ws.texts.CacheSortMode(s)
-		rebuildList(filterEntry.Text)
+		rebuildList()
 	})
-	sortSelect.SetSelected(ws.texts.CacheSortLargest)
+	sortSelect.SetSelected(ws.texts.CacheSortName)
 	sortControl := container.NewGridWrap(fyne.NewSize(180, sortSelect.MinSize().Height), sortSelect)
-	dryRunToggle := widget.NewCheck(ws.texts.TogglePreviewOnly, func(checked bool) {
-		dryRun = checked
+
+	// Preview is a visible toggle button: highlighted (indigo) when active.
+	previewBtn := widget.NewButtonWithIcon(ws.texts.TogglePreviewOnly, theme.VisibilityIcon(), nil)
+	syncPreview := func() {
+		if dryRun {
+			previewBtn.Importance = widget.HighImportance
+		} else {
+			previewBtn.Importance = widget.MediumImportance
+		}
+		previewBtn.Refresh()
+	}
+	previewBtn.OnTapped = func() {
+		dryRun = !dryRun
+		syncPreview()
 		updateHeader(apply)
-	})
-	dryRunToggle.Checked = dryRun
-	dryRunToggle.Refresh()
+	}
+	syncPreview()
 	rescanBtn := widget.NewButtonWithIcon(ws.texts.ActionRescan, theme.ViewRefreshIcon(), func() {
 		ws.showCacheScan()
 	})
 
-	rebuildList("")
+	rebuildList()
 	updateHeader(apply)
 	listScroll.SetMinSize(fyne.NewSize(0, 480))
 
-	infoBtn := widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
-		dialog.ShowInformation(ws.texts.CacheTargetsCardTitle, ws.texts.CacheTargetsCardSubtitle, ws.window)
-	})
-	infoBtn.Importance = widget.LowImportance
-	searchRow := labeledEntryRow(ws.texts.LabelSearch, filterEntry)
-	leftActions := toolbarRow(selectAll, selectNonEmpty, selectNone, widget.NewSeparator(), sortControl, widget.NewSeparator(), expandAll, collapseAll, infoBtn)
-	rightActions := toolbarRow(dryRunToggle, rescanBtn)
-	actions := container.NewBorder(nil, nil, leftActions, rightActions, nil)
-	ws.setTabContent(ws.texts.TabCache, container.NewPadded(container.NewBorder(
-		controlsPanel(searchRow, actions),
-		nil, nil, nil,
-		cacheListPanel(ws.texts, listScroll),
+	// Selection actions on the left; view + run actions on the right.
+	selectionGroup := toolbarRow(selectAll, selectNonEmpty, selectNone)
+	viewGroup := toolbarRow(sortControl, expandAll, collapseAll, widget.NewSeparator(), previewBtn, rescanBtn)
+	actionsRow := container.NewBorder(nil, nil, selectionGroup, viewGroup)
+	// Toolbar + list live in one card so the controls clearly belong to the list.
+	listHeader := container.NewVBox(actionsRow, widget.NewSeparator())
+	ws.setCacheContent(container.NewPadded(surfaceCard(
+		container.NewBorder(listHeader, nil, nil, nil, listScroll),
 	)))
 }
 
 func (ws *workspace) showCacheDelete(plan *cleaner.Plan, opts cleaner.Options) {
 	cacheSelectionSummary(ws.texts, plan)
 	panel := newCleanupProgressPanel(
+		ws.texts,
 		ws.texts.CacheDeleteCardTitle,
 		ws.texts.CacheDeleteCardSubtitle,
-		fmt.Sprintf("%d groups", plan.Selected),
+		ws.texts.ItemsCount(plan.Selected),
 		cleaner.HumanBytes(plan.TotalBytes),
 	)
-	panel.SetProgress(0, plan.Selected, ws.texts.StatusPreparing, "groups")
+	panel.SetProgress(0, plan.Selected, ws.texts.StatusPreparing, ws.texts.UnitItems)
 
-	ws.setTabState(ws.texts.TabCache, &headerState{Task: ws.texts.TaskCacheDeleting})
-	ws.setTabContent(ws.texts.TabCache, panel.root)
+	ws.showCache(panel.root, &headerState{Task: ws.texts.TaskCacheDeleting})
 
 	go func() {
 		result, err := cleaner.ExecuteWithResult(*plan, opts, func(u cleaner.ProgressUpdate) {
 			ws.app.Driver().DoFromGoroutine(func() {
 				if u.Total > 0 {
-					panel.SetProgress(u.Current, u.Total, "", "groups")
-					ws.setTabState(ws.texts.TabCache, &headerState{Task: ws.texts.CacheDeleteTaskProgress(u)})
+					panel.SetProgress(u.Current, u.Total, "", ws.texts.UnitItems)
+					ws.updateCacheHeader(&headerState{Task: ws.texts.CacheDeleteTaskProgress(u)})
 				}
 				if u.Message != "" {
-					panel.SetProgress(u.Current, u.Total, u.Message, "groups")
+					panel.SetProgress(u.Current, u.Total, u.Message, ws.texts.UnitItems)
 				}
 			}, false)
 		})
@@ -251,7 +245,6 @@ func (ws *workspace) showCacheDelete(plan *cleaner.Plan, opts cleaner.Options) {
 		}
 		ws.app.Driver().DoFromGoroutine(func() {
 			ws.showResults(&result, err)
-			ws.showHistory()
 		}, false)
 	}()
 }

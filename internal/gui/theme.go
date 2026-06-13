@@ -21,6 +21,8 @@ var (
 	colPressed       = color.NRGBA{R: 0x2f, G: 0x36, B: 0x43, A: 0xff}
 	colAccent        = color.NRGBA{R: 0x63, G: 0x66, B: 0xf1, A: 0xff} // indigo
 	colSelection     = color.NRGBA{R: 0x63, G: 0x66, B: 0xf1, A: 0x55} // translucent indigo
+	colRowAlt        = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x0c} // zebra-stripe overlay
+	colTransparent   = color.NRGBA{}
 	colOnAccent      = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	colText          = color.NRGBA{R: 0xe6, G: 0xe9, B: 0xef, A: 0xff}
 	colMuted         = color.NRGBA{R: 0x8b, G: 0x93, B: 0xa3, A: 0xff}

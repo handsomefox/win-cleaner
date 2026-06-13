@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -10,12 +11,13 @@ import (
 )
 
 type headerState struct {
-	Task       string
-	Selection  string
-	Savings    string
-	ActionText string
-	ActionIcon fyne.Resource
-	Action     func()
+	Task         string
+	Selection    string
+	Savings      string
+	SavingsBytes uint64
+	ActionText   string
+	ActionIcon   fyne.Resource
+	Action       func()
 }
 
 type workspace struct {
@@ -26,18 +28,20 @@ type workspace struct {
 	texts     *uiText
 	safeClose func(error)
 
-	tabs       *container.AppTabs
-	cacheTab   *container.TabItem
-	emptyTab   *container.TabItem
-	historyTab *container.TabItem
+	contentHolder *fyne.Container
 
 	taskLabel      *widget.Label
 	selectionLabel *widget.Label
-	savingsLabel   *widget.Label
+	savingsText    *canvas.Text
 	selectionChip  fyne.CanvasObject
 	savingsChip    fyne.CanvasObject
 	actionButton   *widget.Button
-	states         map[string]headerState
+	actionWrap     fyne.CanvasObject // fixed-width holder around actionButton
+
+	// The current Cache Cleanup screen, retained so returning from History
+	// (via the burger menu) restores exactly where the user was.
+	cacheContent fyne.CanvasObject
+	cacheState   headerState
 }
 
 func newWorkspace(a fyne.App, w fyne.Window, reg cleaner.Registry, opts cleaner.Options, texts *uiText, safeClose func(error)) *workspace {
@@ -50,67 +54,72 @@ func newWorkspace(a fyne.App, w fyne.Window, reg cleaner.Registry, opts cleaner.
 		safeClose:      safeClose,
 		taskLabel:      widget.NewLabel(texts.TaskReady),
 		selectionLabel: widget.NewLabel(""),
-		savingsLabel:   widget.NewLabelWithStyle("", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true}),
+		savingsText:    newSavingsText(),
 		actionButton:   widget.NewButtonWithIcon(texts.ActionStart, theme.MediaPlayIcon(), nil),
-		states:         map[string]headerState{},
 	}
 	ws.actionButton.Importance = widget.HighImportance
 	ws.actionButton.Disable()
-	ws.cacheTab = container.NewTabItemWithIcon(texts.TabCache, theme.StorageIcon(), centeredStatus(texts.PreparingCache))
-	ws.emptyTab = container.NewTabItemWithIcon(texts.TabEmpty, theme.FolderIcon(), centeredStatus(texts.PreparingEmpty))
-	ws.historyTab = container.NewTabItemWithIcon(texts.TabHistory, theme.HistoryIcon(), centeredStatus(texts.LoadingHistory))
-	ws.tabs = container.NewAppTabs(ws.cacheTab, ws.emptyTab, ws.historyTab)
-	ws.tabs.SetTabLocation(container.TabLocationTop)
-	ws.tabs.OnSelected = func(item *container.TabItem) {
-		ws.applyHeader(item.Text)
-		if item.Text == texts.TabHistory {
-			ws.showHistory()
-		}
-	}
+	ws.contentHolder = container.NewStack(centeredStatus(texts.PreparingCache))
 
-	w.SetContent(container.NewBorder(ws.header(), nil, nil, nil, ws.tabs))
-	ws.setTabState(texts.TabCache, &headerState{Task: texts.TaskCacheScanning})
-	ws.setTabState(texts.TabEmpty, &headerState{Task: texts.TaskEmptyChooseRoots})
-	ws.setTabState(texts.TabHistory, &headerState{Task: texts.TaskHistory})
-	ws.applyHeader(texts.TabCache)
+	w.SetContent(container.NewBorder(ws.header(), nil, nil, nil, ws.contentHolder))
+	ws.applyHeaderWidgets(&headerState{Task: texts.TaskCacheScanning})
 	return ws
 }
 
 func (ws *workspace) header() fyne.CanvasObject {
+	burger := widget.NewButtonWithIcon("", theme.MenuIcon(), nil)
+	burger.Importance = widget.LowImportance
+	burger.OnTapped = func() { ws.showBurgerMenu(burger) }
+
 	title := widget.NewLabelWithStyle(ws.texts.AppTitle, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	title.SizeName = theme.SizeNameHeadingText
-	titleRow := container.NewHBox(widget.NewIcon(theme.StorageIcon()), title)
+	titleRow := container.NewHBox(burger, title)
 
 	ws.taskLabel.Importance = widget.LowImportance
-	ws.savingsLabel.Importance = widget.HighImportance
 	ws.selectionChip = chip(ws.selectionLabel)
-	ws.savingsChip = chip(ws.savingsLabel)
+	ws.savingsChip = chip(ws.savingsText)
 	ws.selectionChip.Hide()
 	ws.savingsChip.Hide()
-	return headerBar(titleRow, ws.taskLabel, ws.selectionChip, ws.savingsChip, ws.actionButton)
+
+	// Fixed width so toggling the action label (Preview ⇄ Clean Up …) never
+	// shifts the header layout.
+	ws.actionWrap = container.NewGridWrap(
+		fyne.NewSize(actionButtonWidth(ws.texts), ws.actionButton.MinSize().Height),
+		ws.actionButton,
+	)
+	return headerBar(titleRow, ws.taskLabel, ws.selectionChip, ws.savingsChip, ws.actionWrap)
 }
 
-func (ws *workspace) setTabState(tab string, state *headerState) {
-	ws.states[tab] = *state
-	if ws.activeTab() == tab {
-		ws.applyHeader(tab)
-	}
+func (ws *workspace) showBurgerMenu(anchor fyne.CanvasObject) {
+	menu := fyne.NewMenu(
+		"",
+		fyne.NewMenuItemWithIcon(ws.texts.MenuCacheCleanup, theme.StorageIcon(), ws.restoreCache),
+		fyne.NewMenuItemWithIcon(ws.texts.MenuHistory, theme.HistoryIcon(), ws.showHistory),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItemWithIcon(ws.texts.MenuAbout, theme.InfoIcon(), func() { showAbout(ws.window, ws.texts) }),
+		fyne.NewMenuItemWithIcon(ws.texts.MenuQuit, theme.CancelIcon(), func() { ws.safeClose(cleaner.ErrCancelled) }),
+	)
+	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
+	pos.Y += anchor.Size().Height
+	widget.ShowPopUpMenuAtPosition(menu, ws.window.Canvas(), pos)
 }
 
-func (ws *workspace) applyHeader(tab string) {
-	state := ws.states[tab]
+func (ws *workspace) applyHeaderWidgets(state *headerState) {
 	ws.taskLabel.SetText(state.Task)
+	setObjectVisible(ws.taskLabel, state.Task != "")
 	ws.selectionLabel.SetText(state.Selection)
-	ws.savingsLabel.SetText(state.Savings)
+	ws.savingsText.Text = state.Savings
+	ws.savingsText.Color = magnitudeColor(state.SavingsBytes)
+	ws.savingsText.Refresh()
 	setObjectVisible(ws.selectionChip, state.Selection != "")
 	setObjectVisible(ws.savingsChip, state.Savings != "")
 	if state.ActionText == "" {
-		ws.actionButton.SetText(ws.texts.ActionNone)
-		ws.actionButton.SetIcon(theme.CancelIcon())
 		ws.actionButton.OnTapped = nil
 		ws.actionButton.Hide()
+		setObjectVisible(ws.actionWrap, false)
 		return
 	}
+	setObjectVisible(ws.actionWrap, true)
 	ws.actionButton.Show()
 	ws.actionButton.SetText(state.ActionText)
 	if state.ActionIcon != nil {
@@ -124,6 +133,42 @@ func (ws *workspace) applyHeader(tab string) {
 	}
 }
 
+func (ws *workspace) setContent(content fyne.CanvasObject) {
+	ws.contentHolder.Objects = []fyne.CanvasObject{content}
+	ws.contentHolder.Refresh()
+}
+
+// showCache displays a Cache Cleanup screen and records it for later restore.
+func (ws *workspace) showCache(content fyne.CanvasObject, state *headerState) {
+	ws.cacheContent = content
+	ws.cacheState = *state
+	ws.setContent(content)
+	ws.applyHeaderWidgets(state)
+}
+
+// updateCacheHeader refreshes the header for the current cache screen (e.g. live
+// progress or selection changes) without rebuilding its content.
+func (ws *workspace) updateCacheHeader(state *headerState) {
+	ws.cacheState = *state
+	ws.applyHeaderWidgets(state)
+}
+
+// setCacheContent swaps the cache screen body while keeping the current header.
+func (ws *workspace) setCacheContent(content fyne.CanvasObject) {
+	ws.cacheContent = content
+	ws.setContent(content)
+}
+
+// restoreCache returns to the saved Cache Cleanup screen (used by the burger menu
+// and the History "Back" action).
+func (ws *workspace) restoreCache() {
+	if ws.cacheContent == nil {
+		return
+	}
+	ws.setContent(ws.cacheContent)
+	ws.applyHeaderWidgets(&ws.cacheState)
+}
+
 func setObjectVisible(obj fyne.CanvasObject, visible bool) {
 	if obj == nil {
 		return
@@ -133,34 +178,4 @@ func setObjectVisible(obj fyne.CanvasObject, visible bool) {
 		return
 	}
 	obj.Hide()
-}
-
-func (ws *workspace) activeTab() string {
-	if ws.tabs == nil || ws.tabs.Selected() == nil {
-		return ""
-	}
-	return ws.tabs.Selected().Text
-}
-
-func (ws *workspace) setTabContent(tab string, content fyne.CanvasObject) {
-	switch tab {
-	case ws.texts.TabCache:
-		ws.cacheTab.Content = content
-	case ws.texts.TabEmpty:
-		ws.emptyTab.Content = content
-	case ws.texts.TabHistory:
-		ws.historyTab.Content = content
-	}
-	ws.tabs.Refresh()
-}
-
-func (ws *workspace) selectTab(tab string) {
-	switch tab {
-	case ws.texts.TabCache:
-		ws.tabs.Select(ws.cacheTab)
-	case ws.texts.TabEmpty:
-		ws.tabs.Select(ws.emptyTab)
-	case ws.texts.TabHistory:
-		ws.tabs.Select(ws.historyTab)
-	}
 }

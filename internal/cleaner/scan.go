@@ -160,6 +160,9 @@ func buildPlan(reg Registry, cb func(ProgressUpdate)) (Plan, error) {
 		}
 	}
 
+	// Append opt-in empty-folder removal groups (one per scanned root).
+	groups = append(groups, buildEmptyFolderGroups()...)
+
 	sort.SliceStable(groups, func(i, j int) bool {
 		if groups[i].App == groups[j].App {
 			return groups[i].Label < groups[j].Label

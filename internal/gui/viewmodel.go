@@ -133,18 +133,22 @@ func cacheCategoryName(texts *uiText, appName string) string {
 	switch strings.ToLower(appName) {
 	case "chrome", "edge", "firefox", "brave", "opera", "vivaldi":
 		return texts.CacheCategoryBrowsers
-	case "discord", "slack", "teams (classic)", "teams (new)", "telegram", "whatsapp", "zoom":
+	case "discord", "slack", "signal", "teams (classic)", "teams (new)", "telegram", "whatsapp", "zoom":
 		return texts.CacheCategoryChat
-	case "cargo", "go modules", "npm", "vscode":
+	case "cargo", "go modules", "npm", "yarn", "pnpm", "pip", "gradle", "maven", "nuget",
+		"jetbrains", "vscode", "visual studio", "unity":
 		return texts.CacheCategoryDevelopment
-	case "battle.net", "battlefield 2042", "ea/origin", "epic games launcher", "gog galaxy", "steam", "ubisoft connect":
+	case "battle.net", "battlefield 2042", "ea/origin", "epic games launcher", "gog galaxy",
+		"steam", "ubisoft connect", "rockstar games launcher", "osu! (lazer)":
 		return texts.CacheCategoryGaming
-	case "spotify":
+	case "spotify", "obs studio":
 		return texts.CacheCategoryMedia
-	case "amd", "crash dumps", "directx shader cache", "nvidia", "windows":
+	case "amd", "crash dumps", "nvidia", "windows", "windows error reporting":
 		return texts.CacheCategorySystem
 	case "adobe", "blender", "figma":
 		return texts.CacheCategoryCreative
+	case "empty folders":
+		return texts.CacheCategoryEmptyFolders
 	default:
 		return texts.CacheCategoryOther
 	}

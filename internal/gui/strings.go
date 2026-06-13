@@ -44,24 +44,25 @@ type uiText struct {
 	PreparingCache string
 	LoadingHistory string
 
-	CacheScanStatus          string
-	CacheScanCardTitle       string
-	CacheScanCardSubtitle    string
-	CacheSortName            string
-	CacheSortLargest         string
-	CacheSortSmallest        string
-	CacheCategoryBrowsers    string
-	CacheCategoryChat        string
-	CacheCategoryDevelopment string
-	CacheCategoryGaming      string
-	CacheCategoryMedia       string
-	CacheCategorySystem      string
-	CacheCategoryCreative    string
-	CacheCategoryOther       string
-	TogglePreviewOnly        string
-	NoMatchingCacheTargets   string
-	CacheDeleteCardTitle     string
-	CacheDeleteCardSubtitle  string
+	CacheScanStatus           string
+	CacheScanCardTitle        string
+	CacheScanCardSubtitle     string
+	CacheSortName             string
+	CacheSortLargest          string
+	CacheSortSmallest         string
+	CacheCategoryBrowsers     string
+	CacheCategoryChat         string
+	CacheCategoryDevelopment  string
+	CacheCategoryGaming       string
+	CacheCategoryMedia        string
+	CacheCategorySystem       string
+	CacheCategoryCreative     string
+	CacheCategoryEmptyFolders string
+	CacheCategoryOther        string
+	TogglePreviewOnly         string
+	NoMatchingCacheTargets    string
+	CacheDeleteCardTitle      string
+	CacheDeleteCardSubtitle   string
 
 	StatusPreparing string
 	NotFound        string
@@ -152,24 +153,25 @@ func englishText() *uiText {
 		PreparingCache: "Preparing cache cleanup…",
 		LoadingHistory: "Loading history…",
 
-		CacheScanStatus:          "Scanning cache locations…",
-		CacheScanCardTitle:       "Scanning Cache",
-		CacheScanCardSubtitle:    "Looking for cache locations to clean.",
-		CacheSortName:            "Name",
-		CacheSortLargest:         "Largest first",
-		CacheSortSmallest:        "Smallest first",
-		CacheCategoryBrowsers:    "Browsers",
-		CacheCategoryChat:        "Chat",
-		CacheCategoryDevelopment: "Development",
-		CacheCategoryGaming:      "Gaming",
-		CacheCategoryMedia:       "Media",
-		CacheCategorySystem:      "System",
-		CacheCategoryCreative:    "Creative",
-		CacheCategoryOther:       "Other",
-		TogglePreviewOnly:        "Preview only",
-		NoMatchingCacheTargets:   "No matching cleanup targets.",
-		CacheDeleteCardTitle:     "Cleaning Up",
-		CacheDeleteCardSubtitle:  "Moving files to the Recycle Bin.",
+		CacheScanStatus:           "Scanning cache locations…",
+		CacheScanCardTitle:        "Scanning Cache",
+		CacheScanCardSubtitle:     "Looking for cache locations to clean.",
+		CacheSortName:             "Name",
+		CacheSortLargest:          "Largest first",
+		CacheSortSmallest:         "Smallest first",
+		CacheCategoryBrowsers:     "Browsers",
+		CacheCategoryChat:         "Chat",
+		CacheCategoryDevelopment:  "Development",
+		CacheCategoryGaming:       "Gaming",
+		CacheCategoryMedia:        "Media",
+		CacheCategorySystem:       "System",
+		CacheCategoryCreative:     "Creative",
+		CacheCategoryEmptyFolders: "Empty folders",
+		CacheCategoryOther:        "Other",
+		TogglePreviewOnly:         "Preview only",
+		NoMatchingCacheTargets:    "No matching cleanup targets.",
+		CacheDeleteCardTitle:      "Cleaning Up",
+		CacheDeleteCardSubtitle:   "Moving files to the Recycle Bin.",
 
 		StatusPreparing: "Preparing…",
 		NotFound:        "Not found",

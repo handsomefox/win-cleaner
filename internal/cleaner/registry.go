@@ -207,6 +207,15 @@ func BuildRegistry() Registry {
 			},
 		},
 		{
+			App:       "Signal",
+			Label:     "cache + logs",
+			DefaultOn: true,
+			Paths: append(
+				electronSet(filepath.Join(appData, "Signal")),
+				filepath.Join(appData, "Signal", "logs"),
+			),
+		},
+		{
 			App:       "Steam",
 			Label:     "HTML cache",
 			DefaultOn: true,
@@ -392,6 +401,38 @@ func BuildRegistry() Registry {
 			},
 		},
 		{
+			App:       "pip",
+			Label:     "download cache",
+			DefaultOn: false,
+			Paths: []string{
+				filepath.Join(localAppData, "pip", "Cache"),
+			},
+		},
+		{
+			App:       "pnpm",
+			Label:     "store cache",
+			DefaultOn: false,
+			Paths: []string{
+				filepath.Join(localAppData, "pnpm-cache"),
+			},
+		},
+		{
+			App:       "Visual Studio",
+			Label:     "component model cache",
+			DefaultOn: false,
+			Globs: []string{
+				filepath.Join(localAppData, "Microsoft", "VisualStudio", "*", "ComponentModelCache"),
+			},
+		},
+		{
+			App:       "Unity",
+			Label:     "GI cache",
+			DefaultOn: false,
+			Paths: []string{
+				filepath.Join(userProfile, "AppData", "LocalLow", "Unity", "Caches"),
+			},
+		},
+		{
 			App:       "NVIDIA",
 			Label:     "CEF cache + OTA + logs",
 			DefaultOn: true,
@@ -444,6 +485,16 @@ func BuildRegistry() Registry {
 			),
 		},
 		{
+			App:       "OBS Studio",
+			Label:     "logs + crashes + browser cache",
+			DefaultOn: true,
+			Paths: []string{
+				filepath.Join(appData, "obs-studio", "logs"),
+				filepath.Join(appData, "obs-studio", "crashes"),
+				filepath.Join(appData, "obs-studio", "plugin_config", "obs-browser", "cache"),
+			},
+		},
+		{
 			App:       "Adobe",
 			Label:     "media cache",
 			DefaultOn: false,
@@ -480,6 +531,14 @@ func BuildRegistry() Registry {
 			Paths:     chromiumSet(filepath.Join(appData, "Vortex")),
 		},
 		{
+			App:       "qBittorrent",
+			Label:     "logs",
+			DefaultOn: true,
+			Paths: []string{
+				filepath.Join(localAppData, "qBittorrent", "Logs"),
+			},
+		},
+		{
 			App:       "Windows",
 			Label:     "Temp folder",
 			DefaultOn: true,
@@ -508,6 +567,22 @@ func BuildRegistry() Registry {
 				}
 				return []string{filepath.Join(systemRoot, "Prefetch")}
 			}(),
+		},
+		{
+			App:       "Windows",
+			Label:     "internet cache (IE/legacy)",
+			DefaultOn: true,
+			Paths: []string{
+				filepath.Join(localAppData, "Microsoft", "Windows", "INetCache"),
+			},
+		},
+		{
+			App:       "Windows",
+			Label:     "delivery optimization cache",
+			DefaultOn: true,
+			Paths: []string{
+				filepath.Join(programData, "Microsoft", "Windows", "DeliveryOptimization", "Cache"),
+			},
 		},
 		{
 			App:       "Windows",

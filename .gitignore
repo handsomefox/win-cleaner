@@ -1,3 +1,2 @@
-win-cleaner.exe
-fyne-cross/
-Icon.png
+/dist
+/target

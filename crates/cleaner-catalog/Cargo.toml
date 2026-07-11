@@ -1,0 +1,16 @@
+[package]
+name = "cleaner-catalog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The built-in catalog of cache locations win-cleaner knows how to clean"
+
+[dependencies]
+cleaner-core = { version = "0.1.0", path = "../cleaner-core" }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

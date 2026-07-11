@@ -1,0 +1,31 @@
+#include <winver.h>
+
+1 ICON "assets/app.ico"
+1 RT_MANIFEST "app.manifest"
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "win-cleaner\0"
+      VALUE "FileVersion", "0.1.0\0"
+      VALUE "InternalName", "win-cleaner.exe\0"
+      VALUE "OriginalFilename", "win-cleaner.exe\0"
+      VALUE "ProductName", "win-cleaner\0"
+      VALUE "ProductVersion", "0.1.0\0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END

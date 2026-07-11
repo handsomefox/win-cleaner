@@ -1,0 +1,23 @@
+[package]
+name = "cleaner-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Windows platform integration for win-cleaner: Recycle Bin, known folders, and root resolution"
+
+[dependencies]
+cleaner-core = { path = "../cleaner-core" }
+
+[target."cfg(windows)".dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_System_Com",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

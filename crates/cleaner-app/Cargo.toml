@@ -1,0 +1,32 @@
+[package]
+name = "cleaner-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "egui desktop application for win-cleaner"
+
+[[bin]]
+name = "win-cleaner"
+path = "src/main.rs"
+
+[dependencies]
+cleaner-catalog = { version = "0.1.0", path = "../cleaner-catalog" }
+cleaner-core = { version = "0.1.0", path = "../cleaner-core" }
+cleaner-platform = { version = "0.1.0", path = "../cleaner-platform" }
+crossbeam-channel.workspace = true
+eframe.workspace = true
+egui_extras.workspace = true
+image.workspace = true
+jiff.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[build-dependencies]
+embed-resource = "3"
+
+[package.metadata.cargo-machete]
+ignored = ["embed-resource"]
+
+[lints]
+workspace = true

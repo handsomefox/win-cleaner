@@ -3,10 +3,12 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 target="x86_64-pc-windows-msvc"
-artifact="${CARGO_TARGET_DIR:-$root/target}/${target}/release/win-cleaner.exe"
 dist="$root/dist"
 
 cd "$root"
+target_dir="$(cargo metadata --no-deps --format-version 1 | jq -r '.target_directory')"
+artifact="$target_dir/$target/release/win-cleaner.exe"
+
 cargo xwin build --workspace --release --target "$target"
 mkdir -p "$dist"
 cp "$artifact" "$dist/win-cleaner.exe"

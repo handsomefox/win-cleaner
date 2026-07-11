@@ -132,13 +132,11 @@ fn dir_size(path: &Path) -> std::io::Result<u64> {
 mod tests {
     use super::*;
     use crate::catalog::Item;
-    use std::fs::{File, create_dir_all};
-    use std::io::Write as _;
+    use std::fs::{create_dir_all, write};
 
     fn write_file(path: &Path, len: usize) {
         create_dir_all(path.parent().unwrap()).unwrap();
-        let mut file = File::create(path).unwrap();
-        file.write_all(&vec![0u8; len]).unwrap();
+        write(path, vec![0u8; len]).unwrap();
     }
 
     fn test_roots(base: &Path) -> Roots {

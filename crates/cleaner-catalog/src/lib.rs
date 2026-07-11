@@ -497,8 +497,7 @@ mod tests {
     use super::*;
     use cleaner_core::{Roots, build_plan, is_safe_path};
     use std::collections::HashSet;
-    use std::fs::{File, create_dir_all};
-    use std::io::Write as _;
+    use std::fs::{create_dir_all, write};
     use std::path::PathBuf;
 
     fn test_roots(base: &Path) -> Roots {
@@ -514,8 +513,7 @@ mod tests {
 
     fn write_file(path: &Path, len: usize) {
         create_dir_all(path.parent().unwrap()).unwrap();
-        let mut file = File::create(path).unwrap();
-        file.write_all(&vec![0u8; len]).unwrap();
+        write(path, vec![0u8; len]).unwrap();
     }
 
     #[test]

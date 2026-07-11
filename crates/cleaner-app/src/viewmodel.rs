@@ -86,10 +86,11 @@ fn filtered_app_groups(plan: &Plan, filter: &str, sort: SortMode) -> Vec<AppView
                 return None;
             }
             visible.sort_by(|&a, &b| plan.groups[b].bytes.cmp(&plan.groups[a].bytes));
+            let bytes = visible.iter().map(|&index| plan.groups[index].bytes).sum();
             Some(AppView {
                 app: group.app,
                 indices: visible,
-                bytes: group.bytes,
+                bytes,
             })
         })
         .collect();
@@ -386,6 +387,25 @@ mod tests {
         assert_eq!(filtered[0].name, "Browsers");
 
         assert!(categorized_app_groups(&ENGLISH, &plan, "zzz", SortMode::Name).is_empty());
+    }
+
+    #[test]
+    fn filter_totals_only_include_visible_items() {
+        let plan = Plan {
+            groups: vec![
+                group("Chrome", "profile cache", 500, true),
+                group("Chrome", "GPU cache", 1500, true),
+                group("Edge", "profile cache", 2000, true),
+            ],
+            ..Plan::default()
+        };
+
+        let filtered = categorized_app_groups(&ENGLISH, &plan, "GPU", SortMode::SizeDesc);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].bytes, 1500);
+        assert_eq!(filtered[0].apps.len(), 1);
+        assert_eq!(filtered[0].apps[0].bytes, 1500);
+        assert_eq!(filtered[0].apps[0].indices, vec![1]);
     }
 
     #[test]

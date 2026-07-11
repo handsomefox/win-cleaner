@@ -7,6 +7,8 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use crate::safety::is_reparse_point;
+
 /// Expands a pattern into the existing paths that match it.
 #[must_use]
 pub fn expand(pattern: &Path) -> Vec<PathBuf> {
@@ -23,6 +25,13 @@ pub fn expand(pattern: &Path) -> Vec<PathBuf> {
                     continue;
                 };
                 for entry in entries.flatten() {
+                    let path = entry.path();
+                    let Ok(metadata) = fs::symlink_metadata(&path) else {
+                        continue;
+                    };
+                    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+                        continue;
+                    }
                     let name = entry.file_name();
                     if wildcard_match(&text, &name.to_string_lossy()) {
                         next.push(base.join(name));
@@ -142,6 +151,20 @@ mod tests {
 
         let matches = expand(&dir.path().join("*").join("Cache"));
         assert_eq!(matches, vec![dir.path().join("c").join("Cache")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wildcard_does_not_descend_through_symlinked_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside");
+        let profiles = dir.path().join("profiles");
+        create_dir_all(outside.join("Cache")).unwrap();
+        create_dir_all(&profiles).unwrap();
+        std::os::unix::fs::symlink(&outside, profiles.join("linked-profile")).unwrap();
+
+        let matches = expand(&profiles.join("*").join("Cache"));
+        assert!(matches.is_empty());
     }
 
     #[test]

@@ -1,2 +1,7 @@
+/.agents
+/.codex
 /dist
 /target
+AGENTS.md
+CLAUDE.md
+PLAN.md

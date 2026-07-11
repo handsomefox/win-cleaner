@@ -112,6 +112,8 @@ fn move_to_recycle_bin(paths: &[&Path]) -> Result<(), RecycleError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    use std::fs::File;
     use std::path::MAIN_SEPARATOR_STR;
 
     fn abs(name: &str) -> std::path::PathBuf {
@@ -149,5 +151,17 @@ mod tests {
         let path = abs("anything");
         let err = recycler.recycle(&[&path]).unwrap_err();
         assert!(matches!(err, RecycleError::UnsupportedPlatform));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn recycler_moves_a_real_file_to_the_recycle_bin() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("win-cleaner-recycle-test.tmp");
+        File::create(&file).unwrap();
+
+        ShellRecycler.recycle(&[&file]).unwrap();
+
+        assert!(!file.exists());
     }
 }

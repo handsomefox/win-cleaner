@@ -117,12 +117,9 @@ pub fn delete_path_smart(path: &Path, recycler: &dyn Recycler) -> Result<(), Rec
     let children = match read_dir_paths(path) {
         Ok(children) => children,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        // Enumeration failed (permission issues); try the folder itself, but
-        // swallow the error because cleanup can still continue safely.
-        Err(_) => {
-            let _ = recycler.recycle(&[path]);
-            return Ok(());
-        }
+        // Enumeration failed (permission issues); try the folder itself and
+        // report the recycler's result to the caller.
+        Err(_) => return recycler.recycle(&[path]),
     };
 
     // Large directory: one shell call for the whole tree when possible.
@@ -309,6 +306,29 @@ mod tests {
         assert!(target.join("f0001").exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn enumeration_failure_propagates_recycler_failure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("unreadable");
+        make_children(&target, 1);
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let mock = MockRecycler {
+            refuse: vec![target.clone()],
+            ..MockRecycler::new()
+        };
+        let result = delete_path_smart(&target, &mock);
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = result.unwrap_err();
+        assert!(matches!(err, RecycleError::ShellOperation(32)));
+        assert_eq!(mock.call_sizes(), vec![1]);
+        assert!(target.exists());
+    }
+
     fn selected_group(app: &str, paths: Vec<PathBuf>) -> Group {
         Group {
             app: app.to_owned(),
@@ -368,6 +388,33 @@ mod tests {
         assert_eq!(result.error_count, 1);
         assert_eq!(updates.len(), 3);
         assert!(updates.iter().all(|u| u.phase == Phase::Delete));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn execute_rejects_paths_through_symlink_ancestors() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("safe");
+        let outside = dir.path().join("outside");
+        make_children(&outside.join("cache"), 1);
+        create_dir_all(&root).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
+        let escaped = root.join("linked/cache");
+
+        let mut plan = Plan {
+            groups: vec![selected_group("Unsafe", vec![escaped])],
+            ..Plan::default()
+        };
+        plan.recompute_totals();
+
+        let mock = MockRecycler::new();
+        let result =
+            execute_with_result(&plan, Options { dry_run: false }, &[&root], &mock, |_| {});
+
+        assert!(mock.call_sizes().is_empty());
+        assert!(outside.join("cache/f0000").exists());
+        assert_eq!(result.error_count, 1);
+        assert_eq!(result.groups[0].errors[0].error, "unsafe path (guard)");
     }
 
     #[test]

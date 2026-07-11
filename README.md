@@ -17,7 +17,7 @@ A Windows desktop app that scans known application and system cache locations, s
 ## Safety model
 
 - Deletion only ever moves paths to the **Recycle Bin** (`SHFileOperationW` with `FOF_ALLOWUNDO`); the app never deletes permanently, and never falls back to permanent deletion on failure.
-- Every path must be **strictly inside one of the known safe roots** (AppData Local/Roaming, ProgramData, the user profile, the Windows and Program Files trees). The guard is enforced when scanning **and re-checked immediately before every delete**; the roots themselves are always rejected.
+- Every path must be **strictly inside one of the known safe roots** (AppData Local/Roaming, ProgramData, the user profile, the Windows and Program Files trees). The guard is enforced when scanning **and re-checked immediately before every delete**; the roots themselves and paths reached through symlink/reparse-point ancestors are always rejected.
 - Empty groups are never pre-selected, empty-folder removal is opt-in, and symlinks/reparse points are treated as content — never followed, never sized, never considered "empty".
 - Cleaning writes a JSON record of exactly what was attempted to the run history.
 
@@ -46,6 +46,9 @@ Create the portable executable, checksum, and ZIP under `dist/`:
 ```sh
 bash scripts/package-windows.sh
 ```
+
+The packaging script requires `cargo-xwin`, `zip`, and GNU `sha256sum`; it
+verifies both the generated checksum and ZIP before returning success.
 
 The GUI runs on Linux for development, but scanning and cleaning are Windows-only.
 

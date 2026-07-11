@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::plan::Group;
 use crate::roots::Roots;
-use crate::scan::is_reparse_point;
+use crate::safety::is_reparse_point;
 
 /// App name used for the empty-folder removal groups; the GUI keys its
 /// category mapping off this value.

@@ -7,7 +7,7 @@ use crate::empty_folders::build_empty_folder_groups;
 use crate::globs::expand;
 use crate::plan::{Group, Phase, Plan, ProgressUpdate};
 use crate::roots::Roots;
-use crate::safety::{is_safe_path, normalized_key};
+use crate::safety::{is_reparse_point, is_safe_path, normalized_key};
 
 /// Builds the cleanup plan: resolves catalog paths and globs, applies the
 /// safety guard, estimates reclaimable sizes, and appends the opt-in
@@ -22,6 +22,7 @@ pub fn build_plan(
 
     let mut groups: Vec<Group> = Vec::with_capacity(total_items);
     for (index, item) in registry.items.iter().enumerate() {
+        let mut errs = Vec::new();
         let mut resolved: Vec<PathBuf> = item
             .paths
             .iter()
@@ -29,12 +30,15 @@ pub fn build_plan(
             .cloned()
             .collect();
         for pattern in &item.globs {
-            resolved.extend(expand(pattern));
+            if is_safe_path(pattern, &guard_roots) {
+                resolved.extend(expand(pattern));
+            } else {
+                errs.push(format!("skipping unsafe glob: {}", pattern.display()));
+            }
         }
         let resolved = unique_paths(resolved);
 
         let mut bytes = 0u64;
-        let mut errs = Vec::new();
         for path in &resolved {
             if !is_safe_path(path, &guard_roots) {
                 errs.push(format!("skipping unsafe path: {}", path.display()));
@@ -122,23 +126,6 @@ fn dir_size(path: &Path) -> std::io::Result<u64> {
         }
     }
     Ok(total)
-}
-
-/// Reports whether metadata describes a Windows reparse point (junction,
-/// mount point, cloud placeholder). Always false elsewhere, where plain
-/// symlink checks suffice.
-pub(crate) fn is_reparse_point(metadata: &fs::Metadata) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
-        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = metadata;
-        false
-    }
 }
 
 #[cfg(test)]
@@ -274,5 +261,30 @@ mod tests {
         assert_eq!(evil.errs.len(), 1);
         assert!(evil.errs[0].contains("unsafe"));
         assert_eq!(evil.bytes, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_plan_rejects_paths_through_symlink_ancestors() {
+        let dir = tempfile::tempdir().unwrap();
+        let roots = test_roots(dir.path());
+        let local = roots.local_app_data.clone().unwrap();
+        let outside = dir.path().join("outside");
+        write_file(&outside.join("cache/data.bin"), 128);
+        create_dir_all(&local).unwrap();
+        std::os::unix::fs::symlink(&outside, local.join("linked")).unwrap();
+
+        let registry = Registry {
+            items: vec![
+                Item::new("Unsafe", "linked cache", true).paths([local.join("linked/cache")]),
+            ],
+        };
+        let plan = build_plan(&registry, &roots, |_| {});
+        let group = &plan.groups[0];
+
+        assert_eq!(group.bytes, 0);
+        assert!(!group.on);
+        assert_eq!(group.errs.len(), 1);
+        assert!(group.errs[0].contains("unsafe"));
     }
 }

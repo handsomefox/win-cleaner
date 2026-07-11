@@ -495,7 +495,8 @@ pub fn build_registry(roots: &Roots) -> Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cleaner_core::{Roots, build_plan};
+    use cleaner_core::{Roots, build_plan, is_safe_path};
+    use std::collections::HashSet;
     use std::fs::{File, create_dir_all};
     use std::io::Write as _;
     use std::path::PathBuf;
@@ -579,6 +580,42 @@ mod tests {
             .find(|item| item.app == "Ubisoft Connect")
             .unwrap();
         assert_eq!(ubisoft.paths.len(), 2);
+    }
+
+    #[test]
+    fn every_catalog_item_is_unique_nonempty_and_under_a_guard_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut roots = test_roots(dir.path());
+        roots.system_root = Some(dir.path().join("Windows"));
+        let registry = build_registry(&roots);
+        let guard_roots = roots.guard_roots();
+        let mut keys = HashSet::new();
+
+        for item in &registry.items {
+            assert!(!item.app.trim().is_empty());
+            assert!(!item.label.trim().is_empty());
+            assert!(
+                !item.paths.is_empty() || !item.globs.is_empty(),
+                "{} - {} has no cleanup paths",
+                item.app,
+                item.label
+            );
+            assert!(
+                keys.insert((item.app.as_str(), item.label.as_str())),
+                "duplicate catalog item: {} - {}",
+                item.app,
+                item.label
+            );
+            for path in item.paths.iter().chain(&item.globs) {
+                assert!(
+                    is_safe_path(path, &guard_roots),
+                    "unsafe catalog path for {} - {}: {}",
+                    item.app,
+                    item.label,
+                    path.display()
+                );
+            }
+        }
     }
 
     #[test]

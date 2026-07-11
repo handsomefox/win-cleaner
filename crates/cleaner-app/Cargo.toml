@@ -11,9 +11,9 @@ name = "win-cleaner"
 path = "src/main.rs"
 
 [dependencies]
-cleaner-catalog = { version = "0.1.0", path = "../cleaner-catalog" }
-cleaner-core = { version = "0.1.0", path = "../cleaner-core" }
-cleaner-platform = { version = "0.1.0", path = "../cleaner-platform" }
+cleaner-catalog = { version = "1.0.0", path = "../cleaner-catalog" }
+cleaner-core = { version = "1.0.0", path = "../cleaner-core" }
+cleaner-platform = { version = "1.0.0", path = "../cleaner-platform" }
 crossbeam-channel.workspace = true
 eframe.workspace = true
 egui_extras.workspace = true

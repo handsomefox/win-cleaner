@@ -1,7 +1,9 @@
 //! The eframe application: screen state machine, header, and event plumbing
 //! between the UI and the background worker.
 
-use cleaner_core::{ExecResult, Plan};
+use std::path::PathBuf;
+
+use cleaner_core::{ExecResult, Plan, StoredRun};
 use eframe::egui::{self, RichText};
 
 use crate::strings::{ENGLISH, UiText};
@@ -97,21 +99,25 @@ pub(crate) enum ResultsModal {
 #[derive(Default)]
 pub(crate) struct HistoryState {
     pub loaded: bool,
-    pub runs: Vec<ExecResult>,
+    pub runs: Vec<StoredRun>,
     pub skipped: usize,
     pub error: Option<String>,
     pub selected: usize,
+    /// Whether the clear-history confirmation dialog is open.
+    pub confirm_clear: bool,
 }
 
 /// User intents collected while drawing a frame, applied afterwards so the
 /// draw code never mutates navigation state mid-frame.
-#[derive(Clone, Copy, Default)]
+#[derive(Default)]
 #[expect(clippy::struct_excessive_bools, reason = "one flag per UI intent")]
 struct Nav {
     about: bool,
     show_history: bool,
     refresh_history: bool,
     close_history: bool,
+    delete_run: Option<PathBuf>,
+    clear_history: bool,
     header_action: bool,
     rescan: bool,
     execute: bool,
@@ -245,6 +251,7 @@ impl WinCleanerApp {
                             skipped,
                             error,
                             selected: 0,
+                            confirm_clear: false,
                         };
                     }
                 }
@@ -387,8 +394,11 @@ impl WinCleanerApp {
             .frame(egui::Frame::new().fill(theme::BACKGROUND).inner_margin(12))
             .show(root, |ui| {
                 if let Some(history) = &mut self.history {
-                    if let Some(HistoryAction::Refresh) = ui::history::show(ui, texts, history) {
-                        nav.refresh_history = true;
+                    match ui::history::show(ui, texts, history) {
+                        Some(HistoryAction::Refresh) => nav.refresh_history = true,
+                        Some(HistoryAction::DeleteRun(path)) => nav.delete_run = Some(path),
+                        Some(HistoryAction::ClearAll) => nav.clear_history = true,
+                        None => {}
                     }
                     return;
                 }
@@ -492,6 +502,14 @@ impl WinCleanerApp {
         }
         if nav.show_history || nav.refresh_history {
             self.show_history();
+        }
+        // Delete/clear reload history themselves, so the view stays open and
+        // refreshes when the worker finishes.
+        if let Some(path) = nav.delete_run {
+            self.worker.send(Command::DeleteRun(path));
+        }
+        if nav.clear_history {
+            self.worker.send(Command::ClearHistory);
         }
         if nav.header_action {
             self.on_header_action(ctx);

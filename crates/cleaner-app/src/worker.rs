@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use cleaner_catalog::build_registry;
 use cleaner_core::{
-    ExecResult, Options, Plan, ProgressUpdate, Roots, build_plan, execute_with_result,
+    ExecResult, Options, Plan, ProgressUpdate, Roots, StoredRun, build_plan, execute_with_result,
 };
 use cleaner_platform::ShellRecycler;
 use crossbeam_channel::{Receiver, Sender};
@@ -23,6 +23,10 @@ pub(crate) enum Command {
         dry_run: bool,
     },
     LoadHistory,
+    /// Delete one run's stats file, then reload history.
+    DeleteRun(PathBuf),
+    /// Delete every stats file, then reload history.
+    ClearHistory,
 }
 
 pub(crate) enum Event {
@@ -40,7 +44,7 @@ pub(crate) enum Event {
         stats_error: Option<String>,
     },
     HistoryLoaded {
-        runs: Vec<ExecResult>,
+        runs: Vec<StoredRun>,
         skipped: usize,
         error: Option<String>,
     },
@@ -144,33 +148,49 @@ fn run(ctx: &egui::Context, commands: &Receiver<Command>, events: &Sender<Event>
                     stats_error,
                 });
             }
-            Command::LoadHistory => {
-                let Some(dir) = cleaner_platform::stats_dir() else {
-                    emit(Event::HistoryLoaded {
-                        runs: Vec::new(),
-                        skipped: 0,
-                        error: Some("stats directory unavailable".to_owned()),
-                    });
-                    continue;
-                };
-                match cleaner_core::load_stats(&dir) {
-                    Ok((mut runs, skipped)) => {
-                        // Present the most recent cleanup first.
-                        runs.sort_by_key(|run| std::cmp::Reverse(run.run_timestamp()));
-                        emit(Event::HistoryLoaded {
-                            runs,
-                            skipped,
-                            error: None,
-                        });
-                    }
-                    Err(err) => emit(Event::HistoryLoaded {
-                        runs: Vec::new(),
-                        skipped: 0,
-                        error: Some(err.to_string()),
-                    }),
+            Command::LoadHistory => emit(load_history()),
+            Command::DeleteRun(path) => {
+                if let Err(err) = std::fs::remove_file(&path) {
+                    tracing::warn!("failed to delete run {}: {err}", path.display());
                 }
+                emit(load_history());
+            }
+            Command::ClearHistory => {
+                if let Some(dir) = cleaner_platform::stats_dir()
+                    && let Err(err) = cleaner_core::clear_stats(&dir)
+                {
+                    tracing::warn!("failed to clear history: {err}");
+                }
+                emit(load_history());
             }
         }
+    }
+}
+
+/// Loads the stats directory into a [`Event::HistoryLoaded`], most recent
+/// cleanup first.
+fn load_history() -> Event {
+    let Some(dir) = cleaner_platform::stats_dir() else {
+        return Event::HistoryLoaded {
+            runs: Vec::new(),
+            skipped: 0,
+            error: Some("stats directory unavailable".to_owned()),
+        };
+    };
+    match cleaner_core::load_stats(&dir) {
+        Ok((mut runs, skipped)) => {
+            runs.sort_by_key(|run| std::cmp::Reverse(run.result.run_timestamp()));
+            Event::HistoryLoaded {
+                runs,
+                skipped,
+                error: None,
+            }
+        }
+        Err(err) => Event::HistoryLoaded {
+            runs: Vec::new(),
+            skipped: 0,
+            error: Some(err.to_string()),
+        },
     }
 }
 

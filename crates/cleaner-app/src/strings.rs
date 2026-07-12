@@ -79,6 +79,10 @@ pub(crate) struct UiText {
     pub history_no_runs: &'static str,
     pub history_previous_runs_title: &'static str,
     pub history_previous_runs_subtitle: &'static str,
+    pub action_clear_history: &'static str,
+    pub tooltip_delete_run: &'static str,
+    pub dialog_clear_history_title: &'static str,
+    pub dialog_clear_history_body: &'static str,
 
     pub run_label_duration: &'static str,
     pub run_label_items: &'static str,
@@ -175,6 +179,10 @@ pub(crate) const ENGLISH: UiText = UiText {
     history_no_runs: "No cleanup history yet.",
     history_previous_runs_title: "Previous Cleanup Runs",
     history_previous_runs_subtitle: "Unreadable stats files are counted and skipped.",
+    action_clear_history: "Clear history",
+    tooltip_delete_run: "Delete this run from history",
+    dialog_clear_history_title: "Clear History",
+    dialog_clear_history_body: "Permanently delete all saved cleanup history? This cannot be undone.",
 
     run_label_duration: "Duration",
     run_label_items: "Items cleaned",

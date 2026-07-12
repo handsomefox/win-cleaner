@@ -1,7 +1,9 @@
 //! The history view: aggregate stat chips, the run list, and a structured
 //! per-run details pane. Drawn in the main pane so the sidebar stays visible.
 
-use cleaner_core::{ExecResult, human_bytes};
+use std::path::PathBuf;
+
+use cleaner_core::{StoredRun, human_bytes};
 use eframe::egui::{self, Color32, RichText, Ui};
 
 use crate::app::HistoryState;
@@ -15,6 +17,8 @@ use crate::viewmodel::{
 
 pub(crate) enum HistoryAction {
     Refresh,
+    DeleteRun(PathBuf),
+    ClearAll,
 }
 
 pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) -> Option<HistoryAction> {
@@ -33,7 +37,10 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) -> Opt
 
     ui.horizontal(|ui| {
         if !state.runs.is_empty() {
-            let totals = stats_totals(state.runs.iter(), jiff::Timestamp::now());
+            let totals = stats_totals(
+                state.runs.iter().map(|run| &run.result),
+                jiff::Timestamp::now(),
+            );
             components::stat_chip(ui, texts.stats_runs_label, &state.runs.len().to_string());
             components::stat_chip(
                 ui,
@@ -56,6 +63,16 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) -> Opt
                 .clicked()
             {
                 action = Some(HistoryAction::Refresh);
+            }
+            if !state.runs.is_empty()
+                && ui
+                    .button(icons::with_label(
+                        icons::RECYCLE,
+                        texts.action_clear_history,
+                    ))
+                    .clicked()
+            {
+                state.confirm_clear = true;
             }
         });
     });
@@ -92,41 +109,94 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) -> Opt
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
                             let selected = state.selected.min(state.runs.len() - 1);
-                            run_details(ui, texts, &state.runs[selected]);
+                            run_details(ui, texts, &state.runs[selected], &mut action);
                         });
                 });
             });
         },
     );
+
+    if state.confirm_clear && clear_confirm_modal(ui.ctx(), texts, &mut action) {
+        state.confirm_clear = false;
+    }
     action
 }
 
-/// The structured details pane for one run: timestamp heading, stat chips,
-/// then per-group outcome rows with their error lines.
-fn run_details(ui: &mut Ui, texts: &UiText, run: &ExecResult) {
-    ui.label(
-        RichText::new(format_timestamp_long(run.run_timestamp()))
-            .family(theme::bold())
-            .size(theme::FONT_HEADING),
-    );
+/// The clear-history confirmation dialog. Returns `true` when it should close.
+fn clear_confirm_modal(
+    ctx: &egui::Context,
+    texts: &UiText,
+    action: &mut Option<HistoryAction>,
+) -> bool {
+    let mut close = false;
+    let response = egui::Modal::new(egui::Id::new("clear-history")).show(ctx, |ui| {
+        ui.set_max_width(420.0);
+        ui.label(
+            RichText::new(texts.dialog_clear_history_title)
+                .family(theme::bold())
+                .size(theme::FONT_HEADING),
+        );
+        ui.separator();
+        ui.label(texts.dialog_clear_history_body);
+        ui.separator();
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let clear = egui::Button::new(
+                RichText::new(texts.action_clear_history)
+                    .family(theme::bold())
+                    .color(theme::TEXT),
+            )
+            .fill(theme::DANGER)
+            .min_size(egui::vec2(0.0, theme::CONTROL_HEIGHT));
+            if ui.add(clear).clicked() {
+                *action = Some(HistoryAction::ClearAll);
+                close = true;
+            }
+            if ui.button(texts.action_cancel).clicked() {
+                close = true;
+            }
+        });
+    });
+    close || response.should_close()
+}
+
+/// The structured details pane for one run: timestamp heading with a delete
+/// action, stat chips, then per-group outcome rows with their error lines.
+fn run_details(ui: &mut Ui, texts: &UiText, run: &StoredRun, action: &mut Option<HistoryAction>) {
+    let result = &run.result;
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(format_timestamp_long(result.run_timestamp()))
+                .family(theme::bold())
+                .size(theme::FONT_HEADING),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if components::icon_button(ui, icons::RECYCLE, texts.tooltip_delete_run).clicked() {
+                *action = Some(HistoryAction::DeleteRun(run.path.clone()));
+            }
+        });
+    });
     ui.add_space(theme::SPACE_XS);
     ui.horizontal(|ui| {
-        components::stat_chip(ui, texts.run_label_items, &run.total_selected.to_string());
-        components::stat_chip(ui, texts.run_label_freed, &human_bytes(run.total_bytes));
+        components::stat_chip(
+            ui,
+            texts.run_label_items,
+            &result.total_selected.to_string(),
+        );
+        components::stat_chip(ui, texts.run_label_freed, &human_bytes(result.total_bytes));
         components::stat_chip(
             ui,
             texts.run_label_duration,
-            &format_duration(run.duration_ms),
+            &format_duration(result.duration_ms),
         );
-        error_chip(ui, texts, run.error_count);
+        error_chip(ui, texts, result.error_count);
     });
     ui.separator();
 
-    if run.groups.is_empty() {
+    if result.groups.is_empty() {
         ui.label(RichText::new(texts.result_no_group_details).color(theme::MUTED));
         return;
     }
-    for (index, group) in run.groups.iter().enumerate() {
+    for (index, group) in result.groups.iter().enumerate() {
         components::striped_row(ui, index % 2 == 1, |ui| {
             ui.label(RichText::new(&group.app).family(theme::bold()));
             ui.label(&group.label);
@@ -192,14 +262,15 @@ fn run_list(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) {
     }
 }
 
-fn run_row(ui: &mut Ui, texts: &UiText, run: &ExecResult) {
+fn run_row(ui: &mut Ui, texts: &UiText, run: &StoredRun) {
+    let result = &run.result;
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
-            ui.label(RichText::new(format_timestamp(run.run_timestamp())).family(theme::bold()));
+            ui.label(RichText::new(format_timestamp(result.run_timestamp())).family(theme::bold()));
             ui.label(
                 RichText::new(summary_line(&[
-                    &texts.items_count(run.total_selected),
-                    &format_duration(run.duration_ms),
+                    &texts.items_count(result.total_selected),
+                    &format_duration(result.duration_ms),
                 ]))
                 .color(theme::MUTED)
                 .small(),
@@ -208,12 +279,12 @@ fn run_row(ui: &mut Ui, texts: &UiText, run: &ExecResult) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.vertical(|ui| {
                 ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-                    ui.label(RichText::new(human_bytes(run.total_bytes)).family(theme::bold()));
-                    if run.error_count > 0 {
+                    ui.label(RichText::new(human_bytes(result.total_bytes)).family(theme::bold()));
+                    if result.error_count > 0 {
                         ui.label(
                             RichText::new(icons::with_label(
                                 icons::ERROR,
-                                &texts.errors_count(run.error_count),
+                                &texts.errors_count(result.error_count),
                             ))
                             .color(theme::DANGER)
                             .small(),

@@ -28,4 +28,6 @@ pub use plan::{AppGroup, Group, Options, Phase, Plan, ProgressUpdate};
 pub use roots::Roots;
 pub use safety::is_safe_path;
 pub use scan::build_plan;
-pub use stats::{ExecResult, GroupResult, PathError, load_stats, write_stats};
+pub use stats::{
+    ExecResult, GroupResult, PathError, StoredRun, clear_stats, load_stats, write_stats,
+};

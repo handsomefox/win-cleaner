@@ -109,14 +109,22 @@ pub fn write_stats(dir: &Path, result: &mut ExecResult) -> Result<PathBuf, Stats
     Ok(path)
 }
 
+/// One stats file successfully loaded from the stats directory. The source
+/// path is kept so a run can be deleted from history.
+#[derive(Debug, Clone)]
+pub struct StoredRun {
+    pub path: PathBuf,
+    pub result: ExecResult,
+}
+
 /// Loads every readable stats file from `dir` (a missing directory yields no
-/// results). Returns the results plus the number of files that could not be
+/// results). Returns the runs plus the number of files that could not be
 /// read or parsed.
 ///
 /// # Errors
 ///
 /// Returns an error when an existing stats directory cannot be listed.
-pub fn load_stats(dir: &Path) -> Result<(Vec<ExecResult>, usize), StatsError> {
+pub fn load_stats(dir: &Path) -> Result<(Vec<StoredRun>, usize), StatsError> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), 0)),
@@ -140,11 +148,45 @@ pub fn load_stats(dir: &Path) -> Result<(Vec<ExecResult>, usize), StatsError> {
             continue;
         };
         match serde_json::from_slice::<ExecResult>(&data) {
-            Ok(result) => results.push(result),
+            Ok(result) => results.push(StoredRun { path, result }),
             Err(_) => skipped += 1,
         }
     }
     Ok((results, skipped))
+}
+
+/// Deletes every stats JSON file in `dir`, readable or not. Returns the number
+/// of files removed; a missing directory is a no-op.
+///
+/// # Errors
+///
+/// Returns an error when the directory cannot be listed or a file cannot be
+/// removed.
+pub fn clear_stats(dir: &Path) -> Result<usize, StatsError> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(source) => {
+            return Err(StatsError::Io {
+                path: dir.to_path_buf(),
+                source,
+            });
+        }
+    };
+
+    let mut removed = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() || path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        fs::remove_file(&path).map_err(|source| StatsError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        removed += 1;
+    }
+    Ok(removed)
 }
 
 #[cfg(test)]
@@ -238,7 +280,24 @@ mod tests {
         let (loaded, skipped) = load_stats(&stats_dir).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(skipped, 0);
-        assert_eq!(loaded[0].schema_version, STATS_SCHEMA_VERSION);
+        assert_eq!(loaded[0].result.schema_version, STATS_SCHEMA_VERSION);
+        assert_eq!(loaded[0].path, path);
+    }
+
+    #[test]
+    fn clear_removes_stats_files_and_tolerates_missing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.json"), FIXTURE).unwrap();
+        fs::write(dir.path().join("broken.json"), "{not json").unwrap();
+        fs::write(dir.path().join("kept.txt"), "nope").unwrap();
+
+        assert_eq!(clear_stats(dir.path()).unwrap(), 2);
+        let (loaded, skipped) = load_stats(dir.path()).unwrap();
+        assert!(loaded.is_empty());
+        assert_eq!(skipped, 0);
+        assert!(dir.path().join("kept.txt").exists());
+
+        assert_eq!(clear_stats(&dir.path().join("does-not-exist")).unwrap(), 0);
     }
 
     #[test]

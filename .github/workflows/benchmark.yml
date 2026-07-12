@@ -1,0 +1,35 @@
+name: Scanner benchmark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: windows-latest
+    steps:
+      - name: Check out current Rust implementation
+        uses: actions/checkout@v6
+        with:
+          path: current
+      - name: Check out final Go implementation
+        uses: actions/checkout@v6
+        with:
+          ref: e909d55
+          path: legacy
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: legacy/go.mod
+          cache-dependency-path: legacy/go.sum
+      - name: Compare scanners
+        shell: pwsh
+        run: ./current/scripts/benchmark-scanners.ps1 -LegacyRoot ./legacy -ResultsPath ./scanner-benchmark.csv
+      - name: Upload samples
+        uses: actions/upload-artifact@v7
+        with:
+          name: scanner-benchmark-${{ github.sha }}
+          path: scanner-benchmark.csv
+          if-no-files-found: error

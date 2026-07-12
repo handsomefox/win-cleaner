@@ -245,6 +245,112 @@ mod tests {
     }
 
     #[test]
+    fn scan_covers_multiple_profiles_file_globs_and_overlapping_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        let roots = test_roots(dir.path());
+        let local = roots.local_app_data.clone().unwrap();
+
+        write_file(&local.join("Browser/Default/Cache/a.bin"), 10);
+        write_file(&local.join("Browser/Profile 1/Cache/deep/b.bin"), 20);
+        write_file(&local.join("Explorer/thumbcache_96.db"), 30);
+        write_file(&local.join("Explorer/not-a-cache.db"), 99);
+
+        let cache = local.join("Browser/Default/Cache");
+        let registry = Registry {
+            items: vec![
+                Item::new("Browser", "profiles", true)
+                    .paths([cache.clone(), cache.clone()])
+                    .globs([local.join("Browser/*/Cache")]),
+                Item::new("Windows", "thumbnail cache", true)
+                    .globs([local.join("Explorer/thumbcache*.db")]),
+            ],
+        };
+
+        let plan = build_plan(&registry, &roots, |_| {});
+        let browser = plan
+            .groups
+            .iter()
+            .find(|group| group.app == "Browser")
+            .unwrap();
+        assert_eq!(
+            browser.paths,
+            vec![cache, local.join("Browser/Profile 1/Cache")],
+            "duplicate static and glob matches are de-duplicated case-insensitively"
+        );
+        assert_eq!(browser.bytes, 30);
+
+        let thumbnails = plan
+            .groups
+            .iter()
+            .find(|group| group.app == "Windows")
+            .unwrap();
+        assert_eq!(
+            thumbnails.paths,
+            vec![local.join("Explorer/thumbcache_96.db")]
+        );
+        assert_eq!(thumbnails.bytes, 30);
+        assert_eq!(plan.total_bytes, 60);
+        assert_eq!(plan.selected, 2);
+    }
+
+    #[test]
+    fn scan_sums_deep_and_wide_trees_and_tolerates_missing_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let roots = test_roots(dir.path());
+        let local = roots.local_app_data.clone().unwrap();
+        let tree = local.join("Tree");
+
+        for depth in 0..16 {
+            write_file(
+                &tree.join("deep").join("d".repeat(depth)).join("data.bin"),
+                depth + 1,
+            );
+        }
+        for index in 0..64 {
+            write_file(&tree.join(format!("wide/{index:02}/data.bin")), 2);
+        }
+        let expected = (1..=16).sum::<usize>() + 64 * 2;
+        let registry = Registry {
+            items: vec![
+                Item::new("Tree", "deep and wide", true).paths([tree]),
+                Item::new("Missing", "absent", true).paths([local.join("Missing")]),
+            ],
+        };
+
+        let plan = build_plan(&registry, &roots, |_| {});
+        let tree = plan
+            .groups
+            .iter()
+            .find(|group| group.app == "Tree")
+            .unwrap();
+        assert_eq!(tree.bytes, expected as u64);
+        assert!(tree.errs.is_empty());
+        let missing = plan
+            .groups
+            .iter()
+            .find(|group| group.app == "Missing")
+            .unwrap();
+        assert_eq!(missing.bytes, 0);
+        assert!(missing.errs.is_empty());
+        assert!(!missing.on);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_tree_errors_are_tolerated_without_counting_bytes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let locked = dir.path().join("locked");
+        create_dir_all(&locked).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let size = dir_size(&locked);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(size.unwrap(), 0);
+    }
+
+    #[test]
     fn build_plan_flags_unsafe_paths() {
         let dir = tempfile::tempdir().unwrap();
         let roots = test_roots(dir.path());

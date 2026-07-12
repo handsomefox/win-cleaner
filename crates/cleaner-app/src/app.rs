@@ -111,6 +111,7 @@ struct Nav {
     about: bool,
     show_history: bool,
     refresh_history: bool,
+    close_history: bool,
     header_action: bool,
     rescan: bool,
     execute: bool,
@@ -412,9 +413,11 @@ impl WinCleanerApp {
     }
 
     /// The category sidebar. Only drawn on the selection screen, so callers
-    /// must gate on `Screen::Select`.
+    /// must gate on `Screen::Select`. Stays up while history fills the main
+    /// pane; picking a category then returns to the cleanup view.
     fn draw_sidebar(&mut self, root: &mut egui::Ui, nav: &mut Nav) {
         let texts = self.texts;
+        let history_open = self.history.is_some();
         let Screen::Select(state) = &mut self.screen else {
             return;
         };
@@ -426,10 +429,16 @@ impl WinCleanerApp {
                     .fill(theme::SURFACE)
                     .inner_margin(egui::Margin::symmetric(10, 12)),
             )
-            .show(root, |ui| match ui::sidebar::show(ui, texts, state) {
-                Some(SidebarAction::History) => nav.show_history = true,
-                Some(SidebarAction::About) => nav.about = true,
-                None => {}
+            .show(root, |ui| {
+                match ui::sidebar::show(ui, texts, state, history_open) {
+                    Some(SidebarAction::SelectCategory(category)) => {
+                        state.selected_category = category;
+                        nav.close_history = true;
+                    }
+                    Some(SidebarAction::History) => nav.show_history = true,
+                    Some(SidebarAction::About) => nav.about = true,
+                    None => {}
+                }
             });
     }
 
@@ -478,6 +487,9 @@ impl WinCleanerApp {
         if nav.about {
             self.about_open = true;
         }
+        if nav.close_history {
+            self.history = None;
+        }
         if nav.show_history || nav.refresh_history {
             self.show_history();
         }
@@ -501,10 +513,13 @@ impl eframe::App for WinCleanerApp {
         let mut nav = Nav::default();
         self.draw_header(root, &mut nav);
         // Side and bottom panels must be registered before the central panel,
-        // and only on the selection screen (never behind the history overlay).
-        if self.history.is_none() && matches!(self.screen, Screen::Select(_)) {
+        // and only on the selection screen. The sidebar stays up while the
+        // history view fills the main pane; the status bar is cleanup-specific.
+        if matches!(self.screen, Screen::Select(_)) {
             self.draw_sidebar(root, &mut nav);
-            self.draw_statusbar(root, &mut nav);
+            if self.history.is_none() {
+                self.draw_statusbar(root, &mut nav);
+            }
         }
         self.draw_central(root, &mut nav);
         ui::about::show(&ctx, self.texts, &mut self.about_open);

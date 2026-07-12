@@ -58,7 +58,7 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
                             {
                                 open_group = Some(index);
                             }
-                            ui.label(group_status(texts, group));
+                            ui.label(components::group_status(texts, group));
                             ui.label(human_bytes(group.bytes));
                         });
                     });
@@ -92,20 +92,6 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
     }
     modals(ui.ctx(), texts, state);
     action
-}
-
-fn group_status(texts: &UiText, group: &GroupResult) -> RichText {
-    if group.paths_failed > 0 {
-        RichText::new(icons::with_label(
-            icons::ERROR,
-            &texts.failed_count(group.paths_failed),
-        ))
-        .color(theme::DANGER)
-    } else if group.paths_attempted == 0 {
-        RichText::new(texts.result_status_skipped).color(theme::MUTED)
-    } else {
-        RichText::new(icons::with_label(icons::SUCCESS, texts.result_status_ok)).color(theme::MUTED)
-    }
 }
 
 fn modals(ctx: &egui::Context, texts: &UiText, state: &mut ResultsState) {
@@ -155,11 +141,7 @@ fn build_error_summary(texts: &UiText, result: &ExecResult) -> Option<(String, S
     }
     let mut group_names = Vec::new();
     let mut details = String::new();
-    let _ = writeln!(
-        details,
-        "{} {}\n",
-        texts.run_label_errors, result.error_count
-    );
+    let _ = writeln!(details, "{}\n", texts.errors_count(result.error_count));
     for group in &result.groups {
         if group.errors.is_empty() {
             continue;

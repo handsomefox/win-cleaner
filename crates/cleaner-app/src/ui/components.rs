@@ -1,7 +1,7 @@
 //! Shared building blocks: surface cards, chips, tree rows, size cells, and
 //! plain-text modals shared across the application screens.
 
-use cleaner_core::{Group, human_bytes};
+use cleaner_core::{Group, GroupResult, human_bytes};
 use eframe::egui::{
     self, Align2, Color32, FontId, Response, RichText, Sense, Ui, Vec2, WidgetInfo, WidgetType,
 };
@@ -197,6 +197,22 @@ pub(crate) fn sidebar_row(
         })
         .response;
     response.interact(Sense::click())
+}
+
+/// The glyph-prefixed outcome text for one executed group: failed count in
+/// danger, or Skipped/OK muted.
+pub(crate) fn group_status(texts: &UiText, group: &GroupResult) -> RichText {
+    if group.paths_failed > 0 {
+        RichText::new(icons::with_label(
+            icons::ERROR,
+            &texts.failed_count(group.paths_failed),
+        ))
+        .color(theme::DANGER)
+    } else if group.paths_attempted == 0 {
+        RichText::new(texts.result_status_skipped).color(theme::MUTED)
+    } else {
+        RichText::new(icons::with_label(icons::SUCCESS, texts.result_status_ok)).color(theme::MUTED)
+    }
 }
 
 /// A labeled value pill for the delete-progress stats strip.

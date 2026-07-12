@@ -1,7 +1,7 @@
 //! Toolkit-agnostic category mapping, filtering, sorting, and text summaries.
 //! Everything here is unit-tested without a GUI.
 
-use cleaner_core::{ExecResult, Group, Plan, human_bytes};
+use cleaner_core::{ExecResult, Group, Plan};
 use jiff::{Timestamp, Zoned};
 
 use crate::strings::UiText;
@@ -321,106 +321,38 @@ fn to_local(timestamp: Timestamp) -> Zoned {
     timestamp.to_zoned(jiff::tz::TimeZone::system())
 }
 
-/// The plain-text detail pane for one history run.
-pub(crate) fn run_details_text(texts: &UiText, result: &ExecResult) -> String {
-    use std::fmt::Write as _;
-
-    let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "{} {}",
-        texts.run_label_run,
-        format_timestamp_long(result.run_timestamp())
-    );
-    let _ = writeln!(
-        out,
-        "{} {}",
-        texts.run_label_duration,
-        format_duration(result.duration_ms)
-    );
-    let _ = writeln!(out, "{} {}", texts.run_label_items, result.total_selected);
-    let _ = writeln!(
-        out,
-        "{} {}",
-        texts.run_label_freed,
-        human_bytes(result.total_bytes)
-    );
-    let _ = writeln!(out, "{} {}", texts.run_label_errors, result.error_count);
-    out.push('\n');
-
-    if result.groups.is_empty() {
-        let _ = writeln!(out, "{}", texts.result_no_group_details);
-        return out;
-    }
-    for group in &result.groups {
-        let status = if group.paths_failed > 0 {
-            texts.failed_count(group.paths_failed)
-        } else if group.paths_attempted == 0 {
-            texts.result_status_skipped.to_owned()
-        } else {
-            texts.result_status_ok.to_owned()
-        };
-        let _ = writeln!(
-            out,
-            "{} - {}  [{}  {}]",
-            group.app,
-            group.label,
-            human_bytes(group.bytes),
-            status
-        );
-        for error in &group.errors {
-            let _ = writeln!(out, "  ! {}: {}", error.path, error.error);
-        }
-    }
-    out
+/// Aggregate history totals: bytes freed overall and within the last 7 and 30
+/// days.
+pub(crate) struct StatsTotals {
+    pub total: u64,
+    pub last7: u64,
+    pub last30: u64,
 }
 
-/// The aggregate summary above the history list (runs, totals, 7/30 days).
-pub(crate) fn stats_summary_text(
-    texts: &UiText,
-    results: &[ExecResult],
-    skipped: usize,
+pub(crate) fn stats_totals<'a>(
+    runs: impl IntoIterator<Item = &'a ExecResult>,
     now: Timestamp,
-) -> String {
+) -> StatsTotals {
     const DAY: i64 = 24 * 60 * 60;
     let cutoff7 = now - jiff::SignedDuration::from_secs(7 * DAY);
     let cutoff30 = now - jiff::SignedDuration::from_secs(30 * DAY);
 
-    let mut total_all = 0u64;
-    let mut total7 = 0u64;
-    let mut total30 = 0u64;
-    for result in results {
-        total_all += result.total_bytes;
+    let mut totals = StatsTotals {
+        total: 0,
+        last7: 0,
+        last30: 0,
+    };
+    for result in runs {
+        totals.total += result.total_bytes;
         let ts = result.run_timestamp();
         if ts > cutoff7 {
-            total7 += result.total_bytes;
+            totals.last7 += result.total_bytes;
         }
         if ts > cutoff30 {
-            total30 += result.total_bytes;
+            totals.last30 += result.total_bytes;
         }
     }
-
-    let runs = if skipped > 0 {
-        format!(
-            "{} {}  ({skipped} {})",
-            texts.stats_runs_label,
-            results.len(),
-            texts.stats_unreadable
-        )
-    } else {
-        format!("{} {}", texts.stats_runs_label, results.len())
-    };
-    [
-        runs,
-        format!(
-            "{} {}",
-            texts.stats_total_freed_label,
-            human_bytes(total_all)
-        ),
-        format!("{} {}", texts.stats_last7_label, human_bytes(total7)),
-        format!("{} {}", texts.stats_last30_label, human_bytes(total30)),
-    ]
-    .join("\n")
+    totals
 }
 
 #[cfg(test)]
@@ -716,16 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn run_details_lists_groups_and_errors() {
-        let details = run_details_text(&ENGLISH, &sample_result(1));
-        assert!(details.contains("Items cleaned: 3"));
-        assert!(details.contains("Chrome - cache  [1.00 KB  OK]"));
-        assert!(details.contains("npm - cache  [0 B  1 failed]"));
-        assert!(details.contains("! /p0: locked"));
-    }
-
-    #[test]
-    fn stats_summary_windows_by_age() {
+    fn stats_totals_window_by_age() {
         let now = Timestamp::now();
         let day = jiff::SignedDuration::from_secs(24 * 60 * 60);
 
@@ -739,11 +662,10 @@ mod tests {
         ancient.finished_at = now - day * 40;
         ancient.total_bytes = 10000;
 
-        let text = stats_summary_text(&ENGLISH, &[recent, old, ancient], 1, now);
-        assert!(text.contains("Runs: 3  (1 unreadable)"));
-        assert!(text.contains("Total freed: 10.84 KB"));
-        assert!(text.contains("Last 7 days: 100 B"));
-        assert!(text.contains("Last 30 days: 1.07 KB"));
+        let totals = stats_totals([&recent, &old, &ancient], now);
+        assert_eq!(totals.total, 11_100);
+        assert_eq!(totals.last7, 100);
+        assert_eq!(totals.last30, 1_100);
     }
 
     #[test]

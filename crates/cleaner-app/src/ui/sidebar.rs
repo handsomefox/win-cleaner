@@ -1,5 +1,6 @@
 //! The selection-screen sidebar: an "All" row, one row per category with its
-//! app count and size, then the History and About actions.
+//! app count and size, then the History and About actions. It stays visible
+//! while the history view occupies the main pane.
 
 use eframe::egui::{self, Ui};
 
@@ -8,14 +9,22 @@ use crate::icons;
 use crate::strings::UiText;
 use crate::theme;
 use crate::ui::components;
-use crate::viewmodel;
+use crate::viewmodel::{self, Category};
 
 pub(crate) enum SidebarAction {
+    /// Show the cleanup pane restricted to a category (`None` = "All"),
+    /// leaving the history view if it was open.
+    SelectCategory(Option<Category>),
     History,
     About,
 }
 
-pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut SelectState) -> Option<SidebarAction> {
+pub(crate) fn show(
+    ui: &mut Ui,
+    texts: &UiText,
+    state: &SelectState,
+    history_open: bool,
+) -> Option<SidebarAction> {
     let mut action = None;
     let summaries = viewmodel::category_summaries(&state.plan);
     let (total_apps, _items, total_bytes) = viewmodel::plan_overview(&state.plan);
@@ -30,15 +39,15 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut SelectState) -> Opti
                 texts.sidebar_all,
                 &texts.apps_count(total_apps),
                 Some(components::size_text(texts, total_bytes)),
-                state.selected_category.is_none(),
+                !history_open && state.selected_category.is_none(),
             )
             .clicked()
             {
-                state.selected_category = None;
+                action = Some(SidebarAction::SelectCategory(None));
             }
 
             for summary in &summaries {
-                let selected = state.selected_category == Some(summary.category);
+                let selected = !history_open && state.selected_category == Some(summary.category);
                 if components::sidebar_row(
                     ui,
                     icons::category_glyph(summary.category),
@@ -49,7 +58,7 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut SelectState) -> Opti
                 )
                 .clicked()
                 {
-                    state.selected_category = Some(summary.category);
+                    action = Some(SidebarAction::SelectCategory(Some(summary.category)));
                 }
             }
 
@@ -57,8 +66,15 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut SelectState) -> Opti
             ui.separator();
             ui.add_space(theme::SPACE_SM);
 
-            if components::sidebar_row(ui, icons::HISTORY, texts.menu_history, "", None, false)
-                .clicked()
+            if components::sidebar_row(
+                ui,
+                icons::HISTORY,
+                texts.menu_history,
+                "",
+                None,
+                history_open,
+            )
+            .clicked()
             {
                 action = Some(SidebarAction::History);
             }

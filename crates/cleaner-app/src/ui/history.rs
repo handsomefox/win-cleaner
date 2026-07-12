@@ -1,4 +1,5 @@
-//! The history overlay: aggregate stats, the run list, and the details pane.
+//! The history view: aggregate stat chips, the run list, and a structured
+//! per-run details pane. Drawn in the main pane so the sidebar stays visible.
 
 use cleaner_core::{ExecResult, human_bytes};
 use eframe::egui::{self, Color32, RichText, Ui};
@@ -9,7 +10,7 @@ use crate::strings::UiText;
 use crate::theme;
 use crate::ui::components;
 use crate::viewmodel::{
-    format_duration, format_timestamp, run_details_text, stats_summary_text, summary_line,
+    format_duration, format_timestamp, format_timestamp_long, stats_totals, summary_line,
 };
 
 pub(crate) enum HistoryAction {
@@ -31,12 +32,24 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) -> Opt
     }
 
     ui.horizontal(|ui| {
-        ui.label(stats_summary_text(
-            texts,
-            &state.runs,
-            state.skipped,
-            jiff::Timestamp::now(),
-        ));
+        if !state.runs.is_empty() {
+            let totals = stats_totals(state.runs.iter(), jiff::Timestamp::now());
+            components::stat_chip(ui, texts.stats_runs_label, &state.runs.len().to_string());
+            components::stat_chip(
+                ui,
+                texts.stats_total_freed_label,
+                &human_bytes(totals.total),
+            );
+            components::stat_chip(ui, texts.stats_last7_label, &human_bytes(totals.last7));
+            components::stat_chip(ui, texts.stats_last30_label, &human_bytes(totals.last30));
+        }
+        if state.skipped > 0 {
+            ui.label(
+                RichText::new(format!("{} {}", state.skipped, texts.stats_unreadable))
+                    .color(theme::MUTED)
+                    .small(),
+            );
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
             if ui
                 .button(icons::with_label(icons::RESCAN, texts.action_refresh))
@@ -46,18 +59,10 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) -> Opt
             }
         });
     });
-    ui.add_space(6.0);
+    ui.add_space(theme::SPACE_SM);
 
     if state.runs.is_empty() {
-        let message = if state.skipped > 0 {
-            format!(
-                "{} {} files could not be read.",
-                texts.history_no_runs, state.skipped
-            )
-        } else {
-            texts.history_no_runs.to_owned()
-        };
-        components::centered_status(ui, &message);
+        components::centered_status(ui, texts.history_no_runs);
         return action;
     }
 
@@ -87,13 +92,80 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) -> Opt
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
                             let selected = state.selected.min(state.runs.len() - 1);
-                            ui.label(run_details_text(texts, &state.runs[selected]));
+                            run_details(ui, texts, &state.runs[selected]);
                         });
                 });
             });
         },
     );
     action
+}
+
+/// The structured details pane for one run: timestamp heading, stat chips,
+/// then per-group outcome rows with their error lines.
+fn run_details(ui: &mut Ui, texts: &UiText, run: &ExecResult) {
+    ui.label(
+        RichText::new(format_timestamp_long(run.run_timestamp()))
+            .family(theme::bold())
+            .size(theme::FONT_HEADING),
+    );
+    ui.add_space(theme::SPACE_XS);
+    ui.horizontal(|ui| {
+        components::stat_chip(ui, texts.run_label_items, &run.total_selected.to_string());
+        components::stat_chip(ui, texts.run_label_freed, &human_bytes(run.total_bytes));
+        components::stat_chip(
+            ui,
+            texts.run_label_duration,
+            &format_duration(run.duration_ms),
+        );
+        error_chip(ui, texts, run.error_count);
+    });
+    ui.separator();
+
+    if run.groups.is_empty() {
+        ui.label(RichText::new(texts.result_no_group_details).color(theme::MUTED));
+        return;
+    }
+    for (index, group) in run.groups.iter().enumerate() {
+        components::striped_row(ui, index % 2 == 1, |ui| {
+            ui.label(RichText::new(&group.app).family(theme::bold()));
+            ui.label(&group.label);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(components::group_status(texts, group));
+                ui.label(human_bytes(group.bytes));
+            });
+        });
+        for error in &group.errors {
+            ui.label(
+                RichText::new(format!("{}: {}", error.path, error.error))
+                    .color(theme::DANGER)
+                    .small(),
+            );
+        }
+    }
+}
+
+/// The error-count chip; the value turns danger-red when a run had failures.
+fn error_chip(ui: &mut Ui, texts: &UiText, count: usize) {
+    let color = if count > 0 {
+        theme::DANGER
+    } else {
+        theme::TEXT
+    };
+    components::chip_frame().show(ui, |ui| {
+        ui.vertical(|ui| {
+            ui.label(
+                RichText::new(count.to_string())
+                    .family(theme::bold())
+                    .color(color),
+            );
+            ui.label(
+                RichText::new(texts.run_label_errors)
+                    .color(theme::MUTED)
+                    .small(),
+            );
+        });
+    });
 }
 
 fn run_list(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) {

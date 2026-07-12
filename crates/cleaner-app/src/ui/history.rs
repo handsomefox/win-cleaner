@@ -4,6 +4,7 @@ use cleaner_core::{ExecResult, human_bytes};
 use eframe::egui::{self, Color32, RichText, Ui};
 
 use crate::app::HistoryState;
+use crate::icons;
 use crate::strings::UiText;
 use crate::theme;
 use crate::ui::components;
@@ -37,7 +38,10 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) -> Opt
             jiff::Timestamp::now(),
         ));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-            if ui.button(texts.action_refresh).clicked() {
+            if ui
+                .button(icons::with_label(icons::RESCAN, texts.action_refresh))
+                .clicked()
+            {
                 action = Some(HistoryAction::Refresh);
             }
         });
@@ -103,7 +107,7 @@ fn run_list(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) {
         };
         let response = egui::Frame::new()
             .fill(fill)
-            .corner_radius(6)
+            .corner_radius(theme::RADIUS_SM)
             .inner_margin(egui::Margin::symmetric(8, 6))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -135,9 +139,12 @@ fn run_row(ui: &mut Ui, texts: &UiText, run: &ExecResult) {
                     ui.label(RichText::new(human_bytes(run.total_bytes)).family(theme::bold()));
                     if run.error_count > 0 {
                         ui.label(
-                            RichText::new(texts.errors_count(run.error_count))
-                                .color(theme::DANGER)
-                                .small(),
+                            RichText::new(icons::with_label(
+                                icons::ERROR,
+                                &texts.errors_count(run.error_count),
+                            ))
+                            .color(theme::DANGER)
+                            .small(),
                         );
                     } else {
                         ui.label(

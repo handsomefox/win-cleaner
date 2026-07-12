@@ -26,12 +26,10 @@ pub(crate) const RESCAN: &str = "\u{E036}"; // ARROW_CLOCKWISE
 pub(crate) const SEARCH: &str = "\u{E30C}"; // MAGNIFYING_GLASS
 pub(crate) const SORT: &str = "\u{E444}"; // SORT_ASCENDING
 pub(crate) const DETAILS: &str = "\u{E23A}"; // FILE_TEXT
-pub(crate) const CLOSE: &str = "\u{E4F6}"; // X
 pub(crate) const WARNING: &str = "\u{E4E0}"; // WARNING
 pub(crate) const ERROR: &str = "\u{E4E2}"; // WARNING_CIRCLE
 pub(crate) const SUCCESS: &str = "\u{E184}"; // CHECK_CIRCLE
 pub(crate) const PREVIEW: &str = "\u{E220}"; // EYE
-pub(crate) const CLEAN: &str = "\u{EC54}"; // BROOM
 pub(crate) const RECYCLE: &str = "\u{E4A6}"; // TRASH
 
 /// Prefixes a label with its glyph and two spaces of separation.

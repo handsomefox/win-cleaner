@@ -22,7 +22,7 @@ pub(crate) fn show(ctx: &egui::Context, texts: &UiText, open: &mut bool) {
                 ui.label(
                     RichText::new(texts.app_title)
                         .family(theme::bold())
-                        .size(20.0),
+                        .size(theme::FONT_HEADING),
                 );
                 ui.label(
                     RichText::new(format!(

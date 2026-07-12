@@ -22,8 +22,6 @@ pub(crate) const DANGER: Color32 = Color32::from_rgb(0xff, 0x5c, 0x5c);
 pub(crate) const SPACE_XS: f32 = 4.0;
 pub(crate) const SPACE_SM: f32 = 8.0;
 pub(crate) const SPACE_MD: f32 = 12.0;
-pub(crate) const SPACE_LG: f32 = 16.0;
-pub(crate) const SPACE_XL: f32 = 24.0;
 
 // Corner radii (u8 — feed `CornerRadius::same` / `Frame::corner_radius`).
 pub(crate) const RADIUS_SM: u8 = 6;
@@ -37,7 +35,6 @@ pub(crate) const FONT_HEADING: f32 = 18.0;
 pub(crate) const FONT_DISPLAY: f32 = 22.0;
 
 // Icon glyph sizes (f32).
-pub(crate) const ICON_SM: f32 = 14.0;
 pub(crate) const ICON_MD: f32 = 16.0;
 pub(crate) const ICON_LG: f32 = 20.0;
 

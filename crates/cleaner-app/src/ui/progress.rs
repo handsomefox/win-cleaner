@@ -4,6 +4,7 @@ use cleaner_core::human_bytes;
 use eframe::egui::{self, RichText, Ui};
 
 use crate::app::DeletingState;
+use crate::icons;
 use crate::strings::UiText;
 use crate::theme;
 use crate::ui::components;
@@ -16,23 +17,23 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &DeletingState) {
         |ui| {
             let fraction = components::fraction(state.current, state.total);
 
-            ui.add_space(4.0);
+            ui.add_space(theme::SPACE_XS);
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(texts.progress_moving_title)
                         .family(theme::bold())
-                        .size(15.0),
+                        .size(theme::FONT_BODY),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         RichText::new(format!("{:.0}%", f64::from(fraction) * 100.0))
                             .family(theme::bold())
-                            .size(22.0),
+                            .size(theme::FONT_DISPLAY),
                     );
                 });
             });
             ui.label(RichText::new(&state.message).color(theme::MUTED));
-            ui.add_space(6.0);
+            ui.add_space(theme::SPACE_SM);
             ui.add(egui::ProgressBar::new(fraction).desired_height(10.0));
             ui.horizontal(|ui| {
                 ui.label(
@@ -43,7 +44,10 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &DeletingState) {
                     .family(theme::bold()),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(texts.recycle_bin).color(theme::MUTED));
+                    ui.label(
+                        RichText::new(icons::with_label(icons::RECYCLE, texts.recycle_bin))
+                            .color(theme::MUTED),
+                    );
                 });
             });
             ui.separator();

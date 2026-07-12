@@ -5,6 +5,7 @@ use cleaner_core::{ExecResult, GroupResult, human_bytes};
 use eframe::egui::{self, RichText, Ui};
 
 use crate::app::{ResultsModal, ResultsState};
+use crate::icons;
 use crate::strings::UiText;
 use crate::theme;
 use crate::ui::components;
@@ -18,6 +19,12 @@ pub(crate) enum ResultsAction {
 pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Option<ResultsAction> {
     let mut action = None;
     let (headline, summary) = cleanup_result_summary(texts, &state.result, false);
+    let headline_glyph = if state.result.error_count > 0 {
+        icons::WARNING
+    } else {
+        icons::SUCCESS
+    };
+    let headline = icons::with_label(headline_glyph, &headline);
 
     let mut open_errors = false;
     let mut open_group: Option<usize> = None;
@@ -46,7 +53,9 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
                         ui.label(RichText::new(&group.app).family(theme::bold()));
                         ui.label(&group.label);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button(texts.result_details).clicked() {
+                            if components::icon_button(ui, icons::DETAILS, texts.result_details)
+                                .clicked()
+                            {
                                 open_group = Some(index);
                             }
                             ui.label(group_status(texts, group));
@@ -59,7 +68,10 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
 
     ui.add_space(theme::SPACE_SM);
     ui.horizontal(|ui| {
-        if ui.button(texts.action_history).clicked() {
+        if ui
+            .button(icons::with_label(icons::HISTORY, texts.action_history))
+            .clicked()
+        {
             action = Some(ResultsAction::History);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -84,11 +96,15 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
 
 fn group_status(texts: &UiText, group: &GroupResult) -> RichText {
     if group.paths_failed > 0 {
-        RichText::new(texts.failed_count(group.paths_failed)).color(theme::DANGER)
+        RichText::new(icons::with_label(
+            icons::ERROR,
+            &texts.failed_count(group.paths_failed),
+        ))
+        .color(theme::DANGER)
     } else if group.paths_attempted == 0 {
         RichText::new(texts.result_status_skipped).color(theme::MUTED)
     } else {
-        RichText::new(texts.result_status_ok).color(theme::MUTED)
+        RichText::new(icons::with_label(icons::SUCCESS, texts.result_status_ok)).color(theme::MUTED)
     }
 }
 

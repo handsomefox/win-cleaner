@@ -77,6 +77,28 @@ pub(crate) fn statusbar(
 
 fn toolbar(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
     ui.horizontal(|ui| {
+        // Master checkbox: selects or clears every item currently shown, which
+        // with hidden empty targets equals the old "Select non-empty".
+        let categories = visible(texts, state);
+        let (selected, total) = categories
+            .iter()
+            .fold((0, 0), |(selected, total), category| {
+                let (s, t) = category_selection_counts(state, category);
+                (selected + s, total + t)
+            });
+        if components::tri_checkbox(ui, components::check_state(selected, total))
+            .on_hover_text(texts.tooltip_select_visible)
+            .clicked()
+        {
+            let select = selected < total;
+            for category in &categories {
+                for app in &category.apps {
+                    for &index in &app.indices {
+                        state.plan.groups[index].on = select;
+                    }
+                }
+            }
+        }
         ui.label(
             RichText::new(icons::SEARCH)
                 .size(theme::ICON_MD)
@@ -118,8 +140,9 @@ fn sort_label(texts: &UiText, sort: SortMode) -> &str {
     }
 }
 
-fn body(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
-    let categories = visible_categories(
+/// The categories currently shown in the main pane.
+fn visible(texts: &UiText, state: &SelectState) -> Vec<CategoryView> {
+    visible_categories(
         texts,
         &state.plan,
         &ViewFilter {
@@ -128,7 +151,11 @@ fn body(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
             sort: state.sort,
             show_empty: state.show_empty,
         },
-    );
+    )
+}
+
+fn body(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
+    let categories = visible(texts, state);
     if categories.is_empty() {
         components::centered_status(ui, texts.no_matching_cache_targets);
         return;

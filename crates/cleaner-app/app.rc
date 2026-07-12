@@ -4,8 +4,8 @@
 1 RT_MANIFEST "app.manifest"
 
 1 VERSIONINFO
-FILEVERSION 0,1,0,0
-PRODUCTVERSION 0,1,0,0
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 FILEFLAGS 0
 FILEOS VOS_NT_WINDOWS32
@@ -16,12 +16,12 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "FileDescription", "win-cleaner\0"
-      VALUE "FileVersion", "0.1.0\0"
+      VALUE "FileDescription", "Win Cleaner\0"
+      VALUE "FileVersion", "1.0.0\0"
       VALUE "InternalName", "win-cleaner.exe\0"
       VALUE "OriginalFilename", "win-cleaner.exe\0"
-      VALUE "ProductName", "win-cleaner\0"
-      VALUE "ProductVersion", "0.1.0\0"
+      VALUE "ProductName", "Win Cleaner\0"
+      VALUE "ProductVersion", "1.0.0\0"
     END
   END
   BLOCK "VarFileInfo"

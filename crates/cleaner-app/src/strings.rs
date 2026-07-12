@@ -106,7 +106,7 @@ pub(crate) struct UiText {
 }
 
 pub(crate) const ENGLISH: UiText = UiText {
-    app_title: "win-cleaner",
+    app_title: "Win Cleaner",
 
     task_cache_scanning: "Scanning cache locations…",
     task_cache_deleting: "Moving selected cache files to the Recycle Bin",
@@ -195,14 +195,14 @@ pub(crate) const ENGLISH: UiText = UiText {
     stats_last30_label: "Last 30 days",
 
     menu_history: "History",
-    menu_about: "About win-cleaner",
+    menu_about: "About Win Cleaner",
     about_version_label: "Version",
     about_fonts: "Inter — SIL Open Font License 1.1 · Phosphor Icons — MIT",
     about_repo_label: "Project page",
     about_repo_url: "https://github.com/handsomefox/win-cleaner",
     about_open_log: "Open log folder",
 
-    unsupported_platform: "win-cleaner only supports Windows. Scanning and cleaning are disabled on this platform.",
+    unsupported_platform: "Win Cleaner only supports Windows. Scanning and cleaning are disabled on this platform.",
 };
 
 pub(crate) fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {

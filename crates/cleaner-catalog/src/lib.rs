@@ -744,7 +744,7 @@ mod tests {
         let firefox_globs: Vec<_> = firefox
             .globs
             .iter()
-            .map(|path| path.to_string_lossy())
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
             .collect();
         assert!(
             firefox_globs
@@ -761,20 +761,17 @@ mod tests {
             .iter()
             .find(|i| i.app == "Thunderbird")
             .unwrap();
-        assert!(
-            thunderbird
-                .globs
-                .iter()
-                .any(|path| path.to_string_lossy().contains(
-                    "Packages/MozillaThunderbird.MZLA_*/LocalCache/Local/Thunderbird/Profiles/*/cache2"
-                ))
-        );
+        assert!(thunderbird.globs.iter().any(|path| {
+            path.to_string_lossy().replace('\\', "/").contains(
+                "Packages/MozillaThunderbird.MZLA_*/LocalCache/Local/Thunderbird/Profiles/*/cache2",
+            )
+        }));
 
         let all_paths: Vec<_> = registry
             .items
             .iter()
             .flat_map(|item| item.paths.iter().chain(&item.globs))
-            .map(|path| path.to_string_lossy())
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
             .collect();
         for unsupported in [
             "LocalCache/Roaming/Thunderbird",

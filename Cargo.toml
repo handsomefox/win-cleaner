@@ -34,7 +34,18 @@ strip = true
 
 [workspace.lints.rust]
 unreachable_pub = "warn"
+unsafe_op_in_unsafe_fn = "warn"
 unused_qualifications = "warn"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+exit = "warn"
+multiple_unsafe_ops_per_block = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"
+unimplemented = "warn"

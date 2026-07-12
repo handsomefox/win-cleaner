@@ -63,7 +63,7 @@ fn electron_set(base: &Path) -> Vec<PathBuf> {
 /// individually gated items (Program Files, `SystemRoot`) are omitted when
 /// their root is missing.
 #[must_use]
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "a flat data table reads best unbroken"
 )]

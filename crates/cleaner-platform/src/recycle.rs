@@ -22,8 +22,8 @@ impl Recycler for ShellRecycler {
 /// extra NUL (`C:\foo\0C:\bar\0\0`). Empty paths are skipped; an empty result
 /// means there is nothing to do.
 #[cfg_attr(
-    not(windows),
-    allow(
+    not(any(windows, test)),
+    expect(
         dead_code,
         reason = "only the Windows recycler calls it; tests cover it everywhere"
     )

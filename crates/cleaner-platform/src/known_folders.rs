@@ -27,12 +27,12 @@ pub(crate) fn profile() -> Option<PathBuf> {
 }
 
 fn known_folder(id: &windows::core::GUID) -> Option<PathBuf> {
-    // SAFETY: the returned COM allocation is converted to an owned string
-    // before being freed exactly once.
-    unsafe {
-        let value = SHGetKnownFolderPath(id, KNOWN_FOLDER_FLAG::default(), None).ok()?;
-        let path = value.to_string().ok().map(PathBuf::from);
-        CoTaskMemFree(Some(value.as_ptr().cast()));
-        path
-    }
+    // SAFETY: the GUID is a valid known-folder identifier and the API owns
+    // the returned allocation until it is released below.
+    let value = unsafe { SHGetKnownFolderPath(id, KNOWN_FOLDER_FLAG::default(), None) }.ok()?;
+    let path = value.to_string().ok().map(PathBuf::from);
+    // SAFETY: `value` is the COM allocation returned above, is no longer read,
+    // and is released exactly once.
+    unsafe { CoTaskMemFree(Some(value.as_ptr().cast())) };
+    path
 }

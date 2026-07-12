@@ -201,7 +201,7 @@ pub(crate) fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
 
 // Formatting helpers take `&self` even when the English text is inlined, so a
 // future locale only has to swap the receiver.
-#[allow(clippy::unused_self, reason = "receiver reserved for localization")]
+#[expect(clippy::unused_self, reason = "receiver reserved for localization")]
 impl UiText {
     pub(crate) fn items_count(&self, n: usize) -> String {
         format!("{n} {}", plural(n, "item", "items"))

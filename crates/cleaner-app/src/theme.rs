@@ -125,6 +125,10 @@ fn style(style: &mut egui::Style) {
     style.spacing.button_padding = egui::vec2(10.0, 5.0);
 }
 
+// The vendored Inter files have their Private Use Area cmap entries stripped
+// (upstream Inter maps ~1.5k stylistic-set alternates into U+E000..U+F8FF,
+// which would shadow the Phosphor icon glyphs that live in the same range
+// because Inter sits earlier in the font family).
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(

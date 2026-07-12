@@ -8,3 +8,4 @@ pub(crate) mod progress;
 pub(crate) mod results;
 pub(crate) mod scan;
 pub(crate) mod select;
+pub(crate) mod sidebar;

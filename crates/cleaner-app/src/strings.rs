@@ -16,11 +16,6 @@ pub(crate) struct UiText {
     pub action_cancel: &'static str,
     pub action_clean_up: &'static str,
     pub action_preview: &'static str,
-    pub action_select_all: &'static str,
-    pub action_select_non_empty: &'static str,
-    pub action_deselect_all: &'static str,
-    pub action_expand_all: &'static str,
-    pub action_collapse_all: &'static str,
     pub action_rescan: &'static str,
     pub action_clean_again: &'static str,
     pub action_history: &'static str,
@@ -35,6 +30,7 @@ pub(crate) struct UiText {
     pub cache_sort_largest: &'static str,
     pub cache_sort_smallest: &'static str,
     pub cache_search_hint: &'static str,
+    pub sidebar_all: &'static str,
     pub category_browsers: &'static str,
     pub category_chat: &'static str,
     pub category_development: &'static str,
@@ -94,10 +90,8 @@ pub(crate) struct UiText {
     pub stats_last7_label: &'static str,
     pub stats_last30_label: &'static str,
 
-    pub menu_cache_cleanup: &'static str,
     pub menu_history: &'static str,
     pub menu_about: &'static str,
-    pub menu_quit: &'static str,
     pub about_version_label: &'static str,
     pub about_fonts: &'static str,
     pub about_repo_label: &'static str,
@@ -118,11 +112,6 @@ pub(crate) const ENGLISH: UiText = UiText {
     action_cancel: "Cancel",
     action_clean_up: "Clean Up",
     action_preview: "Preview",
-    action_select_all: "Select All",
-    action_select_non_empty: "Select Non-Empty",
-    action_deselect_all: "Deselect All",
-    action_expand_all: "Expand All",
-    action_collapse_all: "Collapse All",
     action_rescan: "Rescan",
     action_clean_again: "Clean Again",
     action_history: "View History",
@@ -137,6 +126,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     cache_sort_largest: "Largest first",
     cache_sort_smallest: "Smallest first",
     cache_search_hint: "Search apps and cleanup items…",
+    sidebar_all: "All",
     category_browsers: "Browsers",
     category_chat: "Chat",
     category_development: "Development",
@@ -196,10 +186,8 @@ pub(crate) const ENGLISH: UiText = UiText {
     stats_last7_label: "Last 7 days:",
     stats_last30_label: "Last 30 days:",
 
-    menu_cache_cleanup: "Cache Cleanup",
     menu_history: "History",
     menu_about: "About win-cleaner",
-    menu_quit: "Quit",
     about_version_label: "Version",
     about_fonts: "Inter — SIL Open Font License 1.1 · Phosphor Icons — MIT",
     about_repo_label: "Project page",
@@ -247,6 +235,21 @@ impl UiText {
 
     pub(crate) fn selected_of_count(&self, selected: usize, total: usize) -> String {
         format!("{selected}/{total} selected")
+    }
+
+    pub(crate) fn show_empty_label(&self, n: usize) -> String {
+        format!("Show empty ({n})")
+    }
+
+    /// The status-bar overview line: apps scanned, cleanup targets, and their
+    /// combined estimated size.
+    pub(crate) fn cache_overview(&self, apps: usize, items: usize, bytes: u64) -> String {
+        format!(
+            "{}  ·  {}  ·  {}",
+            self.apps_count(apps),
+            self.items_count(items),
+            human_bytes(bytes)
+        )
     }
 
     pub(crate) fn details_with_issues(&self, n: usize) -> String {

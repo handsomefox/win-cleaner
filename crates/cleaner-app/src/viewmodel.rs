@@ -106,11 +106,6 @@ pub(crate) fn category_of(app_name: &str) -> Category {
     }
 }
 
-/// Maps an app name to its category display name.
-pub(crate) fn category_name<'t>(texts: &'t UiText, app_name: &str) -> &'t str {
-    category_of(app_name).label(texts)
-}
-
 /// A cache group is an "empty target" when it holds nothing to delete: zero
 /// bytes and no matched paths. Empty-folder groups keep non-empty `paths`, so
 /// they are *not* empty targets and stay visible.
@@ -209,25 +204,6 @@ pub(crate) fn visible_categories(
         SortMode::Name => categories.sort_by(|a, b| a.name.cmp(&b.name)),
     }
     categories
-}
-
-/// Compatibility wrapper: every category, every item (empty targets included).
-pub(crate) fn categorized_app_groups(
-    texts: &UiText,
-    plan: &Plan,
-    filter: &str,
-    sort: SortMode,
-) -> Vec<CategoryView> {
-    visible_categories(
-        texts,
-        plan,
-        &ViewFilter {
-            category: None,
-            search: filter,
-            sort,
-            show_empty: true,
-        },
-    )
 }
 
 /// One sidebar row: a category, how many of its apps the plan holds, and their
@@ -473,6 +449,20 @@ mod tests {
         }
     }
 
+    /// Every category, every item (empty targets included) — the common view.
+    fn all_categories(plan: &Plan, search: &str, sort: SortMode) -> Vec<CategoryView> {
+        visible_categories(
+            &ENGLISH,
+            plan,
+            &ViewFilter {
+                category: None,
+                search,
+                sort,
+                show_empty: true,
+            },
+        )
+    }
+
     fn sample_plan() -> Plan {
         let mut plan = Plan {
             groups: vec![
@@ -490,18 +480,19 @@ mod tests {
 
     #[test]
     fn category_mapping_places_apps_in_expected_sections() {
-        assert_eq!(category_name(&ENGLISH, "Chrome"), "Browsers");
-        assert_eq!(category_name(&ENGLISH, "Teams (new)"), "Chat");
-        assert_eq!(category_name(&ENGLISH, "Go modules"), "Development");
-        assert_eq!(category_name(&ENGLISH, "osu! (lazer)"), "Gaming");
-        assert_eq!(category_name(&ENGLISH, "OBS Studio"), "Media");
-        assert_eq!(category_name(&ENGLISH, "Windows Error Reporting"), "System");
-        assert_eq!(category_name(&ENGLISH, "Blender"), "Creative");
-        assert_eq!(category_name(&ENGLISH, "Empty folders"), "Empty folders");
-        assert_eq!(category_name(&ENGLISH, "Vortex"), "Gaming");
-        assert_eq!(category_name(&ENGLISH, "Razer Synapse"), "System");
+        let label = |app: &str| category_of(app).label(&ENGLISH);
+        assert_eq!(label("Chrome"), "Browsers");
+        assert_eq!(label("Teams (new)"), "Chat");
+        assert_eq!(label("Go modules"), "Development");
+        assert_eq!(label("osu! (lazer)"), "Gaming");
+        assert_eq!(label("OBS Studio"), "Media");
+        assert_eq!(label("Windows Error Reporting"), "System");
+        assert_eq!(label("Blender"), "Creative");
+        assert_eq!(label("Empty folders"), "Empty folders");
+        assert_eq!(label("Vortex"), "Gaming");
+        assert_eq!(label("Razer Synapse"), "System");
         for app in ["Notion", "qBittorrent"] {
-            assert_eq!(category_name(&ENGLISH, app), "Other", "{app}");
+            assert_eq!(label(app), "Other", "{app}");
         }
     }
 
@@ -611,7 +602,7 @@ mod tests {
     #[test]
     fn categorized_groups_sort_by_name_and_by_size() {
         let plan = sample_plan();
-        let by_name = categorized_app_groups(&ENGLISH, &plan, "", SortMode::Name);
+        let by_name = all_categories(&plan, "", SortMode::Name);
         let names: Vec<&str> = by_name.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
             names,
@@ -624,7 +615,7 @@ mod tests {
             ]
         );
 
-        let by_size = categorized_app_groups(&ENGLISH, &plan, "", SortMode::SizeDesc);
+        let by_size = all_categories(&plan, "", SortMode::SizeDesc);
         assert_eq!(by_size[0].name, "System");
         assert_eq!(by_size[0].bytes, 9000);
     }
@@ -632,15 +623,15 @@ mod tests {
     #[test]
     fn filter_matches_app_and_label() {
         let plan = sample_plan();
-        let filtered = categorized_app_groups(&ENGLISH, &plan, "package", SortMode::Name);
+        let filtered = all_categories(&plan, "package", SortMode::Name);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].apps[0].app, "npm");
 
-        let filtered = categorized_app_groups(&ENGLISH, &plan, "CHROME", SortMode::Name);
+        let filtered = all_categories(&plan, "CHROME", SortMode::Name);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name, "Browsers");
 
-        assert!(categorized_app_groups(&ENGLISH, &plan, "zzz", SortMode::Name).is_empty());
+        assert!(all_categories(&plan, "zzz", SortMode::Name).is_empty());
     }
 
     #[test]
@@ -654,7 +645,7 @@ mod tests {
             ..Plan::default()
         };
 
-        let filtered = categorized_app_groups(&ENGLISH, &plan, "GPU", SortMode::SizeDesc);
+        let filtered = all_categories(&plan, "GPU", SortMode::SizeDesc);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].bytes, 1500);
         assert_eq!(filtered[0].apps.len(), 1);

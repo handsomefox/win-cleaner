@@ -10,9 +10,6 @@ use crate::icons;
 use crate::strings::UiText;
 use crate::theme;
 
-/// Per-level left indent for the cache tree.
-pub(crate) const INDENT_STEP: f32 = 32.0;
-
 /// Rounded, bordered surface panel — the building block behind every card.
 pub(crate) fn surface_frame() -> egui::Frame {
     egui::Frame::new()
@@ -140,22 +137,10 @@ pub(crate) fn size_text(texts: &UiText, bytes: u64) -> RichText {
     }
 }
 
-pub(crate) fn expand_chevron(expanded: bool) -> &'static str {
-    if expanded {
-        icons::CHEVRON_EXPANDED
-    } else {
-        icons::CHEVRON_COLLAPSED
-    }
-}
-
-/// A borderless button, used for glyphs and tappable tree headers.
-pub(crate) fn flat_button(ui: &mut Ui, text: impl Into<egui::WidgetText>) -> Response {
-    ui.add(egui::Button::new(text).frame(false))
-}
-
-/// One tree row: an optional zebra stripe behind an indented horizontal
-/// cluster spanning the full width.
-pub(crate) fn tree_row(ui: &mut Ui, level: u8, striped: bool, add: impl FnOnce(&mut Ui)) {
+/// One item row: an optional zebra stripe behind a horizontal cluster spanning
+/// the full width. Containment now comes from the enclosing card, so there is
+/// no indent.
+pub(crate) fn striped_row(ui: &mut Ui, striped: bool, add: impl FnOnce(&mut Ui)) {
     let fill = if striped {
         theme::ROW_ALT
     } else {
@@ -166,11 +151,52 @@ pub(crate) fn tree_row(ui: &mut Ui, level: u8, striped: bool, add: impl FnOnce(&
         .inner_margin(egui::Margin::symmetric(6, 4))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.add_space(f32::from(level) * INDENT_STEP);
-                add(ui);
-            });
+            ui.horizontal(add);
         });
+}
+
+/// One sidebar row: a tinted, rounded button carrying an icon, a bold title,
+/// an optional muted subtitle, and an optional right-aligned value.
+pub(crate) fn sidebar_row(
+    ui: &mut Ui,
+    icon: &str,
+    title: &str,
+    subtitle: &str,
+    value: Option<RichText>,
+    selected: bool,
+) -> Response {
+    let (fill, tint) = if selected {
+        (theme::SELECTION, theme::ACCENT)
+    } else {
+        (Color32::TRANSPARENT, theme::MUTED)
+    };
+    let response = egui::Frame::new()
+        .fill(fill)
+        .corner_radius(theme::RADIUS_MD)
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(icon).size(theme::ICON_MD).color(tint));
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(title).family(theme::bold()));
+                    if !subtitle.is_empty() {
+                        ui.label(
+                            RichText::new(subtitle)
+                                .size(theme::FONT_SMALL)
+                                .color(theme::MUTED),
+                        );
+                    }
+                });
+                if let Some(value) = value {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(value);
+                    });
+                }
+            });
+        })
+        .response;
+    response.interact(Sense::click())
 }
 
 /// A labeled value pill for the delete-progress stats strip.

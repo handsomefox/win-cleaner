@@ -1,8 +1,6 @@
 //! The eframe application: screen state machine, header, and event plumbing
 //! between the UI and the background worker.
 
-use std::collections::HashMap;
-
 use cleaner_core::{ExecResult, Plan};
 use eframe::egui::{self, RichText};
 
@@ -12,7 +10,8 @@ use crate::ui;
 use crate::ui::history::HistoryAction;
 use crate::ui::results::ResultsAction;
 use crate::ui::select::SelectAction;
-use crate::viewmodel::{self, SortMode};
+use crate::ui::sidebar::SidebarAction;
+use crate::viewmodel::{self, Category, SortMode};
 use crate::worker::{self, Command, Event, Worker};
 
 pub(crate) struct WinCleanerApp {
@@ -42,10 +41,13 @@ pub(crate) enum Screen {
 
 pub(crate) struct SelectState {
     pub plan: Plan,
+    /// The main-pane search text.
     pub filter: String,
-    pub expanded_apps: HashMap<String, bool>,
-    pub expanded_categories: HashMap<String, bool>,
+    /// The sidebar-selected category, or `None` for "All".
+    pub selected_category: Option<Category>,
     pub sort: SortMode,
+    /// Whether empty targets are revealed; hidden by default.
+    pub show_empty: bool,
     /// Preview-only mode; enabled by default.
     pub dry_run: bool,
     pub modal: Option<SelectModal>,
@@ -56,9 +58,9 @@ impl SelectState {
         Self {
             plan,
             filter: String::new(),
-            expanded_apps: HashMap::new(),
-            expanded_categories: HashMap::new(),
+            selected_category: None,
             sort: SortMode::Name,
+            show_empty: false,
             dry_run: true,
             modal: None,
         }
@@ -106,9 +108,7 @@ pub(crate) struct HistoryState {
 #[derive(Clone, Copy, Default)]
 #[expect(clippy::struct_excessive_bools, reason = "one flag per UI intent")]
 struct Nav {
-    quit: bool,
     about: bool,
-    menu_cache: bool,
     show_history: bool,
     refresh_history: bool,
     header_action: bool,
@@ -342,25 +342,6 @@ impl WinCleanerApp {
             )
             .show(root, |ui| {
                 ui.horizontal(|ui| {
-                    ui.menu_button(RichText::new("☰").size(16.0), |ui| {
-                        if ui.button(texts.menu_cache_cleanup).clicked() {
-                            nav.menu_cache = true;
-                            ui.close();
-                        }
-                        if ui.button(texts.menu_history).clicked() {
-                            nav.show_history = true;
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui.button(texts.menu_about).clicked() {
-                            nav.about = true;
-                            ui.close();
-                        }
-                        if ui.button(texts.menu_quit).clicked() {
-                            nav.quit = true;
-                            ui.close();
-                        }
-                    });
                     ui.label(
                         RichText::new(texts.app_title)
                             .family(theme::bold())
@@ -430,6 +411,47 @@ impl WinCleanerApp {
             });
     }
 
+    /// The category sidebar. Only drawn on the selection screen, so callers
+    /// must gate on `Screen::Select`.
+    fn draw_sidebar(&mut self, root: &mut egui::Ui, nav: &mut Nav) {
+        let texts = self.texts;
+        let Screen::Select(state) = &mut self.screen else {
+            return;
+        };
+        egui::Panel::left("sidebar")
+            .resizable(false)
+            .exact_size(theme::SIDEBAR_WIDTH)
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::SURFACE)
+                    .inner_margin(egui::Margin::symmetric(10, 12)),
+            )
+            .show(root, |ui| match ui::sidebar::show(ui, texts, state) {
+                Some(SidebarAction::History) => nav.show_history = true,
+                Some(SidebarAction::About) => nav.about = true,
+                None => {}
+            });
+    }
+
+    /// The bottom status bar with the plan overview and view toggles.
+    fn draw_statusbar(&mut self, root: &mut egui::Ui, nav: &mut Nav) {
+        let texts = self.texts;
+        let Screen::Select(state) = &mut self.screen else {
+            return;
+        };
+        egui::Panel::bottom("statusbar")
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::SURFACE)
+                    .inner_margin(egui::Margin::symmetric(12, 8)),
+            )
+            .show(root, |ui| {
+                if let Some(SelectAction::Rescan) = ui::select::statusbar(ui, texts, state) {
+                    nav.rescan = true;
+                }
+            });
+    }
+
     fn on_header_action(&mut self, ctx: &egui::Context) {
         if self.history.is_some() {
             self.history = None;
@@ -453,14 +475,8 @@ impl WinCleanerApp {
     }
 
     fn handle_nav(&mut self, ctx: &egui::Context, nav: Nav) {
-        if nav.quit {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
         if nav.about {
             self.about_open = true;
-        }
-        if nav.menu_cache {
-            self.history = None;
         }
         if nav.show_history || nav.refresh_history {
             self.show_history();
@@ -484,6 +500,12 @@ impl eframe::App for WinCleanerApp {
         let ctx = root.ctx().clone();
         let mut nav = Nav::default();
         self.draw_header(root, &mut nav);
+        // Side and bottom panels must be registered before the central panel,
+        // and only on the selection screen (never behind the history overlay).
+        if self.history.is_none() && matches!(self.screen, Screen::Select(_)) {
+            self.draw_sidebar(root, &mut nav);
+            self.draw_statusbar(root, &mut nav);
+        }
         self.draw_central(root, &mut nav);
         ui::about::show(&ctx, self.texts, &mut self.about_open);
         self.handle_nav(&ctx, nav);

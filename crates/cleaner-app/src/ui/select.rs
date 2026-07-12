@@ -1,84 +1,98 @@
-//! The selection screen: toolbar plus the category → app → item tree, and the
-//! preview/confirm/details modals.
+//! The selection screen's main pane (search + sort toolbar and the per-category
+//! app cards), its status bar, and the preview/confirm/details modals. Sidebar
+//! navigation lives in `sidebar.rs`.
 
 use cleaner_core::human_bytes;
 use eframe::egui::{self, RichText, Ui};
 
 use crate::app::{SelectModal, SelectState};
-use crate::icons::category_icon;
+use crate::icons;
 use crate::strings::UiText;
 use crate::theme;
 use crate::ui::components;
-use crate::viewmodel::{AppView, CategoryView, SortMode, categorized_app_groups};
+use crate::ui::components::CheckState;
+use crate::viewmodel::{self, AppView, CategoryView, SortMode, ViewFilter, visible_categories};
 
 pub(crate) enum SelectAction {
     Rescan,
     ConfirmedCleanup,
 }
 
+/// The central pane: search/sort toolbar, the scrollable category sections, and
+/// the modals.
 pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut SelectState) -> Option<SelectAction> {
     let mut action = None;
 
-    components::surface_frame().show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        toolbar(ui, texts, state, &mut action);
-        ui.separator();
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                tree(ui, texts, state);
-            });
-    });
+    toolbar(ui, texts, state);
+    ui.add_space(theme::SPACE_SM);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            body(ui, texts, state);
+        });
 
     modals(ui.ctx(), texts, state, &mut action);
     action
 }
 
-fn toolbar(
+/// The bottom status bar: plan overview plus the Show empty / Preview toggles
+/// and Rescan.
+pub(crate) fn statusbar(
     ui: &mut Ui,
     texts: &UiText,
     state: &mut SelectState,
-    action: &mut Option<SelectAction>,
-) {
+) -> Option<SelectAction> {
+    let mut action = None;
+    let (apps, items, bytes) = viewmodel::plan_overview(&state.plan);
+    let empty = viewmodel::empty_target_count(&state.plan);
+
     ui.horizontal(|ui| {
-        if ui.button(texts.action_select_all).clicked() {
-            for group in &mut state.plan.groups {
-                group.on = true;
+        ui.label(RichText::new(texts.cache_overview(apps, items, bytes)).color(theme::MUTED));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .button(icons::with_label(icons::RESCAN, texts.action_rescan))
+                .clicked()
+            {
+                action = Some(SelectAction::Rescan);
             }
-        }
-        if ui.button(texts.action_select_non_empty).clicked() {
-            for group in &mut state.plan.groups {
-                group.on = group.bytes > 0;
+            if ui
+                .selectable_label(
+                    state.dry_run,
+                    icons::with_label(icons::PREVIEW, texts.toggle_preview_only),
+                )
+                .clicked()
+            {
+                state.dry_run = !state.dry_run;
             }
-        }
-        if ui.button(texts.action_deselect_all).clicked() {
-            for group in &mut state.plan.groups {
-                group.on = false;
+            if ui
+                .selectable_label(state.show_empty, texts.show_empty_label(empty))
+                .clicked()
+            {
+                state.show_empty = !state.show_empty;
             }
-        }
+        });
+    });
+    action
+}
+
+fn toolbar(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(icons::SEARCH)
+                .size(theme::ICON_MD)
+                .color(theme::MUTED),
+        );
         ui.add(
             egui::TextEdit::singleline(&mut state.filter)
                 .hint_text(texts.cache_search_hint)
-                .desired_width(220.0),
+                .desired_width(260.0),
         );
-
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(texts.action_rescan).clicked() {
-                *action = Some(SelectAction::Rescan);
-            }
-            let preview = ui.selectable_label(state.dry_run, texts.toggle_preview_only);
-            if preview.clicked() {
-                state.dry_run = !state.dry_run;
-            }
-            ui.separator();
-            if ui.button(texts.action_collapse_all).clicked() {
-                set_all_expanded(texts, state, false);
-            }
-            if ui.button(texts.action_expand_all).clicked() {
-                set_all_expanded(texts, state, true);
-            }
             egui::ComboBox::from_id_salt("cache-sort")
-                .selected_text(sort_label(texts, state.sort))
+                .selected_text(icons::with_label(
+                    icons::SORT,
+                    sort_label(texts, state.sort),
+                ))
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut state.sort, SortMode::Name, texts.cache_sort_name);
                     ui.selectable_value(
@@ -104,65 +118,48 @@ fn sort_label(texts: &UiText, sort: SortMode) -> &str {
     }
 }
 
-fn set_all_expanded(texts: &UiText, state: &mut SelectState, expanded: bool) {
-    for group in state.plan.by_app() {
-        state.expanded_apps.insert(group.app, expanded);
-    }
-    for category in categorized_app_groups(texts, &state.plan, &state.filter, state.sort) {
-        state.expanded_categories.insert(category.name, expanded);
-    }
-}
-
-fn tree(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
-    let categories = categorized_app_groups(texts, &state.plan, &state.filter, state.sort);
+fn body(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
+    let categories = visible_categories(
+        texts,
+        &state.plan,
+        &ViewFilter {
+            category: state.selected_category,
+            search: &state.filter,
+            sort: state.sort,
+            show_empty: state.show_empty,
+        },
+    );
     if categories.is_empty() {
         components::centered_status(ui, texts.no_matching_cache_targets);
         return;
     }
-    for (index, category) in categories.iter().enumerate() {
-        category_section(ui, texts, state, category, index % 2 == 1);
+    for category in &categories {
+        category_section(ui, texts, state, category);
     }
 }
 
-fn category_section(
-    ui: &mut Ui,
-    texts: &UiText,
-    state: &mut SelectState,
-    category: &CategoryView,
-    striped: bool,
-) {
+fn category_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, category: &CategoryView) {
     let (selected, total) = category_selection_counts(state, category);
-    let expanded = *state
-        .expanded_categories
-        .get(&category.name)
-        .unwrap_or(&false);
 
-    let mut toggle_selection = false;
-    let mut toggle_expanded = false;
-    components::tree_row(ui, 0, striped, |ui| {
-        toggle_selection =
-            components::tri_checkbox(ui, components::check_state(selected, total)).clicked();
-        let chevron =
-            components::flat_button(ui, RichText::new(components::expand_chevron(expanded)));
+    let mut toggle = false;
+    ui.horizontal(|ui| {
+        toggle = components::tri_checkbox(ui, components::check_state(selected, total)).clicked();
         ui.label(
-            RichText::new(category_icon(texts, &category.name))
-                .size(theme::ICON_MD)
+            RichText::new(icons::category_glyph(category.category))
+                .size(theme::ICON_LG)
                 .color(theme::MUTED),
         );
-        let name = components::flat_button(
-            ui,
+        ui.label(
             RichText::new(&category.name)
                 .family(theme::bold())
-                .size(theme::FONT_BODY),
+                .size(theme::FONT_HEADING),
         );
-        toggle_expanded = chevron.clicked() || name.clicked();
         ui.label(RichText::new(texts.apps_count(category.apps.len())).color(theme::MUTED));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(components::size_text(texts, category.bytes));
         });
     });
-
-    if toggle_selection {
+    if toggle {
         let select = selected < total || total == 0;
         for app in &category.apps {
             for &index in &app.indices {
@@ -170,84 +167,90 @@ fn category_section(
             }
         }
     }
-    if toggle_expanded {
-        state
-            .expanded_categories
-            .insert(category.name.clone(), !expanded);
-    }
 
-    if *state
-        .expanded_categories
-        .get(&category.name)
-        .unwrap_or(&false)
-    {
-        for (index, app) in category.apps.iter().enumerate() {
-            app_section(ui, texts, state, app, index % 2 == 1);
-        }
+    ui.add_space(theme::SPACE_XS);
+    for app in &category.apps {
+        app_card(ui, texts, state, app);
     }
+    ui.add_space(theme::SPACE_MD);
 }
 
-fn app_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppView, striped: bool) {
+fn app_card(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppView) {
     let selected = app
         .indices
         .iter()
         .filter(|&&index| state.plan.groups[index].on)
         .count();
     let total = app.indices.len();
-    let expanded = *state.expanded_apps.get(&app.app).unwrap_or(&false);
 
-    let mut toggle_selection = false;
-    let mut toggle_expanded = false;
-    components::tree_row(ui, 1, striped, |ui| {
-        toggle_selection =
-            components::tri_checkbox(ui, components::check_state(selected, total)).clicked();
-        let chevron =
-            components::flat_button(ui, RichText::new(components::expand_chevron(expanded)));
-        let name = components::flat_button(ui, RichText::new(&app.app).family(theme::bold()));
-        toggle_expanded = chevron.clicked() || name.clicked();
-        ui.label(RichText::new(texts.selected_of_count(selected, total)).color(theme::MUTED));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(components::size_text(texts, app.bytes));
+    let mut toggle = false;
+    components::surface_frame().show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.horizontal(|ui| {
+            toggle =
+                components::tri_checkbox(ui, components::check_state(selected, total)).clicked();
+            ui.label(RichText::new(&app.app).family(theme::bold()));
+            ui.label(RichText::new(texts.selected_of_count(selected, total)).color(theme::MUTED));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(components::size_text(texts, app.bytes));
+            });
         });
+        for (row, &index) in app.indices.iter().enumerate() {
+            item_row(ui, texts, state, index, row % 2 == 1);
+        }
     });
-
-    if toggle_selection {
+    if toggle {
         let select = selected < total;
         for &index in &app.indices {
             state.plan.groups[index].on = select;
         }
     }
-    if toggle_expanded {
-        state.expanded_apps.insert(app.app.clone(), !expanded);
-    }
-
-    if *state.expanded_apps.get(&app.app).unwrap_or(&false) {
-        for (row, &index) in app.indices.iter().enumerate() {
-            item_row(ui, texts, state, index, row % 2 == 1);
-        }
-    }
+    ui.add_space(theme::SPACE_SM);
 }
 
 fn item_row(ui: &mut Ui, texts: &UiText, state: &mut SelectState, index: usize, striped: bool) {
     let mut open_details = false;
-    components::tree_row(ui, 2, striped, |ui| {
+    components::striped_row(ui, striped, |ui| {
         let group = &state.plan.groups[index];
         let on = group.on;
-        let check = if on {
-            components::CheckState::Checked
-        } else {
-            components::CheckState::Unchecked
-        };
-        let changed = components::tri_checkbox(ui, check).clicked();
-        ui.label(&group.label);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(components::size_text(texts, group.bytes));
-            let details = if group.errs.is_empty() {
-                texts.result_details.to_owned()
+        let bytes = group.bytes;
+        let empty = viewmodel::is_empty_target(group);
+        let has_errs = !group.errs.is_empty();
+        let err_count = group.errs.len();
+        let mut label = RichText::new(&group.label);
+        if empty {
+            label = label.color(theme::MUTED);
+        }
+
+        let changed = components::tri_checkbox(
+            ui,
+            if on {
+                CheckState::Checked
             } else {
-                texts.details_with_issues(group.errs.len())
-            };
-            open_details = ui.small_button(details).clicked();
+                CheckState::Unchecked
+            },
+        )
+        .clicked();
+        ui.label(label);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(components::size_text(texts, bytes));
+            if has_errs {
+                let warn = egui::Button::new(
+                    RichText::new(icons::WARNING)
+                        .size(theme::ICON_MD)
+                        .color(theme::DANGER),
+                )
+                .frame(false);
+                if ui
+                    .add(warn)
+                    .on_hover_text(texts.details_with_issues(err_count))
+                    .clicked()
+                {
+                    open_details = true;
+                }
+            } else if components::icon_button(ui, icons::DETAILS, texts.result_details).clicked() {
+                open_details = true;
+            }
         });
         if changed {
             state.plan.groups[index].on = !on;

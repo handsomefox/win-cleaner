@@ -2,7 +2,7 @@
 //! installed in `theme.rs`, so these `&str` codepoints render anywhere text
 //! does. Codepoints are copied verbatim from egui-phosphor's `regular.rs`.
 
-use crate::strings::UiText;
+use crate::viewmodel::Category;
 
 // Category glyphs.
 pub(crate) const CAT_ALL: &str = "\u{E464}"; // SQUARES_FOUR
@@ -20,8 +20,6 @@ pub(crate) const CAT_OTHER: &str = "\u{E390}"; // PACKAGE (also the fallback ico
 pub(crate) const CHECKBOX_CHECKED: &str = "\u{E186}"; // CHECK_SQUARE
 pub(crate) const CHECKBOX_UNCHECKED: &str = "\u{E45E}"; // SQUARE
 pub(crate) const CHECKBOX_PARTIAL: &str = "\u{ED4C}"; // MINUS_SQUARE
-pub(crate) const CHEVRON_EXPANDED: &str = "\u{E136}"; // CARET_DOWN
-pub(crate) const CHEVRON_COLLAPSED: &str = "\u{E13A}"; // CARET_RIGHT
 pub(crate) const HISTORY: &str = "\u{E1A0}"; // CLOCK_COUNTER_CLOCKWISE
 pub(crate) const ABOUT: &str = "\u{E2CE}"; // INFO
 pub(crate) const RESCAN: &str = "\u{E036}"; // ARROW_CLOCKWISE
@@ -41,26 +39,17 @@ pub(crate) fn with_label(glyph: &str, label: &str) -> String {
     format!("{glyph}  {label}")
 }
 
-/// Maps a category display name to its glyph. Interim helper keyed on the
-/// display name; B3 switches this to a `Category` match.
-pub(crate) fn category_icon(texts: &UiText, name: &str) -> &'static str {
-    if name == texts.category_browsers {
-        CAT_BROWSERS
-    } else if name == texts.category_chat {
-        CAT_CHAT
-    } else if name == texts.category_development {
-        CAT_DEVELOPMENT
-    } else if name == texts.category_gaming {
-        CAT_GAMING
-    } else if name == texts.category_media {
-        CAT_MEDIA
-    } else if name == texts.category_system {
-        CAT_SYSTEM
-    } else if name == texts.category_creative {
-        CAT_CREATIVE
-    } else if name == texts.category_empty_folders {
-        CAT_EMPTY_FOLDERS
-    } else {
-        CAT_OTHER
+/// The glyph for a category.
+pub(crate) fn category_glyph(category: Category) -> &'static str {
+    match category {
+        Category::Browsers => CAT_BROWSERS,
+        Category::Chat => CAT_CHAT,
+        Category::Development => CAT_DEVELOPMENT,
+        Category::Gaming => CAT_GAMING,
+        Category::Media => CAT_MEDIA,
+        Category::System => CAT_SYSTEM,
+        Category::Creative => CAT_CREATIVE,
+        Category::EmptyFolders => CAT_EMPTY_FOLDERS,
+        Category::Other => CAT_OTHER,
     }
 }

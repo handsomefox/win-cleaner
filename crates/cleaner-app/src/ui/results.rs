@@ -42,7 +42,7 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
                     return;
                 }
                 for (index, group) in state.result.groups.iter().enumerate() {
-                    components::tree_row(ui, 0, index % 2 == 1, |ui| {
+                    components::striped_row(ui, index % 2 == 1, |ui| {
                         ui.label(RichText::new(&group.app).family(theme::bold()));
                         ui.label(&group.label);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

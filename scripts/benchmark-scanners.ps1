@@ -114,7 +114,7 @@ $env:BENCH_ROOT = $corpus
 $env:LOCALAPPDATA = $corpus
 foreach ($scenario in @('shallow', 'deep', 'many-files')) {
     $env:BENCH_SCENARIO = $scenario
-    & (Join-Path $LegacyRoot 'legacy-scanner.exe') -test.run TestScannerBenchmark -test.v |
+    & (Join-Path $LegacyRoot 'legacy-scanner.exe') '-test.run=TestScannerBenchmark' '-test.v=true' |
         Select-String '^go,' | ForEach-Object { $_.Line } |
         Tee-Object -Append -FilePath $ResultsPath
     & (Join-Path $currentRoot 'target\release\scanner-benchmark.exe') |

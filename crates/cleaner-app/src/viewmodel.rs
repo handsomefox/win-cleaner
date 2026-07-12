@@ -78,11 +78,16 @@ pub(crate) struct AppView {
 /// Maps an app name to its [`Category`].
 pub(crate) fn category_of(app_name: &str) -> Category {
     match app_name.to_lowercase().as_str() {
-        "chrome" | "edge" | "firefox" | "brave" | "opera" | "vivaldi" => Category::Browsers,
+        "chrome" | "chrome beta" | "chrome dev" | "chrome canary" | "chrome for testing"
+        | "chromium" | "edge" | "firefox" | "brave" | "opera" | "opera gx" | "vivaldi" => {
+            Category::Browsers
+        }
         "discord" | "slack" | "signal" | "teams (classic)" | "teams (new)" | "telegram"
-        | "whatsapp" | "zoom" => Category::Chat,
+        | "thunderbird" | "whatsapp" | "zoom" => Category::Chat,
         "cargo" | "go modules" | "npm" | "yarn" | "pnpm" | "pip" | "gradle" | "maven" | "nuget"
-        | "jetbrains" | "vscode" | "visual studio" | "unity" => Category::Development,
+        | "jetbrains" | "vscode" | "vscodium" | "cursor" | "github desktop" | "postman"
+        | "android studio" | "uv" | "bun" | "cypress" | "playwright" | "visual studio"
+        | "unity" => Category::Development,
         "battle.net"
         | "battlefield 2042"
         | "ea/origin"
@@ -92,11 +97,15 @@ pub(crate) fn category_of(app_name: &str) -> Category {
         | "vortex"
         | "ubisoft connect"
         | "rockstar games launcher"
-        | "osu! (lazer)" => Category::Gaming,
+        | "osu! (lazer)"
+        | "riot client"
+        | "minecraft"
+        | "roblox" => Category::Gaming,
         "spotify" | "obs studio" => Category::Media,
         "amd"
         | "crash dumps"
         | "nvidia"
+        | "powertoys"
         | "razer synapse"
         | "windows"
         | "windows error reporting" => Category::System,
@@ -425,9 +434,37 @@ mod tests {
         assert_eq!(label("Empty folders"), "Empty folders");
         assert_eq!(label("Vortex"), "Gaming");
         assert_eq!(label("Razer Synapse"), "System");
-        for app in ["Notion", "qBittorrent"] {
+        for app in ["Notion", "Obsidian", "qBittorrent"] {
             assert_eq!(label(app), "Other", "{app}");
         }
+        for app in [
+            "Chrome Beta",
+            "Chrome Dev",
+            "Chrome Canary",
+            "Chrome for Testing",
+            "Chromium",
+            "Opera GX",
+        ] {
+            assert_eq!(label(app), "Browsers", "{app}");
+        }
+        assert_eq!(label("Thunderbird"), "Chat");
+        for app in [
+            "Cursor",
+            "VSCodium",
+            "GitHub Desktop",
+            "Postman",
+            "Android Studio",
+            "uv",
+            "Bun",
+            "Cypress",
+            "Playwright",
+        ] {
+            assert_eq!(label(app), "Development", "{app}");
+        }
+        for app in ["Riot Client", "Minecraft", "Roblox"] {
+            assert_eq!(label(app), "Gaming", "{app}");
+        }
+        assert_eq!(label("PowerToys"), "System");
     }
 
     #[test]

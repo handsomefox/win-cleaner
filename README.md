@@ -7,7 +7,7 @@ A Windows desktop app that scans known application and system cache locations, s
 
 ## Features
 
-- Curated catalog of ~55 cleanup targets: browsers, chat apps, game launchers, developer tools, GPU shader caches, and Windows system caches.
+- Curated catalog of 80+ cleanup targets: browsers, chat apps, game launchers, developer tools, GPU shader caches, and Windows system caches.
 - Category → app → item selection tree with per-item size estimates, search, and sorting.
 - Preview (dry-run) mode is the default; nothing is deleted until you explicitly clean.
 - Opt-in detection of empty top-level folders under AppData and ProgramData.

@@ -123,6 +123,10 @@ fn style(style: &mut egui::Style) {
 
     style.spacing.item_spacing = egui::vec2(SPACE_SM, 6.0);
     style.spacing.button_padding = egui::vec2(10.0, 5.0);
+
+    // Labels are UI chrome, not document text; detail modals opt back in where
+    // copying paths is useful.
+    style.interaction.selectable_labels = false;
 }
 
 // The vendored Inter files have their Private Use Area cmap entries stripped

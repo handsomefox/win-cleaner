@@ -243,7 +243,8 @@ pub(crate) fn text_modal(
         egui::ScrollArea::vertical()
             .max_height(400.0)
             .show(ui, |ui| {
-                ui.label(body);
+                // Detail bodies list paths and errors, so keep them copyable.
+                ui.add(egui::Label::new(body).selectable(true));
             });
         ui.separator();
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

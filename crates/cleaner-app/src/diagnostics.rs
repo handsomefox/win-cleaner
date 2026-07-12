@@ -42,10 +42,14 @@ pub(crate) fn init() -> Option<PathBuf> {
 /// the directory never grows past [`MAX_LOG_FILES`].
 fn open_log_file() -> Option<PathBuf> {
     let dir = cleaner_platform::logs_dir()?;
-    fs::create_dir_all(&dir).ok()?;
-    prune_old_logs(&dir);
     let today = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    Some(dir.join(format!("win-cleaner-{today}.log")))
+    prepare_log_file(&dir, &today)
+}
+
+fn prepare_log_file(dir: &std::path::Path, date: &str) -> Option<PathBuf> {
+    fs::create_dir_all(dir).ok()?;
+    prune_old_logs(dir);
+    Some(dir.join(format!("win-cleaner-{date}.log")))
 }
 
 fn prune_old_logs(dir: &std::path::Path) {
@@ -88,4 +92,54 @@ fn install_panic_hook() {
         let _ = std::io::stderr().flush();
         default_hook(info);
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selects_dated_log_and_prunes_only_old_matching_files() {
+        let dir = tempfile::tempdir().unwrap();
+        for day in 1..=9 {
+            fs::write(
+                dir.path().join(format!("win-cleaner-2026-07-{day:02}.log")),
+                b"log",
+            )
+            .unwrap();
+        }
+        fs::write(dir.path().join("keep.txt"), b"keep").unwrap();
+        fs::write(dir.path().join("other.log"), b"keep").unwrap();
+
+        let selected = prepare_log_file(dir.path(), "2026-07-10").unwrap();
+        assert_eq!(selected, dir.path().join("win-cleaner-2026-07-10.log"));
+        let retained = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| {
+                name.starts_with("win-cleaner-")
+                    && std::path::Path::new(name)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("log"))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(retained.len(), MAX_LOG_FILES - 1);
+        assert!(
+            retained
+                .iter()
+                .all(|name| name.as_str() >= "win-cleaner-2026-07-04.log")
+        );
+        assert!(dir.path().join("keep.txt").exists());
+        assert!(dir.path().join("other.log").exists());
+    }
+
+    #[test]
+    fn filesystem_errors_are_non_fatal() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("not-a-directory");
+        fs::write(&file, b"file").unwrap();
+        prune_old_logs(&file);
+        assert!(prepare_log_file(&file, "2026-07-10").is_none());
+    }
 }

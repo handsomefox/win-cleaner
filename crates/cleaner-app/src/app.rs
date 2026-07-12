@@ -191,71 +191,75 @@ impl WinCleanerApp {
 
     fn drain_events(&mut self) {
         while let Some(event) = self.worker.try_recv() {
-            match event {
-                Event::ScanProgress { generation, update } if generation == self.generation => {
-                    if let Screen::Scanning {
-                        fraction,
-                        status,
-                        task,
-                    } = &mut self.screen
-                    {
-                        if update.total > 0 {
-                            *fraction = ui::components::fraction(update.current, update.total);
-                        }
-                        if !update.message.is_empty() {
-                            *status = self.texts.cache_scan_progress(&update);
-                            *task = self.texts.cache_scan_task_progress(&update);
-                        }
+            self.apply_event(event);
+        }
+    }
+
+    fn apply_event(&mut self, event: Event) {
+        match event {
+            Event::ScanProgress { generation, update } if generation == self.generation => {
+                if let Screen::Scanning {
+                    fraction,
+                    status,
+                    task,
+                } = &mut self.screen
+                {
+                    if update.total > 0 {
+                        *fraction = ui::components::fraction(update.current, update.total);
+                    }
+                    if !update.message.is_empty() {
+                        *status = self.texts.cache_scan_progress(&update);
+                        *task = self.texts.cache_scan_task_progress(&update);
                     }
                 }
-                Event::ScanDone {
-                    generation,
-                    outcome,
-                } if generation == self.generation => match outcome {
-                    Ok(plan) => self.screen = Screen::Select(SelectState::new(plan)),
-                    Err(message) => self.screen = Screen::Unsupported(message),
-                },
-                Event::DeleteProgress(update) => {
-                    if let Screen::Deleting(state) = &mut self.screen {
-                        if update.total > 0 {
-                            state.current = update.current;
-                            state.total = update.total;
-                            state.task = self.texts.cache_delete_task_progress(&update);
-                        }
-                        if !update.message.is_empty() {
-                            state.message = update.message;
-                        }
+            }
+            Event::ScanDone {
+                generation,
+                outcome,
+            } if generation == self.generation => match outcome {
+                Ok(plan) => self.screen = Screen::Select(SelectState::new(plan)),
+                Err(message) => self.screen = Screen::Unsupported(message),
+            },
+            Event::DeleteProgress(update) => {
+                if let Screen::Deleting(state) = &mut self.screen {
+                    if update.total > 0 {
+                        state.current = update.current;
+                        state.total = update.total;
+                        state.task = self.texts.cache_delete_task_progress(&update);
+                    }
+                    if !update.message.is_empty() {
+                        state.message = update.message;
                     }
                 }
-                Event::DeleteDone {
+            }
+            Event::DeleteDone {
+                result,
+                stats_error,
+            } => {
+                self.screen = Screen::Results(ResultsState {
                     result,
                     stats_error,
-                } => {
-                    self.screen = Screen::Results(ResultsState {
-                        result,
-                        stats_error,
-                        modal: None,
-                    });
-                }
-                Event::HistoryLoaded {
-                    runs,
-                    skipped,
-                    error,
-                } => {
-                    if let Some(history) = &mut self.history {
-                        *history = HistoryState {
-                            loaded: true,
-                            runs,
-                            skipped,
-                            error,
-                            selected: 0,
-                            confirm_clear: false,
-                        };
-                    }
-                }
-                // Stale scan events from an abandoned generation.
-                Event::ScanProgress { .. } | Event::ScanDone { .. } => {}
+                    modal: None,
+                });
             }
+            Event::HistoryLoaded {
+                runs,
+                skipped,
+                error,
+            } => {
+                if let Some(history) = &mut self.history {
+                    *history = HistoryState {
+                        loaded: true,
+                        runs,
+                        skipped,
+                        error,
+                        selected: 0,
+                        confirm_clear: false,
+                    };
+                }
+            }
+            // Stale scan events from an abandoned generation.
+            Event::ScanProgress { .. } | Event::ScanDone { .. } => {}
         }
     }
 
@@ -540,5 +544,167 @@ impl eframe::App for WinCleanerApp {
         self.draw_central(root, &mut nav);
         ui::about::show(&ctx, self.texts, &mut self.about_open);
         self.handle_nav(&ctx, nav);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cleaner_core::{Group, Options, Phase, ProgressUpdate};
+
+    fn app() -> (
+        WinCleanerApp,
+        crossbeam_channel::Receiver<Command>,
+        crossbeam_channel::Sender<Event>,
+    ) {
+        let (worker, commands, events) = Worker::test_channels();
+        (
+            WinCleanerApp {
+                texts: &ENGLISH,
+                worker,
+                generation: 0,
+                screen: Screen::Unsupported(String::new()),
+                history: None,
+                about_open: false,
+            },
+            commands,
+            events,
+        )
+    }
+
+    fn plan() -> Plan {
+        let mut plan = Plan {
+            groups: vec![Group {
+                app: "App".into(),
+                label: "cache".into(),
+                paths: Vec::new(),
+                errs: Vec::new(),
+                bytes: 42,
+                on: true,
+            }],
+            ..Plan::default()
+        };
+        plan.recompute_totals();
+        plan
+    }
+
+    fn progress(phase: Phase, current: usize, total: usize, message: &str) -> ProgressUpdate {
+        ProgressUpdate {
+            phase,
+            current,
+            total,
+            message: message.to_owned(),
+        }
+    }
+
+    #[test]
+    fn scan_state_tracks_current_generation_and_ignores_stale_events() {
+        let (mut app, commands, _) = app();
+        app.start_scan();
+        assert_eq!(app.generation, 1);
+        assert!(matches!(
+            commands.recv().unwrap(),
+            Command::Scan { generation: 1 }
+        ));
+
+        app.apply_event(Event::ScanProgress {
+            generation: 0,
+            update: progress(Phase::Scan, 1, 1, "stale"),
+        });
+        let Screen::Scanning {
+            fraction, status, ..
+        } = &app.screen
+        else {
+            panic!("expected scanning state");
+        };
+        assert!(fraction.abs() < f32::EPSILON);
+        assert_ne!(status, "stale");
+
+        app.apply_event(Event::ScanProgress {
+            generation: 1,
+            update: progress(Phase::Scan, 1, 2, "App - cache"),
+        });
+        let Screen::Scanning {
+            fraction, status, ..
+        } = &app.screen
+        else {
+            panic!("expected scanning state");
+        };
+        assert!((*fraction - 0.5).abs() < f32::EPSILON);
+        assert!(status.contains("App - cache"));
+
+        app.apply_event(Event::ScanDone {
+            generation: 0,
+            outcome: Err("stale failure".into()),
+        });
+        assert!(matches!(app.screen, Screen::Scanning { .. }));
+        app.apply_event(Event::ScanDone {
+            generation: 1,
+            outcome: Ok(plan()),
+        });
+        assert!(matches!(app.screen, Screen::Select(_)));
+    }
+
+    #[test]
+    fn scan_failure_delete_progress_and_completion_transition_screens() {
+        let (mut app, _, _) = app();
+        app.generation = 3;
+        app.apply_event(Event::ScanDone {
+            generation: 3,
+            outcome: Err("unsupported".into()),
+        });
+        assert!(matches!(&app.screen, Screen::Unsupported(message) if message == "unsupported"));
+
+        app.screen = Screen::Deleting(DeletingState {
+            current: 0,
+            total: 1,
+            message: String::new(),
+            task: String::new(),
+            selected_bytes: 42,
+        });
+        app.apply_event(Event::DeleteProgress(progress(
+            Phase::Delete,
+            1,
+            1,
+            "App - cache",
+        )));
+        let Screen::Deleting(state) = &app.screen else {
+            panic!("expected deleting state");
+        };
+        assert_eq!(state.current, 1);
+        assert_eq!(state.message, "App - cache");
+
+        let result = ExecResult::begin(&plan(), Options::default());
+        app.apply_event(Event::DeleteDone {
+            result,
+            stats_error: Some("disk full".into()),
+        });
+        assert!(
+            matches!(&app.screen, Screen::Results(state) if state.stats_error.as_deref() == Some("disk full"))
+        );
+    }
+
+    #[test]
+    fn execute_and_history_actions_emit_commands_and_update_state() {
+        let (mut app, commands, _) = app();
+        app.screen = Screen::Select(SelectState::new(plan()));
+        app.begin_execute();
+        assert!(matches!(app.screen, Screen::Deleting(_)));
+        assert!(matches!(
+            commands.recv().unwrap(),
+            Command::Execute { dry_run: false, .. }
+        ));
+
+        app.show_history();
+        assert!(matches!(commands.recv().unwrap(), Command::LoadHistory));
+        app.apply_event(Event::HistoryLoaded {
+            runs: Vec::new(),
+            skipped: 2,
+            error: None,
+        });
+        let history = app.history.as_ref().unwrap();
+        assert!(history.loaded);
+        assert_eq!(history.skipped, 2);
+        assert_eq!(history.selected, 0);
     }
 }

@@ -27,7 +27,7 @@ jobs:
             throw "Tag ${{ github.ref_name }} does not match workspace version v$version"
           }
       - run: cargo fmt --all -- --check
-      - run: cargo test --workspace
+      - run: cargo test --workspace --no-fail-fast
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace --release
       - name: Package Windows release

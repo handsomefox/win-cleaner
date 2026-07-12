@@ -28,8 +28,12 @@ fn is_path_under_root(path: &Path, root: &Path) -> bool {
 
 /// Checks every directory between `root` and the target. A missing ancestor
 /// is safe for now because the target cannot exist; execution repeats this
-/// check immediately before recycling. Other metadata failures are rejected
-/// because the guard cannot establish that the path stays inside the root.
+/// check immediately before recycling. Glob patterns are safety-checked before
+/// expansion, so an ancestor containing a `*` wildcard can never exist on disk:
+/// Windows reports it as `ERROR_INVALID_NAME` → `InvalidFilename` where Unix
+/// reports `NotFound`, and both are treated as missing. Other metadata failures
+/// are rejected because the guard cannot establish that the path stays inside
+/// the root.
 fn ancestors_are_safe(path: &Path, root: &Path) -> bool {
     let root_key = normalized_key(root);
     let mut current = path.parent();
@@ -42,7 +46,9 @@ fn ancestors_are_safe(path: &Path, root: &Path) -> bool {
                 return false;
             }
             Ok(_) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err)
+                if err.kind() == std::io::ErrorKind::NotFound
+                    || err.kind() == std::io::ErrorKind::InvalidFilename => {}
             Err(_) => return false,
         }
         current = ancestor.parent();
@@ -104,7 +110,6 @@ pub fn normalized_key(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(unix)]
     use std::fs::create_dir_all;
     use std::path::PathBuf;
 
@@ -160,6 +165,22 @@ mod tests {
             normalized_key(&sep("/a/b/d"))
         );
         assert_eq!(normalized_key(Path::new("")), ".");
+    }
+
+    #[test]
+    fn glob_pattern_ancestors_with_wildcards_are_safe() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        create_dir_all(root.join("sub")).unwrap(); // parent EXISTS → Windows ERROR_INVALID_NAME path
+        assert!(is_safe_path(
+            &root.join("sub").join("*").join("Cache"),
+            &[&root]
+        ));
+        // and with a missing parent (Windows ERROR_PATH_NOT_FOUND path):
+        assert!(is_safe_path(
+            &root.join("missing").join("*").join("Cache"),
+            &[&root]
+        ));
     }
 
     #[cfg(unix)]

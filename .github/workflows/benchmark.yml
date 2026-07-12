@@ -17,7 +17,7 @@ jobs:
       - name: Check out final Go implementation
         uses: actions/checkout@v6
         with:
-          ref: e909d55
+          ref: e909d55d77b7637fa38d0400ff9f75535a6c6fef
           path: legacy
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-go@v6

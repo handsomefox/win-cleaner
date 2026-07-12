@@ -18,6 +18,35 @@ pub(crate) const TEXT: Color32 = Color32::from_rgb(0xe6, 0xe9, 0xef);
 pub(crate) const MUTED: Color32 = Color32::from_rgb(0x8b, 0x93, 0xa3);
 pub(crate) const DANGER: Color32 = Color32::from_rgb(0xff, 0x5c, 0x5c);
 
+// Spacing tokens (f32 — for `add_space` and `vec2`).
+pub(crate) const SPACE_XS: f32 = 4.0;
+pub(crate) const SPACE_SM: f32 = 8.0;
+pub(crate) const SPACE_MD: f32 = 12.0;
+pub(crate) const SPACE_LG: f32 = 16.0;
+pub(crate) const SPACE_XL: f32 = 24.0;
+
+// Corner radii (u8 — feed `CornerRadius::same` / `Frame::corner_radius`).
+pub(crate) const RADIUS_SM: u8 = 6;
+pub(crate) const RADIUS_MD: u8 = 9;
+pub(crate) const RADIUS_LG: u8 = 14;
+
+// Font sizes (f32).
+pub(crate) const FONT_SMALL: f32 = 12.0;
+pub(crate) const FONT_BODY: f32 = 14.0;
+pub(crate) const FONT_HEADING: f32 = 18.0;
+pub(crate) const FONT_DISPLAY: f32 = 22.0;
+
+// Icon glyph sizes (f32).
+pub(crate) const ICON_SM: f32 = 14.0;
+pub(crate) const ICON_MD: f32 = 16.0;
+pub(crate) const ICON_LG: f32 = 20.0;
+
+// Layout metrics (f32).
+pub(crate) const SIDEBAR_WIDTH: f32 = 240.0;
+pub(crate) const CONTROL_HEIGHT: f32 = 30.0;
+pub(crate) const HEADER_ACTION_WIDTH: f32 = 130.0;
+pub(crate) const CHECKBOX_HIT: f32 = 22.0;
+
 /// Installs the Inter fonts and the dark indigo style on the egui context.
 pub(crate) fn apply(ctx: &egui::Context) {
     install_fonts(ctx);
@@ -27,6 +56,33 @@ pub(crate) fn apply(ctx: &egui::Context) {
 }
 
 fn style(style: &mut egui::Style) {
+    use egui::{FontFamily, FontId, TextStyle};
+
+    // Font tokens drive the text styles, retiring most per-call `.size()`.
+    style.text_styles = [
+        (
+            TextStyle::Small,
+            FontId::new(FONT_SMALL, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Body,
+            FontId::new(FONT_BODY, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Button,
+            FontId::new(FONT_BODY, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Heading,
+            FontId::new(FONT_HEADING, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Monospace,
+            FontId::new(13.0, FontFamily::Monospace),
+        ),
+    ]
+    .into();
+
     let visuals = &mut style.visuals;
     *visuals = egui::Visuals::dark();
 
@@ -54,7 +110,21 @@ fn style(style: &mut egui::Style) {
     visuals.widgets.open.bg_fill = SURFACE_RAISED;
     visuals.widgets.open.weak_bg_fill = SURFACE_RAISED;
 
-    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    // One shared radius for every standard widget; custom frames use the same
+    // token scale. This is the systematic corner-rounding fix.
+    for widget in [
+        &mut visuals.widgets.noninteractive,
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.open,
+    ] {
+        widget.corner_radius = egui::CornerRadius::same(RADIUS_SM);
+    }
+    visuals.window_corner_radius = egui::CornerRadius::same(RADIUS_LG);
+    visuals.menu_corner_radius = egui::CornerRadius::same(RADIUS_MD);
+
+    style.spacing.item_spacing = egui::vec2(SPACE_SM, 6.0);
     style.spacing.button_padding = egui::vec2(10.0, 5.0);
 }
 

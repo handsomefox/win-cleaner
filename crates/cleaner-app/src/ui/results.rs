@@ -57,15 +57,16 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
             });
     });
 
-    ui.add_space(8.0);
+    ui.add_space(theme::SPACE_SM);
     ui.horizontal(|ui| {
         if ui.button(texts.action_history).clicked() {
             action = Some(ResultsAction::History);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let done = egui::Button::new(RichText::new(texts.action_done).color(theme::TEXT))
-                .fill(theme::ACCENT);
-            if ui.add(done).clicked() {
+            if ui
+                .add(components::accent_button(texts.action_done))
+                .clicked()
+            {
                 action = Some(ResultsAction::Done);
             }
         });

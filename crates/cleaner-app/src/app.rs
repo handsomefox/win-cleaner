@@ -364,16 +364,15 @@ impl WinCleanerApp {
                     ui.label(
                         RichText::new(texts.app_title)
                             .family(theme::bold())
-                            .size(18.0),
+                            .size(theme::FONT_HEADING),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if let Some(action) = &info.action {
                             // Fixed width so toggling the label (Preview ⇄
                             // Clean Up …) never shifts the header layout.
-                            let button =
-                                egui::Button::new(RichText::new(action.label).color(theme::TEXT))
-                                    .fill(theme::ACCENT)
-                                    .min_size(egui::vec2(130.0, 30.0));
+                            let button = ui::components::accent_button(action.label).min_size(
+                                egui::vec2(theme::HEADER_ACTION_WIDTH, theme::CONTROL_HEIGHT),
+                            );
                             if ui.add_enabled(action.enabled, button).clicked() {
                                 nav.header_action = true;
                             }

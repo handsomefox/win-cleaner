@@ -140,23 +140,20 @@ fn category_section(
     let mut toggle_selection = false;
     let mut toggle_expanded = false;
     components::tree_row(ui, 0, striped, |ui| {
-        toggle_selection = components::flat_button(
-            ui,
-            RichText::new(components::selection_glyph(selected, total)).size(16.0),
-        )
-        .clicked();
+        toggle_selection =
+            components::tri_checkbox(ui, components::check_state(selected, total)).clicked();
         let chevron =
             components::flat_button(ui, RichText::new(components::expand_chevron(expanded)));
         ui.label(
             RichText::new(category_icon(texts, &category.name))
-                .size(16.0)
+                .size(theme::ICON_MD)
                 .color(theme::MUTED),
         );
         let name = components::flat_button(
             ui,
             RichText::new(&category.name)
                 .family(theme::bold())
-                .size(14.0),
+                .size(theme::FONT_BODY),
         );
         toggle_expanded = chevron.clicked() || name.clicked();
         ui.label(RichText::new(texts.apps_count(category.apps.len())).color(theme::MUTED));
@@ -202,11 +199,8 @@ fn app_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppVi
     let mut toggle_selection = false;
     let mut toggle_expanded = false;
     components::tree_row(ui, 1, striped, |ui| {
-        toggle_selection = components::flat_button(
-            ui,
-            RichText::new(components::selection_glyph(selected, total)).size(16.0),
-        )
-        .clicked();
+        toggle_selection =
+            components::tri_checkbox(ui, components::check_state(selected, total)).clicked();
         let chevron =
             components::flat_button(ui, RichText::new(components::expand_chevron(expanded)));
         let name = components::flat_button(ui, RichText::new(&app.app).family(theme::bold()));
@@ -238,8 +232,13 @@ fn item_row(ui: &mut Ui, texts: &UiText, state: &mut SelectState, index: usize, 
     let mut open_details = false;
     components::tree_row(ui, 2, striped, |ui| {
         let group = &state.plan.groups[index];
-        let mut on = group.on;
-        let changed = ui.checkbox(&mut on, "").changed();
+        let on = group.on;
+        let check = if on {
+            components::CheckState::Checked
+        } else {
+            components::CheckState::Unchecked
+        };
+        let changed = components::tri_checkbox(ui, check).clicked();
         ui.label(&group.label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(components::size_text(texts, group.bytes));
@@ -251,7 +250,7 @@ fn item_row(ui: &mut Ui, texts: &UiText, state: &mut SelectState, index: usize, 
             open_details = ui.small_button(details).clicked();
         });
         if changed {
-            state.plan.groups[index].on = on;
+            state.plan.groups[index].on = !on;
         }
     });
     if open_details {
@@ -316,16 +315,16 @@ fn modals(
                 ui.label(
                     RichText::new(texts.dialog_confirm_cache_title)
                         .family(theme::bold())
-                        .size(16.0),
+                        .size(theme::FONT_HEADING),
                 );
                 ui.separator();
                 ui.label(texts.confirm_cache_cleanup(&state.plan));
                 ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let clean =
-                        egui::Button::new(RichText::new(texts.action_clean_up).color(theme::TEXT))
-                            .fill(theme::ACCENT);
-                    if ui.add(clean).clicked() {
+                    if ui
+                        .add(components::accent_button(texts.action_clean_up))
+                        .clicked()
+                    {
                         confirmed = true;
                     }
                     if ui.button(texts.action_cancel).clicked() {
@@ -352,7 +351,7 @@ fn preview_modal(ctx: &egui::Context, texts: &UiText, state: &SelectState) -> bo
         ui.label(
             RichText::new(texts.dialog_preview_title)
                 .family(theme::bold())
-                .size(16.0),
+                .size(theme::FONT_HEADING),
         );
         ui.separator();
         if state.plan.selected == 0 {

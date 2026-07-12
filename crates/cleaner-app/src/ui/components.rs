@@ -2,8 +2,11 @@
 //! plain-text modals shared across the application screens.
 
 use cleaner_core::{Group, human_bytes};
-use eframe::egui::{self, Color32, RichText, Ui};
+use eframe::egui::{
+    self, Align2, Color32, FontId, Response, RichText, Sense, Ui, Vec2, WidgetInfo, WidgetType,
+};
 
+use crate::icons;
 use crate::strings::UiText;
 use crate::theme;
 
@@ -15,7 +18,7 @@ pub(crate) fn surface_frame() -> egui::Frame {
     egui::Frame::new()
         .fill(theme::SURFACE)
         .stroke(egui::Stroke::new(1.0, theme::BORDER))
-        .corner_radius(14)
+        .corner_radius(theme::RADIUS_LG)
         .inner_margin(12)
 }
 
@@ -24,15 +27,92 @@ pub(crate) fn chip_frame() -> egui::Frame {
     egui::Frame::new()
         .fill(theme::SURFACE_RAISED)
         .stroke(egui::Stroke::new(1.0, theme::BORDER))
-        .corner_radius(9)
+        .corner_radius(theme::RADIUS_MD)
         .inner_margin(egui::Margin::symmetric(10, 6))
+}
+
+/// Tri-state of a checkbox aggregating a set of items.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CheckState {
+    Unchecked,
+    Partial,
+    Checked,
+}
+
+/// Derives the aggregate check state for `selected` of `total` items.
+pub(crate) fn check_state(selected: usize, total: usize) -> CheckState {
+    if total == 0 || selected == 0 {
+        CheckState::Unchecked
+    } else if selected == total {
+        CheckState::Checked
+    } else {
+        CheckState::Partial
+    }
+}
+
+/// The single tri-state checkbox used at every level (category, app, item).
+/// A fixed square hit target keeps the checkbox column aligned regardless of
+/// the glyph — this is the systematic alignment fix.
+pub(crate) fn tri_checkbox(ui: &mut Ui, state: CheckState) -> Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(theme::CHECKBOX_HIT), Sense::click());
+    if ui.is_rect_visible(rect) {
+        if response.hovered() {
+            ui.painter()
+                .rect_filled(rect, theme::RADIUS_SM, theme::HOVER);
+        }
+        let (glyph, color) = match state {
+            CheckState::Unchecked => (icons::CHECKBOX_UNCHECKED, theme::MUTED),
+            CheckState::Partial => (icons::CHECKBOX_PARTIAL, theme::ACCENT),
+            CheckState::Checked => (icons::CHECKBOX_CHECKED, theme::ACCENT),
+        };
+        ui.painter().text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            glyph,
+            FontId::proportional(theme::ICON_LG),
+            color,
+        );
+    }
+    let enabled = ui.is_enabled();
+    let checked = state == CheckState::Checked;
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, checked, ""));
+    response
+}
+
+/// The one accent call-to-action button; fills [`theme::ACCENT`] with bold text
+/// and a fixed control height.
+pub(crate) fn accent_button(label: &str) -> egui::Button<'static> {
+    egui::Button::new(
+        RichText::new(label.to_owned())
+            .family(theme::bold())
+            .color(theme::TEXT),
+    )
+    .fill(theme::ACCENT)
+    .min_size(egui::vec2(0.0, theme::CONTROL_HEIGHT))
+}
+
+/// A frameless glyph button with a hover tooltip.
+pub(crate) fn icon_button(ui: &mut Ui, glyph: &str, tooltip: &str) -> Response {
+    let response = ui.add(
+        egui::Button::new(
+            RichText::new(glyph)
+                .size(theme::ICON_MD)
+                .color(theme::MUTED),
+        )
+        .frame(false),
+    );
+    response.on_hover_text(tooltip)
 }
 
 /// A surface card with a bold title, muted subtitle, and body.
 pub(crate) fn titled_card(ui: &mut Ui, title: &str, subtitle: &str, body: impl FnOnce(&mut Ui)) {
     surface_frame().show(ui, |ui| {
         ui.set_min_width(ui.available_width());
-        ui.label(RichText::new(title).family(theme::bold()).size(16.0));
+        ui.label(
+            RichText::new(title)
+                .family(theme::bold())
+                .size(theme::FONT_HEADING),
+        );
         if !subtitle.is_empty() {
             ui.label(RichText::new(subtitle).color(theme::MUTED));
         }
@@ -60,23 +140,16 @@ pub(crate) fn size_text(texts: &UiText, bytes: u64) -> RichText {
     }
 }
 
-/// Tri-state selection glyph for category and app header rows.
-pub(crate) fn selection_glyph(selected: usize, total: usize) -> &'static str {
-    if total == 0 || selected == 0 {
-        "☐"
-    } else if selected == total {
-        "☑"
+pub(crate) fn expand_chevron(expanded: bool) -> &'static str {
+    if expanded {
+        icons::CHEVRON_EXPANDED
     } else {
-        "◩"
+        icons::CHEVRON_COLLAPSED
     }
 }
 
-pub(crate) fn expand_chevron(expanded: bool) -> &'static str {
-    if expanded { "▾" } else { "▸" }
-}
-
 /// A borderless button, used for glyphs and tappable tree headers.
-pub(crate) fn flat_button(ui: &mut Ui, text: impl Into<egui::WidgetText>) -> egui::Response {
+pub(crate) fn flat_button(ui: &mut Ui, text: impl Into<egui::WidgetText>) -> Response {
     ui.add(egui::Button::new(text).frame(false))
 }
 
@@ -135,7 +208,11 @@ pub(crate) fn text_modal(
     let mut close_clicked = false;
     let response = egui::Modal::new(egui::Id::new(id)).show(ctx, |ui| {
         ui.set_max_width(720.0);
-        ui.label(RichText::new(title).family(theme::bold()).size(16.0));
+        ui.label(
+            RichText::new(title)
+                .family(theme::bold())
+                .size(theme::FONT_HEADING),
+        );
         ui.separator();
         egui::ScrollArea::vertical()
             .max_height(400.0)

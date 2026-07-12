@@ -68,14 +68,20 @@ fn install_fonts(ctx: &egui::Context) {
         "inter-bold".to_owned(),
         egui::FontData::from_static(include_bytes!("../assets/fonts/Inter-Bold.ttf")).into(),
     );
-    fonts
+    fonts.font_data.insert(
+        "phosphor".to_owned(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/Phosphor.ttf")).into(),
+    );
+    let proportional = fonts
         .families
         .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, "inter".to_owned());
+        .or_default();
+    proportional.insert(0, "inter".to_owned());
+    // Phosphor is a fallback so glyphs render inside proportional text runs.
+    proportional.insert(1, "phosphor".to_owned());
     fonts.families.insert(
         egui::FontFamily::Name("bold".into()),
-        vec!["inter-bold".to_owned()],
+        vec!["inter-bold".to_owned(), "phosphor".to_owned()],
     );
     ctx.set_fonts(fonts);
 }

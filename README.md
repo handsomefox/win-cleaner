@@ -58,4 +58,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Please report security-sensitive issues 
 
 ## License
 
-Licensed under the [MIT License](LICENSE). Bundled assets keep their own licenses: [Inter](https://rsms.me/inter/) (SIL OFL 1.1) and [Lucide](https://lucide.dev/) icons (ISC).
+Licensed under the [MIT License](LICENSE). Bundled assets keep their own licenses: [Inter](https://rsms.me/inter/) (SIL OFL 1.1) and [Phosphor](https://phosphoricons.com/) icons (MIT).

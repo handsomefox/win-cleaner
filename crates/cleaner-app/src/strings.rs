@@ -201,7 +201,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     menu_about: "About win-cleaner",
     menu_quit: "Quit",
     about_version_label: "Version",
-    about_fonts: "Inter — SIL Open Font License 1.1",
+    about_fonts: "Inter — SIL Open Font License 1.1 · Phosphor Icons — MIT",
     about_repo_label: "Project page",
     about_repo_url: "https://github.com/handsomefox/win-cleaner",
     about_open_log: "Open log folder",

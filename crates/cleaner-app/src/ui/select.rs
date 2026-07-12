@@ -147,9 +147,10 @@ fn category_section(
         .clicked();
         let chevron =
             components::flat_button(ui, RichText::new(components::expand_chevron(expanded)));
-        ui.add(
-            egui::Image::new(category_icon(texts, &category.name))
-                .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+        ui.label(
+            RichText::new(category_icon(texts, &category.name))
+                .size(16.0)
+                .color(theme::MUTED),
         );
         let name = components::flat_button(
             ui,

@@ -17,7 +17,7 @@ description = "A Windows desktop app that safely cleans application and system c
 [workspace.dependencies]
 crossbeam-channel = "0.5"
 eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "persistence", "wayland", "x11"] }
-egui_extras = { version = "0.35", features = ["image", "svg"] }
+egui_extras = { version = "0.35", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 jiff = { version = "0.2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

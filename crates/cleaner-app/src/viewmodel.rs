@@ -1,7 +1,7 @@
 //! Toolkit-agnostic category mapping, filtering, sorting, and text summaries.
 //! Everything here is unit-tested without a GUI.
 
-use cleaner_core::{ExecResult, Plan, human_bytes};
+use cleaner_core::{ExecResult, Group, Plan, human_bytes};
 use jiff::{Timestamp, Zoned};
 
 use crate::strings::UiText;
@@ -14,8 +14,53 @@ pub(crate) enum SortMode {
     SizeAsc,
 }
 
+/// The fixed set of app categories, in sidebar display order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum Category {
+    Browsers,
+    Chat,
+    Development,
+    Gaming,
+    Media,
+    System,
+    Creative,
+    EmptyFolders,
+    Other,
+}
+
+impl Category {
+    /// Every category, in sidebar order.
+    pub(crate) const ALL: [Category; 9] = [
+        Category::Browsers,
+        Category::Chat,
+        Category::Development,
+        Category::Gaming,
+        Category::Media,
+        Category::System,
+        Category::Creative,
+        Category::EmptyFolders,
+        Category::Other,
+    ];
+
+    /// The localized display name for this category.
+    pub(crate) fn label(self, texts: &UiText) -> &str {
+        match self {
+            Category::Browsers => texts.category_browsers,
+            Category::Chat => texts.category_chat,
+            Category::Development => texts.category_development,
+            Category::Gaming => texts.category_gaming,
+            Category::Media => texts.category_media,
+            Category::System => texts.category_system,
+            Category::Creative => texts.category_creative,
+            Category::EmptyFolders => texts.category_empty_folders,
+            Category::Other => texts.category_other,
+        }
+    }
+}
+
 /// One collapsible category section on the selection screen.
 pub(crate) struct CategoryView {
+    pub category: Category,
     pub name: String,
     pub apps: Vec<AppView>,
     pub bytes: u64,
@@ -30,14 +75,14 @@ pub(crate) struct AppView {
     pub bytes: u64,
 }
 
-/// Maps an app name to its category display name.
-pub(crate) fn category_name<'t>(texts: &'t UiText, app_name: &str) -> &'t str {
+/// Maps an app name to its [`Category`].
+pub(crate) fn category_of(app_name: &str) -> Category {
     match app_name.to_lowercase().as_str() {
-        "chrome" | "edge" | "firefox" | "brave" | "opera" | "vivaldi" => texts.category_browsers,
+        "chrome" | "edge" | "firefox" | "brave" | "opera" | "vivaldi" => Category::Browsers,
         "discord" | "slack" | "signal" | "teams (classic)" | "teams (new)" | "telegram"
-        | "whatsapp" | "zoom" => texts.category_chat,
+        | "whatsapp" | "zoom" => Category::Chat,
         "cargo" | "go modules" | "npm" | "yarn" | "pnpm" | "pip" | "gradle" | "maven" | "nuget"
-        | "jetbrains" | "vscode" | "visual studio" | "unity" => texts.category_development,
+        | "jetbrains" | "vscode" | "visual studio" | "unity" => Category::Development,
         "battle.net"
         | "battlefield 2042"
         | "ea/origin"
@@ -47,24 +92,46 @@ pub(crate) fn category_name<'t>(texts: &'t UiText, app_name: &str) -> &'t str {
         | "vortex"
         | "ubisoft connect"
         | "rockstar games launcher"
-        | "osu! (lazer)" => texts.category_gaming,
-        "spotify" | "obs studio" => texts.category_media,
+        | "osu! (lazer)" => Category::Gaming,
+        "spotify" | "obs studio" => Category::Media,
         "amd"
         | "crash dumps"
         | "nvidia"
         | "razer synapse"
         | "windows"
-        | "windows error reporting" => texts.category_system,
-        "adobe" | "blender" | "figma" => texts.category_creative,
-        "empty folders" => texts.category_empty_folders,
-        _ => texts.category_other,
+        | "windows error reporting" => Category::System,
+        "adobe" | "blender" | "figma" => Category::Creative,
+        "empty folders" => Category::EmptyFolders,
+        _ => Category::Other,
     }
 }
 
-/// Applies the search filter and sort mode, returning app groups whose
-/// visible items are sorted largest-first.
-fn filtered_app_groups(plan: &Plan, filter: &str, sort: SortMode) -> Vec<AppView> {
-    let filter = filter.trim().to_lowercase();
+/// Maps an app name to its category display name.
+pub(crate) fn category_name<'t>(texts: &'t UiText, app_name: &str) -> &'t str {
+    category_of(app_name).label(texts)
+}
+
+/// A cache group is an "empty target" when it holds nothing to delete: zero
+/// bytes and no matched paths. Empty-folder groups keep non-empty `paths`, so
+/// they are *not* empty targets and stay visible.
+pub(crate) fn is_empty_target(group: &Group) -> bool {
+    group.bytes == 0 && group.paths.is_empty()
+}
+
+/// Restricts and orders the cache targets shown on the selection screen.
+pub(crate) struct ViewFilter<'a> {
+    /// When set, only this category's apps are returned.
+    pub category: Option<Category>,
+    pub search: &'a str,
+    pub sort: SortMode,
+    /// When false, empty targets ([`is_empty_target`]) are hidden.
+    pub show_empty: bool,
+}
+
+/// Applies the search and empty-target filters and the sort mode, returning
+/// app groups whose visible items are sorted largest-first.
+fn filtered_app_groups(plan: &Plan, filter: &ViewFilter) -> Vec<AppView> {
+    let search = filter.search.trim().to_lowercase();
     let mut apps: Vec<AppView> = plan
         .by_app()
         .into_iter()
@@ -73,13 +140,16 @@ fn filtered_app_groups(plan: &Plan, filter: &str, sort: SortMode) -> Vec<AppView
                 .indices
                 .into_iter()
                 .filter(|&index| {
-                    if filter.is_empty() {
+                    let g = &plan.groups[index];
+                    if !filter.show_empty && is_empty_target(g) {
+                        return false;
+                    }
+                    if search.is_empty() {
                         return true;
                     }
-                    let g = &plan.groups[index];
                     format!("{} {}", g.app, g.label)
                         .to_lowercase()
-                        .contains(&filter)
+                        .contains(&search)
                 })
                 .collect();
             if visible.is_empty() {
@@ -95,7 +165,7 @@ fn filtered_app_groups(plan: &Plan, filter: &str, sort: SortMode) -> Vec<AppView
         })
         .collect();
 
-    match sort {
+    match filter.sort {
         SortMode::SizeDesc => apps.sort_by_key(|app| std::cmp::Reverse(app.bytes)),
         SortMode::SizeAsc => apps.sort_by_key(|app| app.bytes),
         SortMode::Name => {}
@@ -103,24 +173,27 @@ fn filtered_app_groups(plan: &Plan, filter: &str, sort: SortMode) -> Vec<AppView
     apps
 }
 
-/// Groups the filtered apps into category sections, sorted per the mode
-/// (alphabetical for [`SortMode::Name`]).
-pub(crate) fn categorized_app_groups(
+/// Groups the filtered apps into category sections, honoring the category
+/// restriction and sort mode (alphabetical for [`SortMode::Name`]).
+pub(crate) fn visible_categories(
     texts: &UiText,
     plan: &Plan,
-    filter: &str,
-    sort: SortMode,
+    filter: &ViewFilter,
 ) -> Vec<CategoryView> {
-    let mut order: Vec<String> = Vec::new();
+    let mut order: Vec<Category> = Vec::new();
     let mut categories: Vec<CategoryView> = Vec::new();
-    for app in filtered_app_groups(plan, filter, sort) {
-        let name = category_name(texts, &app.app).to_owned();
-        let position = if let Some(position) = order.iter().position(|existing| *existing == name) {
+    for app in filtered_app_groups(plan, filter) {
+        let category = category_of(&app.app);
+        if filter.category.is_some_and(|only| only != category) {
+            continue;
+        }
+        let position = if let Some(position) = order.iter().position(|&c| c == category) {
             position
         } else {
-            order.push(name.clone());
+            order.push(category);
             categories.push(CategoryView {
-                name,
+                category,
+                name: category.label(texts).to_owned(),
                 apps: Vec::new(),
                 bytes: 0,
             });
@@ -130,12 +203,81 @@ pub(crate) fn categorized_app_groups(
         categories[position].apps.push(app);
     }
 
-    match sort {
+    match filter.sort {
         SortMode::SizeDesc => categories.sort_by_key(|category| std::cmp::Reverse(category.bytes)),
         SortMode::SizeAsc => categories.sort_by_key(|category| category.bytes),
         SortMode::Name => categories.sort_by(|a, b| a.name.cmp(&b.name)),
     }
     categories
+}
+
+/// Compatibility wrapper: every category, every item (empty targets included).
+pub(crate) fn categorized_app_groups(
+    texts: &UiText,
+    plan: &Plan,
+    filter: &str,
+    sort: SortMode,
+) -> Vec<CategoryView> {
+    visible_categories(
+        texts,
+        plan,
+        &ViewFilter {
+            category: None,
+            search: filter,
+            sort,
+            show_empty: true,
+        },
+    )
+}
+
+/// One sidebar row: a category, how many of its apps the plan holds, and their
+/// combined size. Computed unfiltered so the sidebar stays stable.
+pub(crate) struct CategorySummary {
+    pub category: Category,
+    pub apps: usize,
+    pub bytes: u64,
+}
+
+/// Per-category app counts and sizes across the whole plan, in sidebar order.
+/// Categories with no apps are omitted.
+pub(crate) fn category_summaries(plan: &Plan) -> Vec<CategorySummary> {
+    let apps = plan.by_app();
+    Category::ALL
+        .into_iter()
+        .filter_map(|category| {
+            let mut summary = CategorySummary {
+                category,
+                apps: 0,
+                bytes: 0,
+            };
+            for group in &apps {
+                if category_of(&group.app) != category {
+                    continue;
+                }
+                summary.apps += 1;
+                summary.bytes += group
+                    .indices
+                    .iter()
+                    .map(|&i| plan.groups[i].bytes)
+                    .sum::<u64>();
+            }
+            (summary.apps > 0).then_some(summary)
+        })
+        .collect()
+}
+
+/// Total number of empty targets ([`is_empty_target`]) in the plan.
+pub(crate) fn empty_target_count(plan: &Plan) -> usize {
+    plan.groups.iter().filter(|g| is_empty_target(g)).count()
+}
+
+/// Whole-plan totals for the status bar: distinct apps, target count, and the
+/// summed estimated size.
+pub(crate) fn plan_overview(plan: &Plan) -> (usize, usize, u64) {
+    let apps = plan.by_app().len();
+    let items = plan.groups.len();
+    let bytes = plan.groups.iter().map(|g| g.bytes).sum();
+    (apps, items, bytes)
 }
 
 /// Header summary for the selection screen: selection chip text plus the
@@ -322,6 +464,15 @@ mod tests {
         }
     }
 
+    /// A group carrying a matched path — never an [`is_empty_target`] even at
+    /// zero bytes (the empty-folders case).
+    fn group_with_path(app: &str, label: &str, bytes: u64) -> Group {
+        Group {
+            paths: vec![std::path::PathBuf::from(r"C:\some\path")],
+            ..group(app, label, bytes, true)
+        }
+    }
+
     fn sample_plan() -> Plan {
         let mut plan = Plan {
             groups: vec![
@@ -352,6 +503,109 @@ mod tests {
         for app in ["Notion", "qBittorrent"] {
             assert_eq!(category_name(&ENGLISH, app), "Other", "{app}");
         }
+    }
+
+    #[test]
+    fn category_of_maps_apps_to_enum() {
+        assert_eq!(category_of("Chrome"), Category::Browsers);
+        assert_eq!(category_of("Discord"), Category::Chat);
+        assert_eq!(category_of("Cargo"), Category::Development);
+        assert_eq!(category_of("Steam"), Category::Gaming);
+        assert_eq!(category_of("Spotify"), Category::Media);
+        assert_eq!(category_of("NVIDIA"), Category::System);
+        assert_eq!(category_of("Figma"), Category::Creative);
+        assert_eq!(category_of("Empty folders"), Category::EmptyFolders);
+        assert_eq!(category_of("qBittorrent"), Category::Other);
+    }
+
+    #[test]
+    fn summaries_count_apps_and_bytes_in_enum_order() {
+        let plan = sample_plan();
+        let summaries = category_summaries(&plan);
+        let shape: Vec<(Category, usize, u64)> = summaries
+            .iter()
+            .map(|s| (s.category, s.apps, s.bytes))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                (Category::Browsers, 1, 500),
+                (Category::Development, 1, 2000),
+                (Category::System, 1, 9000),
+                (Category::EmptyFolders, 1, 0),
+                (Category::Other, 1, 100),
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_target_count_and_overview() {
+        let plan = sample_plan();
+        // Only the paths-less zero-byte "Empty folders" group is an empty target.
+        assert_eq!(empty_target_count(&plan), 1);
+        assert_eq!(plan_overview(&plan), (5, 5, 11_600));
+    }
+
+    #[test]
+    fn show_empty_hides_empty_targets_but_keeps_zero_byte_paths() {
+        let plan = Plan {
+            groups: vec![
+                group("Chrome", "cache", 500, true),
+                // Zero bytes and no paths: a genuine empty target.
+                group("Edge", "cache", 0, true),
+                // Zero bytes but a matched path: an empty-folders group that
+                // must stay visible.
+                group_with_path("Empty folders", r"AppData\Local", 0),
+            ],
+            ..Plan::default()
+        };
+
+        let hidden = visible_categories(
+            &ENGLISH,
+            &plan,
+            &ViewFilter {
+                category: None,
+                search: "",
+                sort: SortMode::Name,
+                show_empty: false,
+            },
+        );
+        let names: Vec<&str> = hidden.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["Browsers", "Empty folders"]);
+        // Edge (empty target) is hidden; only Chrome remains under Browsers.
+        assert_eq!(hidden[0].apps.len(), 1);
+        assert_eq!(hidden[0].apps[0].app, "Chrome");
+
+        let shown = visible_categories(
+            &ENGLISH,
+            &plan,
+            &ViewFilter {
+                category: None,
+                search: "",
+                sort: SortMode::Name,
+                show_empty: true,
+            },
+        );
+        // Edge reappears alongside Chrome once empty targets are shown.
+        assert_eq!(shown[0].apps.len(), 2, "Edge reappears with empty targets");
+    }
+
+    #[test]
+    fn view_filter_restricts_to_one_category() {
+        let plan = sample_plan();
+        let only = visible_categories(
+            &ENGLISH,
+            &plan,
+            &ViewFilter {
+                category: Some(Category::System),
+                search: "",
+                sort: SortMode::Name,
+                show_empty: true,
+            },
+        );
+        assert_eq!(only.len(), 1);
+        assert_eq!(only[0].category, Category::System);
+        assert_eq!(only[0].apps[0].app, "Windows");
     }
 
     #[test]

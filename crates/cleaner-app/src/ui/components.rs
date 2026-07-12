@@ -125,15 +125,28 @@ pub(crate) fn centered_status(ui: &mut Ui, text: &str) {
     });
 }
 
-/// A right-aligned size value tinted by its magnitude; zero renders as an
-/// italic "Not found".
-pub(crate) fn size_text(texts: &UiText, bytes: u64) -> RichText {
+/// A right-aligned aggregate size tinted by its magnitude; zero renders as a
+/// muted dash (an aggregate cannot tell "missing" from "found but empty").
+pub(crate) fn size_text(bytes: u64) -> RichText {
     if bytes == 0 {
-        RichText::new(texts.not_found).color(theme::MUTED).italics()
+        RichText::new("—").color(theme::MUTED)
     } else {
         RichText::new(human_bytes(bytes))
             .color(theme::magnitude_color(bytes))
             .family(theme::bold())
+    }
+}
+
+/// The size cell for one scanned group, which can tell the zero-byte cases
+/// apart: no matched paths renders italic "Not found", matched-but-empty
+/// paths render their count (the deletable payload of empty-folder groups).
+pub(crate) fn group_size_text(texts: &UiText, group: &Group) -> RichText {
+    if group.bytes > 0 {
+        size_text(group.bytes)
+    } else if group.paths.is_empty() {
+        RichText::new(texts.not_found).color(theme::MUTED).italics()
+    } else {
+        RichText::new(texts.items_count(group.paths.len())).color(theme::MUTED)
     }
 }
 

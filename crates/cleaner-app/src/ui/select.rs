@@ -183,7 +183,7 @@ fn category_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, catego
         );
         ui.label(RichText::new(texts.apps_count(category.apps.len())).color(theme::MUTED));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(components::size_text(texts, category.bytes));
+            ui.label(components::size_text(category.bytes));
         });
     });
     if toggle {
@@ -219,7 +219,7 @@ fn app_card(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppView)
             ui.label(RichText::new(&app.app).family(theme::bold()));
             ui.label(RichText::new(texts.selected_of_count(selected, total)).color(theme::MUTED));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(components::size_text(texts, app.bytes));
+                ui.label(components::size_text(app.bytes));
             });
         });
         for (row, &index) in app.indices.iter().enumerate() {
@@ -240,7 +240,7 @@ fn item_row(ui: &mut Ui, texts: &UiText, state: &mut SelectState, index: usize, 
     components::striped_row(ui, striped, |ui| {
         let group = &state.plan.groups[index];
         let on = group.on;
-        let bytes = group.bytes;
+        let size = components::group_size_text(texts, group);
         let empty = viewmodel::is_empty_target(group);
         let has_errs = !group.errs.is_empty();
         let err_count = group.errs.len();
@@ -260,7 +260,7 @@ fn item_row(ui: &mut Ui, texts: &UiText, state: &mut SelectState, index: usize, 
         .clicked();
         ui.label(label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(components::size_text(texts, bytes));
+            ui.label(size);
             if has_errs {
                 let warn = egui::Button::new(
                     RichText::new(icons::WARNING)
@@ -398,7 +398,7 @@ fn preview_modal(ctx: &egui::Context, texts: &UiText, state: &SelectState) -> bo
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    ui.label(components::size_text(texts, group.bytes));
+                                    ui.label(components::group_size_text(texts, group));
                                 },
                             );
                         });

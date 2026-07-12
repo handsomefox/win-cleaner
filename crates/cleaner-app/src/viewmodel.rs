@@ -1,7 +1,7 @@
 //! Toolkit-agnostic category mapping, filtering, sorting, and text summaries.
 //! Everything here is unit-tested without a GUI.
 
-use cleaner_core::{ExecResult, Group, Plan};
+use cleaner_core::{EMPTY_FOLDERS_APP, ExecResult, Group, Plan};
 use jiff::{Timestamp, Zoned};
 
 use crate::strings::UiText;
@@ -106,11 +106,13 @@ pub(crate) fn category_of(app_name: &str) -> Category {
     }
 }
 
-/// A cache group is an "empty target" when it holds nothing to delete: zero
-/// bytes and no matched paths. Empty-folder groups keep non-empty `paths`, so
-/// they are *not* empty targets and stay visible.
+/// A cache group is an "empty target" when the scan found nothing worth
+/// freeing: zero bytes, whether the target was missing entirely or its
+/// matched paths are already empty (e.g. right after a cleanup). The one
+/// exception is empty-folder groups with matched paths — there the folders
+/// themselves are the deletable payload, so they stay visible.
 pub(crate) fn is_empty_target(group: &Group) -> bool {
-    group.bytes == 0 && group.paths.is_empty()
+    group.bytes == 0 && (group.paths.is_empty() || group.app != EMPTY_FOLDERS_APP)
 }
 
 /// Restricts and orders the cache targets shown on the selection screen.
@@ -470,14 +472,17 @@ mod tests {
     }
 
     #[test]
-    fn show_empty_hides_empty_targets_but_keeps_zero_byte_paths() {
+    fn show_empty_hides_empty_targets_but_keeps_empty_folder_paths() {
         let plan = Plan {
             groups: vec![
                 group("Chrome", "cache", 500, true),
-                // Zero bytes and no paths: a genuine empty target.
+                // Zero bytes and no paths: the target is missing entirely.
                 group("Edge", "cache", 0, true),
-                // Zero bytes but a matched path: an empty-folders group that
-                // must stay visible.
+                // Zero bytes with matched paths (e.g. a just-cleaned cache):
+                // still an empty target, nothing worth freeing.
+                group_with_path("Opera", "cache", 0),
+                // Zero bytes but the matched empty folders ARE the payload —
+                // this group must stay visible.
                 group_with_path("Empty folders", r"AppData\Local", 0),
             ],
             ..Plan::default()
@@ -495,7 +500,7 @@ mod tests {
         );
         let names: Vec<&str> = hidden.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["Browsers", "Empty folders"]);
-        // Edge (empty target) is hidden; only Chrome remains under Browsers.
+        // Edge and Opera (empty targets) are hidden; only Chrome remains.
         assert_eq!(hidden[0].apps.len(), 1);
         assert_eq!(hidden[0].apps[0].app, "Chrome");
 
@@ -509,8 +514,12 @@ mod tests {
                 show_empty: true,
             },
         );
-        // Edge reappears alongside Chrome once empty targets are shown.
-        assert_eq!(shown[0].apps.len(), 2, "Edge reappears with empty targets");
+        // Edge and Opera reappear once empty targets are shown.
+        assert_eq!(
+            shown[0].apps.len(),
+            3,
+            "browsers reappear with empty targets"
+        );
     }
 
     #[test]

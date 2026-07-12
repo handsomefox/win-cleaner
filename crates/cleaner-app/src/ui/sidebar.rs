@@ -38,7 +38,7 @@ pub(crate) fn show(
                 icons::CAT_ALL,
                 texts.sidebar_all,
                 &texts.apps_count(total_apps),
-                Some(components::size_text(texts, total_bytes)),
+                Some(components::size_text(total_bytes)),
                 !history_open && state.selected_category.is_none(),
             )
             .clicked()
@@ -53,7 +53,7 @@ pub(crate) fn show(
                     icons::category_glyph(summary.category),
                     summary.category.label(texts),
                     &texts.apps_count(summary.apps),
-                    Some(components::size_text(texts, summary.bytes)),
+                    Some(components::size_text(summary.bytes)),
                     selected,
                 )
                 .clicked()

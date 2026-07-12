@@ -81,7 +81,6 @@ pub(crate) struct DeletingState {
     pub total: usize,
     pub message: String,
     pub task: String,
-    pub selected_items: usize,
     pub selected_bytes: u64,
 }
 
@@ -179,7 +178,6 @@ impl WinCleanerApp {
                     total: state.plan.selected,
                     message: self.texts.status_preparing.to_owned(),
                     task: self.texts.task_cache_deleting.to_owned(),
-                    selected_items: state.plan.selected,
                     selected_bytes: state.plan.total_bytes,
                 });
                 self.worker.send(Command::Execute {

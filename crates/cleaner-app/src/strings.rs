@@ -49,11 +49,6 @@ pub(crate) struct UiText {
     pub status_preparing: &'static str,
     pub not_found: &'static str,
 
-    pub progress_moving_title: &'static str,
-    pub stat_selected: &'static str,
-    pub stat_scope: &'static str,
-    pub stat_destination: &'static str,
-    pub recycle_bin: &'static str,
     pub unit_items: &'static str,
 
     pub dialog_nothing_selected_title: &'static str,
@@ -149,11 +144,6 @@ pub(crate) const ENGLISH: UiText = UiText {
     status_preparing: "Preparing…",
     not_found: "Not found",
 
-    progress_moving_title: "Moving selected items",
-    stat_selected: "Selected",
-    stat_scope: "Scope",
-    stat_destination: "Destination",
-    recycle_bin: "Recycle Bin",
     unit_items: "items",
 
     dialog_nothing_selected_title: "Nothing Selected",

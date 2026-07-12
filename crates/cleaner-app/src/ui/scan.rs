@@ -1,26 +1,28 @@
-//! The scanning screen: a card with a spinner, status line, and progress bar.
+//! The scanning screen: a centered spinner, title, progress bar, and status.
 
-use eframe::egui::{self, Ui};
+use eframe::egui::{self, RichText, Ui};
 
 use crate::strings::UiText;
 use crate::theme;
-use crate::ui::components;
 
 pub(crate) fn show(ui: &mut Ui, texts: &UiText, fraction: f32, status: &str) {
-    components::titled_card(
-        ui,
-        texts.cache_scan_card_title,
-        texts.cache_scan_card_subtitle,
-        |ui| {
-            ui.add_space(theme::SPACE_MD);
-            ui.vertical_centered(|ui| {
-                ui.add(egui::Spinner::new().size(28.0));
-                ui.add_space(theme::SPACE_SM);
-                ui.label(status);
-            });
-            ui.add_space(theme::SPACE_MD);
-            ui.add(egui::ProgressBar::new(fraction).desired_height(8.0));
-            ui.add_space(theme::SPACE_XS);
-        },
-    );
+    ui.add_space(ui.available_height() * 0.3);
+    ui.vertical_centered(|ui| {
+        ui.add(egui::Spinner::new().size(28.0));
+        ui.add_space(theme::SPACE_MD);
+        ui.label(
+            RichText::new(texts.cache_scan_card_title)
+                .family(theme::bold())
+                .size(theme::FONT_DISPLAY),
+        );
+        ui.label(RichText::new(texts.cache_scan_card_subtitle).color(theme::MUTED));
+        ui.add_space(theme::SPACE_MD);
+        ui.add(
+            egui::ProgressBar::new(fraction)
+                .desired_width(440.0)
+                .desired_height(8.0),
+        );
+        ui.add_space(theme::SPACE_SM);
+        ui.label(RichText::new(status).color(theme::MUTED).small());
+    });
 }

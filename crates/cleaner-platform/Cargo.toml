@@ -6,11 +6,14 @@ license.workspace = true
 repository.workspace = true
 description = "Windows platform integration for win-cleaner: Recycle Bin, known folders, and root resolution"
 
+[lints]
+workspace = true
+
 [dependencies]
-cleaner-core = { version = "1.0.3", path = "../cleaner-core" }
+cleaner-core = { version = "=1.0.3", path = "../cleaner-core" }
 
 [target."cfg(windows)".dependencies]
-windows = { version = "0.62", features = [
+windows = { version = "=0.62.2", features = [
     "Win32_Foundation",
     "Win32_UI_Shell",
     "Win32_System_Com",
@@ -18,6 +21,3 @@ windows = { version = "0.62", features = [
 
 [dev-dependencies]
 tempfile.workspace = true
-
-[lints]
-workspace = true

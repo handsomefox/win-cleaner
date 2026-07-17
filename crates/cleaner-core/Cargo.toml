@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 description = "Portable domain logic for win-cleaner: cleanup catalog, scanning, planning, execution, and run statistics"
 
+[lints]
+workspace = true
+
 [dependencies]
 jiff.workspace = true
 serde.workspace = true
@@ -15,6 +18,3 @@ walkdir.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-
-[lints]
-workspace = true

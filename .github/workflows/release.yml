@@ -5,11 +5,16 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v* tag to rebuild and publish; leave empty for a dry run
+        required: false
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ github.workflow }}-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -33,6 +38,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - name: Trace runner tools
         run: |
           echo "ImageOS=${ImageOS:-unknown}"
@@ -65,6 +71,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - name: Trace runner tools
         run: |
           echo "ImageOS=${ImageOS:-unknown}"
@@ -83,11 +90,11 @@ jobs:
           rustc --version
           cargo --version
       - name: Verify tag matches application version
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         shell: pwsh
         env:
           APP_PACKAGE: cleaner-app
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ inputs.release_tag || github.ref_name }}
         run: |
           $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
           $packages = @($metadata.packages | Where-Object { $_.name -eq $env:APP_PACKAGE })
@@ -121,7 +128,8 @@ jobs:
             $hash = (Get-FileHash (Join-Path $dist $_) -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $_"
           })
-          [IO.File]::WriteAllLines((Join-Path $dist 'SHA256SUMS'), $checksumLines, [Text.Encoding]::ASCII)
+          $checksumText = ($checksumLines -join "`n") + "`n"
+          [IO.File]::WriteAllText((Join-Path $dist 'SHA256SUMS'), $checksumText, [Text.Encoding]::ASCII)
           $expectedFiles = @('SHA256SUMS', $exe, $zip) | Sort-Object
           $actualFiles = @(Get-ChildItem $dist -File | Select-Object -ExpandProperty Name | Sort-Object)
           if (@(Compare-Object $expectedFiles $actualFiles).Count -ne 0) { throw 'Release asset set is incorrect' }
@@ -150,7 +158,7 @@ jobs:
 
   publish:
     name: Attest and publish
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
     needs: build
     permissions:
       attestations: write # Publish provenance for each release asset.
@@ -189,11 +197,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           PRODUCT: win-cleaner
+          TAG_NAME: ${{ inputs.release_tag || github.ref_name }}
         run: >-
-          gh release create "$GITHUB_REF_NAME"
+          gh release create "$TAG_NAME"
           "dist/$PRODUCT.exe"
           "dist/$PRODUCT-windows-x86_64.zip"
           dist/SHA256SUMS
           --verify-tag
           --generate-notes
-          --title "$GITHUB_REF_NAME"
+          --title "$TAG_NAME"

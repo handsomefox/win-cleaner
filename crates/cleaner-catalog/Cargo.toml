@@ -7,7 +7,7 @@ repository.workspace = true
 description = "The built-in catalog of cache locations win-cleaner knows how to clean"
 
 [dependencies]
-cleaner-core = { version = "1.0.1", path = "../cleaner-core" }
+cleaner-core = { version = "1.0.3", path = "../cleaner-core" }
 
 [dev-dependencies]
 tempfile.workspace = true

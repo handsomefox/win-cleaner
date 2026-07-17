@@ -336,11 +336,9 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("EpicGamesLauncher")
                 .join("Saved")
                 .join("webcache_*")]),
-        item("GOG Galaxy", "cache", true).paths([
-            local.join("GOG.com").join("Galaxy"),
-            program_data.join("GOG.com").join("Galaxy").join("webcache"),
-        ]),
-        item("EA/Origin", "logs + anti-cheat + CEF cache", true).paths(
+        item("GOG Galaxy", "web cache", true)
+            .paths([program_data.join("GOG.com").join("Galaxy").join("webcache")]),
+        item("EA/Origin", "logs + CEF cache", true).paths(
             chromium_set(
                 &local
                     .join("Electronic Arts")
@@ -354,7 +352,6 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .chain([
                 program_data.join("EA Desktop").join("Logs"),
                 program_data.join("EA Logs"),
-                program_data.join("eaanticheat"),
                 program_data.join("Origin").join("Logs"),
                 local.join("EADesktop").join("cache"),
                 local.join("Link2EA").join("cache"),

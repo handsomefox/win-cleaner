@@ -69,6 +69,7 @@ fn move_to_recycle_bin(paths: &[&Path]) -> Result<(), RecycleError> {
     const FOF_NOCONFIRMATION: u16 = 0x0010;
     const FOF_ALLOWUNDO: u16 = 0x0040;
     const FOF_NOERRORUI: u16 = 0x0400;
+    const FOF_NO_CONNECTED_ELEMENTS: u16 = 0x2000;
 
     if paths.is_empty() {
         return Ok(());
@@ -83,7 +84,11 @@ fn move_to_recycle_bin(paths: &[&Path]) -> Result<(), RecycleError> {
         wFunc: FO_DELETE,
         pFrom: PCWSTR(list.as_ptr()),
         pTo: PCWSTR::null(),
-        fFlags: FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT,
+        fFlags: FOF_ALLOWUNDO
+            | FOF_NOCONFIRMATION
+            | FOF_NOERRORUI
+            | FOF_SILENT
+            | FOF_NO_CONNECTED_ELEMENTS,
         fAnyOperationsAborted: windows::core::BOOL(0),
         hNameMappings: std::ptr::null_mut(),
         lpszProgressTitle: PCWSTR::null(),

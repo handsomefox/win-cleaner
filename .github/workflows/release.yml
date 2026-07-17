@@ -6,30 +6,50 @@ on:
       - "v*"
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  build:
-    runs-on: windows-latest
+  audit:
+    permissions:
+      contents: read
+      checks: write
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    needs: audit
+    permissions:
+      contents: read
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.1
           components: clippy, rustfmt
       - name: Verify tag matches workspace version
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
           $version = ($metadata.packages | Where-Object name -eq 'cleaner-app').version
-          if ("${{ github.ref_name }}" -ne "v$version") {
-            throw "Tag ${{ github.ref_name }} does not match workspace version v$version"
+          if ($env:TAG_NAME -ne "v$version") {
+            throw "Tag $env:TAG_NAME does not match workspace version v$version"
           }
       - run: cargo fmt --all -- --check
-      - run: cargo test --workspace --no-fail-fast
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo build --workspace --release
+      - run: cargo test --workspace --no-fail-fast --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo build --workspace --release --locked
       - name: Package Windows release
         shell: pwsh
         run: |
@@ -44,7 +64,7 @@ jobs:
           $expected = (Get-Content dist/SHA256SUMS).Split(' ')[0]
           $actual = (Get-FileHash dist/win-cleaner.exe -Algorithm SHA256).Hash.ToLower()
           if ($expected -ne $actual) { throw 'Packaged executable checksum mismatch' }
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: win-cleaner-release-assets
           path: |
@@ -56,21 +76,31 @@ jobs:
   publish:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
+      attestations: write
       contents: write
+      id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: win-cleaner-release-assets
           path: dist
       - name: Verify release assets
         run: test -f dist/win-cleaner.exe && test -f dist/SHA256SUMS && test -f dist/win-cleaner-windows-x86_64.zip
-      - uses: softprops/action-gh-release@v2
+      - name: Attest release assets
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: |
-            dist/win-cleaner.exe
-            dist/win-cleaner-windows-x86_64.zip
-            dist/SHA256SUMS
+          subject-path: dist/*
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: >-
+          gh release create "$TAG_NAME"
+          dist/win-cleaner.exe
+          dist/win-cleaner-windows-x86_64.zip
+          dist/SHA256SUMS
+          --verify-tag
+          --generate-notes
+          --title "$TAG_NAME"

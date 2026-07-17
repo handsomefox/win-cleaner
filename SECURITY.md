@@ -10,4 +10,4 @@ Security reports involving path validation (the safe-root guard), deletion behav
 
 ## Supported versions
 
-Until the first stable release, only the latest revision on the default branch is supported.
+Only the latest stable release and the latest revision on the default branch receive security fixes.

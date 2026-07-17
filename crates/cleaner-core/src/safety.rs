@@ -7,14 +7,13 @@ use std::path::{Component, MAIN_SEPARATOR, Path};
 
 /// Reports whether `path` is strictly under one of `roots` (never a root
 /// itself). Comparison is lexical and case-insensitive on cleaned paths, and
-/// every existing ancestor below the trusted root is rejected when it is a
-/// symlink or Windows reparse point. The target itself may be a link because
-/// recycling the link does not traverse it.
+/// the target and every existing ancestor below the trusted root are rejected
+/// when they are a symlink or Windows reparse point.
 #[must_use]
 pub fn is_safe_path(path: &Path, roots: &[&Path]) -> bool {
     roots
         .iter()
-        .any(|root| is_path_under_root(path, root) && ancestors_are_safe(path, root))
+        .any(|root| is_path_under_root(path, root) && path_chain_is_safe(path, root))
 }
 
 fn is_path_under_root(path: &Path, root: &Path) -> bool {
@@ -34,14 +33,14 @@ fn is_path_under_root(path: &Path, root: &Path) -> bool {
 /// reports `NotFound`, and both are treated as missing. Other metadata failures
 /// are rejected because the guard cannot establish that the path stays inside
 /// the root.
-fn ancestors_are_safe(path: &Path, root: &Path) -> bool {
+fn path_chain_is_safe(path: &Path, root: &Path) -> bool {
     let root_key = normalized_key(root);
-    let mut current = path.parent();
-    while let Some(ancestor) = current {
-        if normalized_key(ancestor) == root_key {
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if normalized_key(candidate) == root_key {
             return true;
         }
-        match fs::symlink_metadata(ancestor) {
+        match fs::symlink_metadata(candidate) {
             Ok(metadata) if metadata.file_type().is_symlink() || is_reparse_point(&metadata) => {
                 return false;
             }
@@ -51,7 +50,7 @@ fn ancestors_are_safe(path: &Path, root: &Path) -> bool {
                     || err.kind() == std::io::ErrorKind::InvalidFilename => {}
             Err(_) => return false,
         }
-        current = ancestor.parent();
+        current = candidate.parent();
     }
     false
 }
@@ -194,7 +193,6 @@ mod tests {
         std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
 
         assert!(!is_safe_path(&root.join("linked/cache"), &[&root]));
-        // Recycling the link itself removes the link rather than its target.
-        assert!(is_safe_path(&root.join("linked"), &[&root]));
+        assert!(!is_safe_path(&root.join("linked"), &[&root]));
     }
 }

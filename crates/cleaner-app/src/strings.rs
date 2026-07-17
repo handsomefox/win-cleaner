@@ -104,7 +104,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     app_title: "Win Cleaner",
 
     task_cache_scanning: "Scanning cache locations…",
-    task_cache_deleting: "Moving selected cache files to the Recycle Bin",
+    task_cache_deleting: "Cleaning selected cache paths safely",
     task_history: "Cleanup history",
     task_history_failed: "Cleanup history unavailable",
 
@@ -139,7 +139,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     tooltip_select_visible: "Select or clear everything shown",
     no_matching_cache_targets: "No matching cleanup targets.",
     cache_delete_card_title: "Cleaning Up",
-    cache_delete_card_subtitle: "Moving files to the Recycle Bin.",
+    cache_delete_card_subtitle: "Recycling cache paths and removing verified empty folders.",
 
     status_preparing: "Preparing…",
     not_found: "Not found",
@@ -279,7 +279,7 @@ impl UiText {
 
     pub(crate) fn confirm_cache_cleanup(&self, plan: &Plan) -> String {
         format!(
-            "Move {} to the Recycle Bin?\nEstimated savings: {}\n\nFiles can be restored from the Recycle Bin.",
+            "Clean {}?\nEstimated savings: {}\n\nCache paths are moved to the Recycle Bin. Empty folders are removed only if they are still empty.",
             self.items_count(plan.selected),
             human_bytes(plan.total_bytes),
         )

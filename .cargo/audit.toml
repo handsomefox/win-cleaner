@@ -1,7 +1,8 @@
 [advisories]
 # wayland-scanner uses quick-xml only at build time to parse trusted XML bundled
-# with the Wayland protocol crates. Remove these exceptions when wayland-scanner
-# accepts quick-xml >= 0.41.
+# with the Wayland protocol crates. This dependency is not present in the
+# Windows target shipped by this project. Remove these exceptions when a
+# compatible wayland-scanner release accepts quick-xml >= 0.41.
 ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",

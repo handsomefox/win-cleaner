@@ -1,24 +1,16 @@
-//! Plan execution: moves selected paths to the Recycle Bin via a [`Recycler`]
-//! implementation. The safety guard is re-checked immediately before every
-//! delete, independent of the scan-time check.
+//! Plan execution. Cache paths are moved to the Recycle Bin via a [`Recycler`]
+//! implementation. Empty-directory cleanup uses an atomic, non-recursive
+//! removal so a directory that gains content after scanning is never deleted.
+//! The safety guard is re-checked immediately before every operation.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use crate::empty_folders::EMPTY_FOLDERS_APP;
 use crate::error::RecycleError;
 use crate::plan::{Options, Phase, Plan, ProgressUpdate};
 use crate::safety::is_safe_path;
 use crate::stats::{ExecResult, GroupResult, PathError};
-
-/// Number of immediate children above which we attempt to move the whole
-/// directory in one shot rather than batching children. Shader caches and
-/// Battle.net folders can have tens of thousands of files; individually
-/// recycling hundreds of chunks of 64 is extremely slow on Windows.
-const LARGE_CHILD_THRESHOLD: usize = 500;
-
-/// Number of paths sent per recycler call when processing directories below
-/// the large-child threshold.
-const CHUNK_SIZE: usize = 64;
 
 /// Moves paths to the Recycle Bin. The single production implementation wraps
 /// `SHFileOperationW` in `cleaner-platform`; tests use mocks.
@@ -76,11 +68,16 @@ pub fn execute_with_result(
                 continue;
             }
             group_result.paths_attempted += 1;
-            if let Err(err) = delete_path_smart(path, recycler) {
+            let operation = if group.app == EMPTY_FOLDERS_APP {
+                remove_empty_directory(path).map_err(|err| err.to_string())
+            } else {
+                delete_path_smart(path, recycler).map_err(|err| err.to_string())
+            };
+            if let Err(error) = operation {
                 group_result.paths_failed += 1;
                 group_result.errors.push(PathError {
                     path: path.display().to_string(),
-                    error: err.to_string(),
+                    error,
                 });
             }
         }
@@ -91,70 +88,36 @@ pub fn execute_with_result(
     result
 }
 
-/// Deletes `path` using only the Recycle Bin:
-/// - File/link: recycle directly.
-/// - Small directory (≤ [`LARGE_CHILD_THRESHOLD`] children): batch children
-///   in chunks, then recycle the now-empty parent.
-/// - Large directory: try recycling the whole folder in one call first (much
-///   faster); fall back to the chunk approach only if that fails.
+/// Moves exactly `path` to the Recycle Bin in one operation.
+///
+/// The core deliberately does not enumerate a directory and submit its
+/// children separately. Besides being slower, that would follow a directory
+/// junction or other reparse point and expand the operation beyond the path
+/// approved by the safety guard.
 ///
 /// # Errors
 ///
-/// Returns an error when the recycler rejects a path; nothing is ever
-/// deleted permanently.
+/// Returns an error when the recycler rejects the path.
 pub fn delete_path_smart(path: &Path, recycler: &dyn Recycler) -> Result<(), RecycleError> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        // If we can't stat it, still try the Recycle Bin (may succeed).
-        Err(_) => return recycler.recycle(&[path]),
-    };
-
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return recycler.recycle(&[path]);
-    }
-
-    let children = match read_dir_paths(path) {
-        Ok(children) => children,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        // Enumeration failed (permission issues); try the folder itself and
-        // report the recycler's result to the caller.
-        Err(_) => return recycler.recycle(&[path]),
-    };
-
-    // Large directory: one shell call for the whole tree when possible.
-    if children.len() > LARGE_CHILD_THRESHOLD && recycler.recycle(&[path]).is_ok() {
+    if matches!(
+        fs::symlink_metadata(path),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound
+    ) {
         return Ok(());
     }
-
-    for chunk in children.chunks(CHUNK_SIZE) {
-        let refs: Vec<&Path> = chunk.iter().map(PathBuf::as_path).collect();
-        if recycler.recycle(&refs).is_err() {
-            // Bulk move failed; attempt per-item to salvage progress.
-            let mut item_errors = Vec::new();
-            for child in chunk {
-                if let Err(err) = recycler.recycle(&[child]) {
-                    item_errors.push(format!("{}: {err}", child.display()));
-                }
-            }
-            if !item_errors.is_empty() {
-                return Err(RecycleError::Multiple(item_errors.join("; ")));
-            }
-        }
-    }
-
-    // Recycle the (now hopefully empty) directory itself.
+    // If we can't stat it for another reason, still try the Recycle Bin.
     recycler.recycle(&[path])
 }
 
-/// Absolute paths of the immediate children of `dir`.
-fn read_dir_paths(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut out: Vec<PathBuf> = fs::read_dir(dir)?
-        .filter_map(Result::ok)
-        .map(|entry| dir.join(entry.file_name()))
-        .collect();
-    out.sort();
-    Ok(out)
+/// Removes an empty directory without recursion. `remove_dir` performs the
+/// emptiness check and removal as one filesystem operation, so a directory
+/// that gains a file after the scan fails closed instead of deleting it.
+fn remove_empty_directory(path: &Path) -> std::io::Result<()> {
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 #[cfg(test)]
@@ -163,26 +126,17 @@ mod tests {
     use crate::plan::Group;
     use std::cell::RefCell;
     use std::fs::{File, create_dir_all};
+    use std::path::PathBuf;
 
-    /// Records every batch and optionally fails calls; successful calls
-    /// actually remove the paths so "recycle the now-empty parent" works.
+    /// Records every batch; successful calls remove the mocked paths.
     struct MockRecycler {
         calls: RefCell<Vec<Vec<PathBuf>>>,
-        /// Paths this mock refuses to delete.
-        refuse: Vec<PathBuf>,
-        /// When set, any call with more than one path fails.
-        fail_bulk: bool,
-        /// When set, whole-directory calls (single non-empty dir path) fail.
-        fail_whole_dir: bool,
     }
 
     impl MockRecycler {
         fn new() -> Self {
             Self {
                 calls: RefCell::new(Vec::new()),
-                refuse: Vec::new(),
-                fail_bulk: false,
-                fail_whole_dir: false,
             }
         }
 
@@ -196,20 +150,6 @@ mod tests {
             self.calls
                 .borrow_mut()
                 .push(paths.iter().map(|p| p.to_path_buf()).collect());
-            if self.fail_bulk && paths.len() > 1 {
-                return Err(RecycleError::ShellOperation(5));
-            }
-            for path in paths {
-                if self.refuse.iter().any(|r| r == *path) {
-                    return Err(RecycleError::ShellOperation(32));
-                }
-                if self.fail_whole_dir
-                    && path.is_dir()
-                    && fs::read_dir(path).is_ok_and(|mut d| d.next().is_some())
-                {
-                    return Err(RecycleError::ShellOperation(145));
-                }
-            }
             for path in paths {
                 if path.is_dir() {
                     fs::remove_dir_all(path).ok();
@@ -248,85 +188,14 @@ mod tests {
     }
 
     #[test]
-    fn small_dir_chunks_children_then_parent() {
+    fn directory_is_recycled_as_one_top_level_path() {
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("cache");
         make_children(&target, 100);
         let mock = MockRecycler::new();
         delete_path_smart(&target, &mock).unwrap();
-        // 100 children => chunks of 64 + 36, then the parent alone.
-        assert_eq!(mock.call_sizes(), vec![64, 36, 1]);
-        assert!(!target.exists());
-    }
-
-    #[test]
-    fn large_dir_recycled_whole_when_possible() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("shadercache");
-        make_children(&target, LARGE_CHILD_THRESHOLD + 1);
-        let mock = MockRecycler::new();
-        delete_path_smart(&target, &mock).unwrap();
         assert_eq!(mock.call_sizes(), vec![1]);
         assert!(!target.exists());
-    }
-
-    #[test]
-    fn large_dir_falls_back_to_chunks_when_whole_fails() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("locked");
-        make_children(&target, LARGE_CHILD_THRESHOLD + 1);
-        let mock = MockRecycler {
-            fail_whole_dir: true,
-            ..MockRecycler::new()
-        };
-        delete_path_smart(&target, &mock).unwrap();
-        let sizes = mock.call_sizes();
-        // Whole-dir attempt, then ceil(501/64) = 8 chunks, then parent.
-        assert_eq!(sizes[0], 1);
-        assert_eq!(sizes.len(), 1 + 8 + 1);
-        assert_eq!(*sizes.last().unwrap(), 1);
-        assert!(!target.exists());
-    }
-
-    #[test]
-    fn failed_chunk_salvages_per_item() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("cache");
-        make_children(&target, 3);
-        let mock = MockRecycler {
-            fail_bulk: true,
-            refuse: vec![target.join("f0001")],
-            ..MockRecycler::new()
-        };
-        let err = delete_path_smart(&target, &mock).unwrap_err();
-        assert!(err.to_string().contains("f0001"));
-        // Salvage removed the two other children.
-        assert!(!target.join("f0000").exists());
-        assert!(!target.join("f0002").exists());
-        assert!(target.join("f0001").exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn enumeration_failure_propagates_recycler_failure() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("unreadable");
-        make_children(&target, 1);
-        fs::set_permissions(&target, fs::Permissions::from_mode(0o000)).unwrap();
-
-        let mock = MockRecycler {
-            refuse: vec![target.clone()],
-            ..MockRecycler::new()
-        };
-        let result = delete_path_smart(&target, &mock);
-        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
-
-        let err = result.unwrap_err();
-        assert!(matches!(err, RecycleError::ShellOperation(32)));
-        assert_eq!(mock.call_sizes(), vec![1]);
-        assert!(target.exists());
     }
 
     fn selected_group(app: &str, paths: Vec<PathBuf>) -> Group {
@@ -415,6 +284,37 @@ mod tests {
         assert!(outside.join("cache/f0000").exists());
         assert_eq!(result.error_count, 1);
         assert_eq!(result.groups[0].errors[0].error, "unsafe path (guard)");
+    }
+
+    #[test]
+    fn empty_folder_cleanup_removes_only_still_empty_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("safe");
+        let empty = root.join("empty");
+        let changed = root.join("changed");
+        create_dir_all(&empty).unwrap();
+        create_dir_all(&changed).unwrap();
+        File::create(changed.join("appeared-after-scan.txt")).unwrap();
+
+        let mut plan = Plan {
+            groups: vec![selected_group(
+                EMPTY_FOLDERS_APP,
+                vec![empty.clone(), changed.clone()],
+            )],
+            ..Plan::default()
+        };
+        plan.recompute_totals();
+
+        let mock = MockRecycler::new();
+        let result =
+            execute_with_result(&plan, Options { dry_run: false }, &[&root], &mock, |_| {});
+
+        assert!(!empty.exists());
+        assert!(changed.join("appeared-after-scan.txt").exists());
+        assert!(mock.call_sizes().is_empty());
+        assert_eq!(result.groups[0].paths_attempted, 2);
+        assert_eq!(result.groups[0].paths_failed, 1);
+        assert_eq!(result.error_count, 1);
     }
 
     #[test]

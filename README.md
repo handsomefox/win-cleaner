@@ -3,7 +3,7 @@
 [![CI](https://github.com/handsomefox/win-cleaner/actions/workflows/ci.yml/badge.svg)](https://github.com/handsomefox/win-cleaner/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A Windows desktop app that scans known application and system cache locations, shows how much space each one holds, and cleans the ones you select — always through the Recycle Bin.
+A Windows desktop app that scans known application and system cache locations, shows how much space each one holds, and cleans the ones you select.
 
 ## Features
 
@@ -16,8 +16,9 @@ A Windows desktop app that scans known application and system cache locations, s
 
 ## Safety model
 
-- Deletion only ever moves paths to the **Recycle Bin** (`SHFileOperationW` with `FOF_ALLOWUNDO`); the app never deletes permanently, and never falls back to permanent deletion on failure.
-- Every path must be **strictly inside one of the known safe roots** (AppData Local/Roaming, ProgramData, the user profile, the Windows and Program Files trees). The guard is enforced when scanning **and re-checked immediately before every delete**; the roots themselves and paths reached through symlink/reparse-point ancestors are always rejected.
+- Cache cleanup moves each selected top-level path to the **Recycle Bin** (`SHFileOperationW` with `FOF_ALLOWUNDO`) and never falls back to permanent deletion.
+- Empty-folder cleanup uses a non-recursive directory removal that succeeds only while the folder is still empty, closing the scan-to-clean race without risking newly created files.
+- Every path must be **strictly inside one of the known safe roots** (AppData Local/Roaming, ProgramData, the user profile, the Windows and Program Files trees). The guard is enforced when scanning **and re-checked immediately before every delete**; the roots themselves and paths that are, or are reached through, symlinks/reparse points are always rejected.
 - Empty groups are never pre-selected, empty-folder removal is opt-in, and symlinks/reparse points are treated as content — never followed, never sized, never considered "empty".
 - Cleaning writes a JSON record of exactly what was attempted to the run history.
 

@@ -23,6 +23,9 @@ env:
   CARGO_AUDIT_VERSION: 0.22.2
   CARGO_XWIN_VERSION: 0.23.0
   CARGO_MACHETE_VERSION: 0.9.2
+  CARGO_EXECUTABLE: win-cleaner.exe
+  RELEASE_EXECUTABLE: "Windows Cleaner.exe"
+  RELEASE_ARCHIVE: win-cleaner-windows-x86_64.zip
 
 defaults:
   run:
@@ -112,16 +115,15 @@ jobs:
         run: cargo build --workspace --release --locked
       - name: Package and verify release assets
         shell: pwsh
-        env:
-          PRODUCT: win-cleaner
         run: |
           $ErrorActionPreference = 'Stop'
           $dist = Join-Path $PWD 'dist'
           if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
           New-Item -ItemType Directory -Path $dist | Out-Null
-          $exe = "$env:PRODUCT.exe"
-          $zip = "$env:PRODUCT-windows-x86_64.zip"
-          Copy-Item (Join-Path $PWD "target/release/$exe") (Join-Path $dist $exe)
+          $exe = $env:RELEASE_EXECUTABLE
+          $zip = $env:RELEASE_ARCHIVE
+          $artifact = Join-Path $PWD "target/release/$env:CARGO_EXECUTABLE"
+          Copy-Item -LiteralPath $artifact -Destination (Join-Path $dist $exe)
           Compress-Archive -CompressionLevel Optimal -LiteralPath (Join-Path $dist $exe) -DestinationPath (Join-Path $dist $zip)
           $hashAssets = @($exe, $zip)
           $checksumLines = @($hashAssets | ForEach-Object {
@@ -151,8 +153,8 @@ jobs:
         with:
           name: win-cleaner-release-assets
           path: |
-            dist/win-cleaner.exe
-            dist/win-cleaner-windows-x86_64.zip
+            dist/${{ env.RELEASE_EXECUTABLE }}
+            dist/${{ env.RELEASE_ARCHIVE }}
             dist/SHA256SUMS
           if-no-files-found: error
 
@@ -172,16 +174,14 @@ jobs:
           name: win-cleaner-release-assets
           path: dist
       - name: Independently verify release assets
-        env:
-          PRODUCT: win-cleaner
         run: |
-          exe="$PRODUCT.exe"
-          zip="$PRODUCT-windows-x86_64.zip"
+          exe="$RELEASE_EXECUTABLE"
+          zip="$RELEASE_ARCHIVE"
           mapfile -t expected_assets < <(printf '%s\n' SHA256SUMS "$exe" "$zip" | sort)
           mapfile -t actual_assets < <(find dist -maxdepth 1 -type f -printf '%f\n' | sort)
           [[ "${actual_assets[*]}" == "${expected_assets[*]}" ]]
           mapfile -t expected_hash_assets < <(printf '%s\n' "$exe" "$zip" | sort)
-          mapfile -t actual_hash_assets < <(awk '{print $2}' dist/SHA256SUMS | sort)
+          mapfile -t actual_hash_assets < <(cut -c67- dist/SHA256SUMS | sort)
           [[ "${actual_hash_assets[*]}" == "${expected_hash_assets[*]}" ]]
           awk 'length($1) != 64 || $1 !~ /^[0-9a-f]+$/ { exit 1 } END { if (NR != 2) exit 1 }' dist/SHA256SUMS
           (cd dist && sha256sum --check --strict SHA256SUMS)
@@ -196,12 +196,11 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-          PRODUCT: win-cleaner
           TAG_NAME: ${{ inputs.release_tag || github.ref_name }}
         run: >-
           gh release create "$TAG_NAME"
-          "dist/$PRODUCT.exe"
-          "dist/$PRODUCT-windows-x86_64.zip"
+          "dist/$RELEASE_EXECUTABLE"
+          "dist/$RELEASE_ARCHIVE"
           dist/SHA256SUMS
           --verify-tag
           --generate-notes

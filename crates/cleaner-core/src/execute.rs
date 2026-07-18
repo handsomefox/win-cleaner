@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::empty_folders::EMPTY_FOLDERS_APP;
 use crate::error::RecycleError;
 use crate::plan::{Options, Phase, Plan, ProgressUpdate};
-use crate::safety::is_safe_path;
+use crate::safety::{is_reparse_point, is_safe_path};
 use crate::stats::{ExecResult, GroupResult, PathError};
 
 /// Moves paths to the Recycle Bin. The single production implementation wraps
@@ -71,7 +71,7 @@ pub fn execute_with_result(
             let operation = if group.app == EMPTY_FOLDERS_APP {
                 remove_empty_directory(path).map_err(|err| err.to_string())
             } else {
-                delete_path_smart(path, recycler).map_err(|err| err.to_string())
+                delete_path_smart(path, guard_roots, recycler).map_err(|err| err.to_string())
             };
             if let Err(error) = operation {
                 group_result.paths_failed += 1;
@@ -88,25 +88,107 @@ pub fn execute_with_result(
     result
 }
 
-/// Moves exactly `path` to the Recycle Bin in one operation.
+/// First attempts to move exactly `path` to the Recycle Bin in one operation.
 ///
-/// The core deliberately does not enumerate a directory and submit its
-/// children separately. Besides being slower, that would follow a directory
-/// junction or other reparse point and expand the operation beyond the path
-/// approved by the safety guard.
+/// When that fails for a real directory, its immediate children are retried
+/// independently. The fallback never recurses, never submits a symlink or
+/// reparse point, and re-runs the execution-time safety guard for every child.
+/// Successful child cleanup is retained even if other children remain locked.
 ///
 /// # Errors
 ///
-/// Returns an error when the recycler rejects the path.
-pub fn delete_path_smart(path: &Path, recycler: &dyn Recycler) -> Result<(), RecycleError> {
-    if matches!(
-        fs::symlink_metadata(path),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound
-    ) {
-        return Ok(());
+/// Returns an aggregate error when salvage is incomplete and the directory
+/// still exists.
+pub fn delete_path_smart(
+    path: &Path,
+    guard_roots: &[&Path],
+    recycler: &dyn Recycler,
+) -> Result<(), RecycleError> {
+    if !is_safe_path(path, guard_roots) {
+        return if path_missing(path) {
+            Ok(())
+        } else {
+            Err(RecycleError::UnsafePath(path.to_path_buf()))
+        };
     }
-    // If we can't stat it for another reason, still try the Recycle Bin.
-    recycler.recycle(&[path])
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return recycler.recycle(&[path]),
+    };
+    let is_real_directory = metadata.file_type().is_dir()
+        && !metadata.file_type().is_symlink()
+        && !is_reparse_point(&metadata);
+    let initial_error = match recycler.recycle(&[path]) {
+        Ok(()) => return Ok(()),
+        Err(_) if path_missing(path) => return Ok(()),
+        Err(error) => error,
+    };
+    if !is_real_directory {
+        return Err(initial_error);
+    }
+
+    let mut failures = vec![format!("{}: {initial_error}", path.display())];
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            failures.push(format!("could not enumerate {}: {error}", path.display()));
+            return Err(RecycleError::Multiple(failures.join("; ")));
+        }
+    };
+    for entry in entries {
+        let child = match entry {
+            Ok(entry) => entry.path(),
+            Err(error) => {
+                failures.push(format!("could not enumerate a child: {error}"));
+                continue;
+            }
+        };
+        let child_metadata = match fs::symlink_metadata(&child) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                failures.push(format!("could not inspect {}: {error}", child.display()));
+                continue;
+            }
+        };
+        if child_metadata.file_type().is_symlink()
+            || is_reparse_point(&child_metadata)
+            || !is_safe_path(&child, guard_roots)
+        {
+            failures.push(format!("unsafe child retained: {}", child.display()));
+            continue;
+        }
+        if let Err(error) = recycler.recycle(&[&child])
+            && !path_missing(&child)
+        {
+            failures.push(format!("{}: {error}", child.display()));
+        }
+    }
+
+    if !is_safe_path(path, guard_roots) {
+        if path_missing(path) {
+            return Ok(());
+        }
+        failures.push(format!("parent safety guard failed: {}", path.display()));
+    } else if let Err(error) = recycler.recycle(&[path])
+        && !path_missing(path)
+    {
+        failures.push(format!("{}: {error}", path.display()));
+    }
+    if path_missing(path) {
+        Ok(())
+    } else {
+        Err(RecycleError::Multiple(failures.join("; ")))
+    }
+}
+
+fn path_missing(path: &Path) -> bool {
+    matches!(
+        fs::symlink_metadata(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    )
 }
 
 /// Removes an empty directory without recursion. `remove_dir` performs the
@@ -125,6 +207,7 @@ mod tests {
     use super::*;
     use crate::plan::Group;
     use std::cell::RefCell;
+    use std::collections::HashSet;
     use std::fs::{File, create_dir_all};
     use std::path::PathBuf;
 
@@ -161,6 +244,50 @@ mod tests {
         }
     }
 
+    struct FailingRecycler {
+        calls: RefCell<Vec<PathBuf>>,
+        fail_once: RefCell<HashSet<PathBuf>>,
+        fail_always: HashSet<PathBuf>,
+        disappear_on_failure: Option<PathBuf>,
+    }
+
+    impl FailingRecycler {
+        fn new() -> Self {
+            Self {
+                calls: RefCell::new(Vec::new()),
+                fail_once: RefCell::new(HashSet::new()),
+                fail_always: HashSet::new(),
+                disappear_on_failure: None,
+            }
+        }
+
+        fn calls(&self) -> Vec<PathBuf> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl Recycler for FailingRecycler {
+        fn recycle(&self, paths: &[&Path]) -> Result<(), RecycleError> {
+            assert_eq!(paths.len(), 1);
+            let path = paths[0].to_path_buf();
+            self.calls.borrow_mut().push(path.clone());
+            let fails_once = self.fail_once.borrow_mut().remove(&path);
+            if fails_once || self.fail_always.contains(&path) {
+                if self.disappear_on_failure.as_ref() == Some(&path) {
+                    fs::remove_dir_all(&path).ok();
+                    fs::remove_file(&path).ok();
+                }
+                return Err(RecycleError::ShellOperation(5));
+            }
+            if path.is_dir() {
+                fs::remove_dir_all(path).ok();
+            } else {
+                fs::remove_file(path).ok();
+            }
+            Ok(())
+        }
+    }
+
     fn make_children(dir: &Path, count: usize) {
         create_dir_all(dir).unwrap();
         for i in 0..count {
@@ -174,7 +301,7 @@ mod tests {
         let file = dir.path().join("a.txt");
         File::create(&file).unwrap();
         let mock = MockRecycler::new();
-        delete_path_smart(&file, &mock).unwrap();
+        delete_path_smart(&file, &[dir.path()], &mock).unwrap();
         assert_eq!(mock.call_sizes(), vec![1]);
         assert!(!file.exists());
     }
@@ -183,7 +310,7 @@ mod tests {
     fn missing_path_is_ok_without_calls() {
         let dir = tempfile::tempdir().unwrap();
         let mock = MockRecycler::new();
-        delete_path_smart(&dir.path().join("missing"), &mock).unwrap();
+        delete_path_smart(&dir.path().join("missing"), &[dir.path()], &mock).unwrap();
         assert!(mock.call_sizes().is_empty());
     }
 
@@ -193,9 +320,81 @@ mod tests {
         let target = dir.path().join("cache");
         make_children(&target, 100);
         let mock = MockRecycler::new();
-        delete_path_smart(&target, &mock).unwrap();
+        delete_path_smart(&target, &[dir.path()], &mock).unwrap();
         assert_eq!(mock.call_sizes(), vec![1]);
         assert!(!target.exists());
+    }
+
+    #[test]
+    fn failed_directory_recycle_salvages_immediate_children() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("cache");
+        make_children(&target, 3);
+        let mut recycler = FailingRecycler::new();
+        recycler.fail_once.get_mut().insert(target.clone());
+
+        delete_path_smart(&target, &[dir.path()], &recycler).unwrap();
+
+        let calls = recycler.calls();
+        assert_eq!(calls.first(), Some(&target));
+        assert_eq!(calls.last(), Some(&target));
+        assert_eq!(calls.len(), 5);
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn locked_child_does_not_prevent_other_children_from_being_recycled() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("cache");
+        make_children(&target, 3);
+        let locked = target.join("f0001");
+        let removable = [target.join("f0000"), target.join("f0002")];
+        let mut recycler = FailingRecycler::new();
+        recycler.fail_always.insert(target.clone());
+        recycler.fail_always.insert(locked.clone());
+
+        let error = delete_path_smart(&target, &[dir.path()], &recycler).unwrap_err();
+
+        assert!(locked.exists());
+        assert!(removable.iter().all(|path| !path.exists()));
+        let message = error.to_string();
+        assert!(message.contains("f0001"));
+        assert!(message.contains("SHFileOperationW failed"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fallback_never_submits_or_traverses_symlink_children() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("cache");
+        let outside = dir.path().join("outside");
+        make_children(&target, 1);
+        make_children(&outside, 1);
+        let link = target.join("linked");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        let mut recycler = FailingRecycler::new();
+        recycler.fail_always.insert(target.clone());
+
+        let error = delete_path_smart(&target, &[dir.path()], &recycler).unwrap_err();
+
+        assert!(!target.join("f0000").exists());
+        assert!(outside.join("f0000").exists());
+        assert!(fs::symlink_metadata(&link).is_ok());
+        assert!(!recycler.calls().contains(&link));
+        assert!(error.to_string().contains("unsafe child retained"));
+    }
+
+    #[test]
+    fn disappearance_after_failed_shell_operation_is_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("cache");
+        make_children(&target, 2);
+        let mut recycler = FailingRecycler::new();
+        recycler.fail_once.get_mut().insert(target.clone());
+        recycler.disappear_on_failure = Some(target.clone());
+
+        delete_path_smart(&target, &[dir.path()], &recycler).unwrap();
+        assert_eq!(recycler.calls(), [target]);
     }
 
     fn selected_group(app: &str, paths: Vec<PathBuf>) -> Group {

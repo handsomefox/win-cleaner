@@ -23,6 +23,8 @@ pub enum RecycleError {
     Aborted,
     #[error("{0}")]
     Multiple(String),
+    #[error("unsafe recycle path: {0}")]
+    UnsafePath(PathBuf),
     #[error("failed to resolve {path}: {source}")]
     Resolve {
         path: PathBuf,

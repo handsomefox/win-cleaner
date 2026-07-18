@@ -10,7 +10,7 @@ description = "The built-in catalog of cache locations win-cleaner knows how to 
 workspace = true
 
 [dependencies]
-cleaner-core = { version = "=1.0.4", path = "../cleaner-core" }
+cleaner-core = { version = "=1.0.5", path = "../cleaner-core" }
 
 [dev-dependencies]
 tempfile.workspace = true

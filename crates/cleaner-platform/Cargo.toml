@@ -10,7 +10,7 @@ description = "Windows platform integration for win-cleaner: Recycle Bin, known 
 workspace = true
 
 [dependencies]
-cleaner-core = { version = "=1.0.4", path = "../cleaner-core" }
+cleaner-core = { version = "=1.0.5", path = "../cleaner-core" }
 
 [target."cfg(windows)".dependencies]
 windows = { version = "=0.62.2", features = [

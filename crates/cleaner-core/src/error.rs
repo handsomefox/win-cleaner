@@ -17,7 +17,7 @@ pub enum ScanError {
 pub enum RecycleError {
     #[error("recycle bin is only supported on Windows")]
     UnsupportedPlatform,
-    #[error("SHFileOperationW failed, code={0}")]
+    #[error("Recycle Bin operation failed, code={0}")]
     ShellOperation(i32),
     #[error("operation aborted by shell")]
     Aborted,

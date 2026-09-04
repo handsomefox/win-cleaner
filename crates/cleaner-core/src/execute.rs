@@ -13,7 +13,7 @@ use crate::safety::{is_reparse_point, is_safe_path};
 use crate::stats::{ExecResult, GroupResult, PathError};
 
 /// Moves paths to the Recycle Bin. The single production implementation wraps
-/// `SHFileOperationW` in `cleaner-platform`; tests use mocks.
+/// `IFileOperation` in `cleaner-platform`; tests use mocks.
 pub trait Recycler {
     /// Moves one or more absolute paths to the Recycle Bin in a single call.
     ///
@@ -359,7 +359,7 @@ mod tests {
         assert!(removable.iter().all(|path| !path.exists()));
         let message = error.to_string();
         assert!(message.contains("f0001"));
-        assert!(message.contains("SHFileOperationW failed"));
+        assert!(message.contains("Recycle Bin operation failed"));
     }
 
     #[cfg(unix)]

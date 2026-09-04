@@ -313,6 +313,7 @@ dependencies = [
  "cleaner-core",
  "tempfile",
  "windows",
+ "windows-core",
 ]
 
 [[package]]

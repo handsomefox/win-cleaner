@@ -47,14 +47,15 @@ pub fn build_empty_folder_groups(roots: &Roots) -> Vec<Group> {
                 continue;
             }
             let child = root.join(entry.file_name());
-            if subtree_has_no_files(&child) {
-                candidates.push(child);
+            if let Some(empty_tree) = empty_subtree(&child) {
+                candidates.extend(empty_tree);
             }
         }
         if candidates.is_empty() {
             continue;
         }
-        candidates.sort();
+        // Keep each subtree in postorder so execution removes children before
+        // their parents, using non-recursive remove_dir for every path.
         groups.push(Group {
             app: EMPTY_FOLDERS_APP.to_owned(),
             label,
@@ -87,28 +88,80 @@ fn entry_is_plain_dir(entry: &fs::DirEntry) -> bool {
 /// Reports whether `dir`'s entire subtree contains zero files. All entries of
 /// a directory are checked for non-directories before any subdirectory is
 /// descended into, so the first file found anywhere bails out early.
-fn subtree_has_no_files(dir: &Path) -> bool {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return false;
-    };
-
+fn empty_subtree(dir: &Path) -> Option<Vec<PathBuf>> {
+    let entries = fs::read_dir(dir).ok()?;
     let mut subdirs = Vec::new();
     for entry in entries {
-        let Ok(entry) = entry else {
-            return false;
-        };
+        let entry = entry.ok()?;
         if !entry_is_plain_dir(&entry) {
-            return false;
+            return None;
         }
         subdirs.push(dir.join(entry.file_name()));
     }
-    subdirs.iter().all(|sub| subtree_has_no_files(sub))
+    subdirs.sort();
+    let mut paths = Vec::new();
+    for sub in subdirs {
+        paths.extend(empty_subtree(&sub)?);
+    }
+    paths.push(dir.to_path_buf());
+    Some(paths)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::{File, create_dir_all};
+
+    fn subtree_has_no_files(dir: &Path) -> bool {
+        empty_subtree(dir).is_some()
+    }
+
+    #[test]
+    fn nested_empty_tree_is_removed_without_recycling_new_content() {
+        use crate::{Options, Plan, RecycleError, Recycler, execute_with_result};
+        struct NoRecycler;
+        impl Recycler for NoRecycler {
+            fn recycle(&self, _paths: &[&Path]) -> Result<(), RecycleError> {
+                panic!("empty trees must only use non-recursive removal");
+            }
+        }
+        for changed in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let local = dir.path().join("Local");
+            let parent = local.join("EmptyApp");
+            let leaf = parent.join("a/b");
+            create_dir_all(&leaf).unwrap();
+            let roots = Roots {
+                local_app_data: Some(local),
+                ..Roots::default()
+            };
+            let mut plan = Plan {
+                groups: build_empty_folder_groups(&roots),
+                ..Plan::default()
+            };
+            for group in &mut plan.groups {
+                group.on = true;
+            }
+            plan.recompute_totals();
+            if changed {
+                fs::write(leaf.join("new.txt"), b"keep me").unwrap();
+            }
+            let result = execute_with_result(
+                &plan,
+                Options { dry_run: false },
+                &roots.guard_roots(),
+                &NoRecycler,
+                |_| {},
+            );
+            if changed {
+                assert!(result.error_count > 0);
+                assert_eq!(fs::read(leaf.join("new.txt")).unwrap(), b"keep me");
+            } else {
+                assert_eq!(result.error_count, 0);
+                assert!(!parent.exists());
+            }
+        }
+    }
 
     #[test]
     fn empty_and_nested_empty_dirs_qualify() {
@@ -186,6 +239,9 @@ mod tests {
 
         let roaming_group = &groups[1];
         assert_eq!(roaming_group.label, r"AppData\Roaming");
-        assert_eq!(roaming_group.paths, vec![roaming.join("OnlyNested")]);
+        assert_eq!(
+            roaming_group.paths,
+            vec![roaming.join("OnlyNested/deep"), roaming.join("OnlyNested")]
+        );
     }
 }

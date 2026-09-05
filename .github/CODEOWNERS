@@ -1,6 +1,0 @@
-# Security-sensitive automation and cleanup boundaries require maintainer review.
-/.github/workflows/ @handsomefox
-/scripts/ @handsomefox
-/crates/cleaner-core/src/execute.rs @handsomefox
-/crates/cleaner-core/src/safety.rs @handsomefox
-/crates/cleaner-platform/src/recycle.rs @handsomefox

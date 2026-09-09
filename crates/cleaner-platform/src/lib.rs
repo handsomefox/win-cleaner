@@ -8,6 +8,8 @@
 mod known_folders;
 pub mod recycle;
 pub mod roots;
+pub mod shell;
 
 pub use recycle::ShellRecycler;
 pub use roots::{app_data_dir, logs_dir, resolve_roots, stats_dir};
+pub use shell::open_folder;

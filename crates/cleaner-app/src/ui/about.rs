@@ -62,14 +62,7 @@ fn open_log_folder() {
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
-    let command = if cfg!(windows) {
-        "explorer"
-    } else if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    if let Err(err) = std::process::Command::new(command).arg(&dir).spawn() {
+    if let Err(err) = cleaner_platform::open_folder(&dir) {
         tracing::warn!("failed to open log folder: {err}");
     }
 }

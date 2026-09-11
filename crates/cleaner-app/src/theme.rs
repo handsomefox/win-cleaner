@@ -43,6 +43,13 @@ pub(crate) const SIDEBAR_WIDTH: f32 = 240.0;
 pub(crate) const CONTROL_HEIGHT: f32 = 30.0;
 pub(crate) const HEADER_ACTION_WIDTH: f32 = 130.0;
 pub(crate) const CHECKBOX_HIT: f32 = 22.0;
+/// Narrowest app card in the grid. Wide enough for a checkbox, a bold app
+/// name, a short target label, and a size before labels start to truncate.
+pub(crate) const CARD_MIN_WIDTH: f32 = 420.0;
+
+/// Most app cards hold a single row, so four columns still read well on a
+/// wide window.
+pub(crate) const GRID_MAX_COLUMNS: usize = 4;
 
 /// Installs the Inter fonts and the dark indigo style on the egui context.
 pub(crate) fn apply(ctx: &egui::Context) {

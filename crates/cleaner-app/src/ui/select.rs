@@ -196,8 +196,19 @@ fn category_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, catego
     }
 
     ui.add_space(theme::SPACE_XS);
-    for app in &category.apps {
-        app_card(ui, texts, state, app);
+    let columns = viewmodel::grid_columns(
+        ui.available_width(),
+        theme::CARD_MIN_WIDTH,
+        ui.spacing().item_spacing.x,
+        theme::GRID_MAX_COLUMNS,
+    );
+    // Row by row, so the reading order still follows the sort order.
+    for row in category.apps.chunks(columns) {
+        ui.columns(columns, |cells| {
+            for (cell, app) in cells.iter_mut().zip(row) {
+                app_card(cell, texts, state, app);
+            }
+        });
     }
     ui.add_space(theme::SPACE_MD);
 }
@@ -218,15 +229,20 @@ fn app_card(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppView)
             item_row(ui, texts, state, index, Some(&app.app), false);
             return;
         }
-        ui.horizontal(|ui| {
-            toggle =
-                components::tri_checkbox(ui, components::check_state(selected, total)).clicked();
-            ui.label(RichText::new(&app.app).family(theme::bold()));
-            ui.label(RichText::new(texts.selected_of_count(selected, total)).color(theme::MUTED));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        components::split_row(
+            ui,
+            |ui| {
+                toggle = components::tri_checkbox(ui, components::check_state(selected, total))
+                    .clicked();
+                ui.add(egui::Label::new(RichText::new(&app.app).family(theme::bold())).truncate());
+                ui.label(
+                    RichText::new(texts.selected_of_count(selected, total)).color(theme::MUTED),
+                );
+            },
+            |ui| {
                 ui.label(components::size_text(app.bytes));
-            });
-        });
+            },
+        );
         for (row, &index) in app.indices.iter().enumerate() {
             item_row(ui, texts, state, index, None, row % 2 == 1);
         }
@@ -263,39 +279,47 @@ fn item_row(
             label = label.color(theme::MUTED);
         }
 
-        let changed = components::tri_checkbox(
+        let mut changed = false;
+        components::split_row(
             ui,
-            if on {
-                CheckState::Checked
-            } else {
-                CheckState::Unchecked
-            },
-        )
-        .clicked();
-        if let Some(app) = app {
-            ui.label(RichText::new(app).family(theme::bold()));
-        }
-        ui.label(label);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(size);
-            if has_errs {
-                let warn = egui::Button::new(
-                    RichText::new(icons::WARNING)
-                        .size(theme::ICON_MD)
-                        .color(theme::DANGER),
+            |ui| {
+                changed = components::tri_checkbox(
+                    ui,
+                    if on {
+                        CheckState::Checked
+                    } else {
+                        CheckState::Unchecked
+                    },
                 )
-                .frame(false);
-                if ui
-                    .add(warn)
-                    .on_hover_text(texts.details_with_issues(err_count))
+                .clicked();
+                if let Some(app) = app {
+                    ui.add(egui::Label::new(RichText::new(app).family(theme::bold())).truncate());
+                }
+                ui.add(egui::Label::new(label).truncate());
+            },
+            |ui| {
+                ui.label(size);
+                if has_errs {
+                    let warn = egui::Button::new(
+                        RichText::new(icons::WARNING)
+                            .size(theme::ICON_MD)
+                            .color(theme::DANGER),
+                    )
+                    .frame(false);
+                    if ui
+                        .add(warn)
+                        .on_hover_text(texts.details_with_issues(err_count))
+                        .clicked()
+                    {
+                        open_details = true;
+                    }
+                } else if components::icon_button(ui, icons::DETAILS, texts.result_details)
                     .clicked()
                 {
                     open_details = true;
                 }
-            } else if components::icon_button(ui, icons::DETAILS, texts.result_details).clicked() {
-                open_details = true;
-            }
-        });
+            },
+        );
         if changed {
             state.plan.groups[index].on = !on;
         }

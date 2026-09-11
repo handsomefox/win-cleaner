@@ -7,6 +7,8 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
 - Show an app with one cleanup target as a single row that holds the app name, the target, and
   its size. It used to take a header row with a "0/1 selected" count and a second row for the
   target.
+- Lay app cards out in up to four columns when the window is wide enough. A name or target
+  too long for its card ends in an ellipsis and shows in full on hover.
 
 ## 1.0.9
 

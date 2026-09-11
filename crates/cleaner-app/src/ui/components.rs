@@ -168,6 +168,22 @@ pub(crate) fn striped_row(ui: &mut Ui, striped: bool, add: impl FnOnce(&mut Ui))
         });
 }
 
+/// One row of widgets whose `trailing` part sits flush right. The trailing
+/// part lays out first, so `leading` gets only the width left over and a
+/// truncated label there never runs under the trailing widgets.
+pub(crate) fn split_row(
+    ui: &mut Ui,
+    leading: impl FnOnce(&mut Ui),
+    trailing: impl FnOnce(&mut Ui),
+) {
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            trailing(ui);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), leading);
+        });
+    });
+}
+
 /// One sidebar row: a tinted, rounded button carrying an icon, a bold title,
 /// an optional muted subtitle, and an optional right-aligned value.
 pub(crate) fn sidebar_row(

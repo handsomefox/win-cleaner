@@ -267,6 +267,19 @@ pub(crate) fn plan_overview(plan: &Plan) -> (usize, usize, u64) {
     (apps, items, bytes)
 }
 
+/// How many app cards fit side by side in `width`, each at least `min_card`
+/// wide with `gap` between neighbours, capped at `max`. Never less than one.
+pub(crate) fn grid_columns(width: f32, min_card: f32, gap: f32, max: usize) -> usize {
+    let fit = ((width + gap) / (min_card + gap)).floor();
+    if fit.is_nan() || fit < 1.0 {
+        return 1;
+    }
+    #[expect(clippy::cast_possible_truncation, reason = "a whole, positive count")]
+    #[expect(clippy::cast_sign_loss, reason = "a whole, positive count")]
+    let fit = fit as usize;
+    fit.clamp(1, max.max(1))
+}
+
 /// Header summary for the selection screen: selection chip text plus the
 /// savings chip text (empty when nothing is selected).
 pub(crate) fn cache_selection_summary(texts: &UiText, plan: &mut Plan) -> (String, String) {
@@ -712,6 +725,21 @@ mod tests {
         assert_eq!(totals.total, 11_100);
         assert_eq!(totals.last7, 100);
         assert_eq!(totals.last30, 1_100);
+    }
+
+    #[test]
+    fn grid_columns_fit_the_width_within_bounds() {
+        // Too narrow for even one card still gives one column.
+        assert_eq!(grid_columns(0.0, 420.0, 8.0, 4), 1);
+        assert_eq!(grid_columns(300.0, 420.0, 8.0, 4), 1);
+        assert_eq!(grid_columns(f32::NAN, 420.0, 8.0, 4), 1);
+        // Two cards and the gap between them need exactly 848.
+        assert_eq!(grid_columns(847.0, 420.0, 8.0, 4), 1);
+        assert_eq!(grid_columns(848.0, 420.0, 8.0, 4), 2);
+        assert_eq!(grid_columns(1300.0, 420.0, 8.0, 4), 3);
+        // A very wide pane stops at the cap.
+        assert_eq!(grid_columns(5000.0, 420.0, 8.0, 4), 4);
+        assert_eq!(grid_columns(5000.0, 420.0, 8.0, 0), 1);
     }
 
     #[test]

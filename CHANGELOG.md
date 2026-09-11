@@ -9,6 +9,11 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
   osu!lazer's previous package. The newest version is always kept, a name without a version
   number is never touched, and none of these targets is selected for you.
 - Clean Discord's folder of downloaded updates.
+- Find roughly 700 MB more on a typical install. The NVIDIA shader cache in `LocalLow` and the
+  Ubisoft Connect cache under your profile were both missed: the launcher cache was only ever
+  looked for in its install folder. Vortex's `temp`, qBittorrent's `cache`, and OBS Studio's
+  `updates` folders are covered now too.
+- Support three more apps: DLSS Updater, Cloudflare WARP, and VLC.
 
 ## 1.0.10
 

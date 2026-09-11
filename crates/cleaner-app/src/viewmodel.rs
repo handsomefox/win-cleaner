@@ -129,15 +129,17 @@ pub(crate) fn category_of(app_name: &str) -> Category {
         | "osu! (lazer)"
         | "riot client"
         | "minecraft"
-        | "roblox" => Category::Gaming,
-        "spotify" | "obs studio" => Category::Media,
+        | "roblox"
+        | "dlss updater" => Category::Gaming,
+        "spotify" | "obs studio" | "vlc" => Category::Media,
         "amd"
         | "crash dumps"
         | "nvidia"
         | "powertoys"
         | "razer synapse"
         | "windows"
-        | "windows error reporting" => Category::System,
+        | "windows error reporting"
+        | "cloudflare warp" => Category::System,
         "adobe" | "blender" | "figma" => Category::Creative,
         "empty folders" => Category::EmptyFolders,
         _ => Category::Other,
@@ -507,6 +509,10 @@ mod tests {
             assert_eq!(label(app), "Gaming", "{app}");
         }
         assert_eq!(label("PowerToys"), "System");
+        // Apps added from a real install; without a row each lands in "Other".
+        assert_eq!(label("DLSS Updater"), "Gaming");
+        assert_eq!(label("Cloudflare WARP"), "System");
+        assert_eq!(label("VLC"), "Media");
     }
 
     #[test]

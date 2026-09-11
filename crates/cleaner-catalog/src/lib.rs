@@ -100,6 +100,10 @@ pub fn build_registry(roots: &Roots) -> Registry {
     ) else {
         return Registry::default();
     };
+    // Always Some beside a profile root, which the destructuring just required.
+    let Some(local_low) = roots.local_low() else {
+        return Registry::default();
+    };
 
     let mut items = vec![
         chromium_browser(
@@ -480,6 +484,12 @@ pub fn build_registry(roots: &Roots) -> Registry {
         item("NVIDIA", "shader cache (DX + GL)", false).paths([
             local.join("NVIDIA").join("DXCache"),
             local.join("NVIDIA").join("GLCache"),
+            // The driver writes a second, often larger shader cache here.
+            local_low.join("NVIDIA").join("DXCache"),
+        ]),
+        item("DLSS Updater", "Cache and logs", true).paths([
+            local.join("DLSS Updater").join("cache"),
+            local.join("DLSS Updater").join("logs"),
         ]),
         item("AMD", "shader cache", false).paths([
             local.join("AMD").join("DxCache"),
@@ -522,9 +532,11 @@ pub fn build_registry(roots: &Roots) -> Registry {
                         .join("Spotify"),
                 )),
             ),
+        item("VLC", "Crash dumps", true).paths([roaming.join("vlc").join("crashdump")]),
         item("OBS Studio", "logs + crashes + browser cache", true).paths([
             roaming.join("obs-studio").join("logs"),
             roaming.join("obs-studio").join("crashes"),
+            roaming.join("obs-studio").join("updates"),
             roaming
                 .join("obs-studio")
                 .join("plugin_config")
@@ -542,8 +554,18 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .join("cache")]),
         item("Figma", "desktop cache", true).paths([roaming.join("Figma").join("Desktop")]),
         item("Notion", "cache", true).paths(electron_set(&roaming.join("Notion"))),
-        item("Vortex", "cache", true).paths(chromium_set(&roaming.join("Vortex"))),
-        item("qBittorrent", "logs", true).paths([local.join("qBittorrent").join("Logs")]),
+        item("Vortex", "cache", true).paths(
+            chromium_set(&roaming.join("Vortex"))
+                .into_iter()
+                .chain([roaming.join("Vortex").join("temp")]),
+        ),
+        item("qBittorrent", "logs", true).paths([
+            local.join("qBittorrent").join("Logs"),
+            local.join("qBittorrent").join("cache"),
+        ]),
+        item("Cloudflare WARP", "Updates and logs", true)
+            .paths([local.join("Cloudflare").join("updates")])
+            .globs([local.join("Cloudflare").join("*.log")]),
         item("PowerToys", "logs", true).globs([
             local.join("Microsoft").join("PowerToys").join("*.log"),
             local
@@ -608,6 +630,12 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("ReportQueue"),
         ]),
         item("Crash dumps", "local crash dumps", true).paths([local.join("CrashDumps")]),
+        // The launcher installed from the store keeps its cache under the
+        // profile instead of its install folder.
+        item("Ubisoft Connect", "Launcher cache", true).paths([
+            local.join("Ubisoft Game Launcher").join("cache"),
+            local.join("Ubisoft Game Launcher").join("logs"),
+        ]),
         item("Misc", "misc caches", true).paths([
             local.join("cache"),
             local.join("D3DSCache"),
@@ -619,7 +647,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
 
     if let Some(x86) = roots.program_files_x86.as_deref() {
         items.push(
-            item("Ubisoft Connect", "cache + logs", true).paths([
+            item("Ubisoft Connect", "Install folder cache", true).paths([
                 x86.join("Ubisoft")
                     .join("Ubisoft Game Launcher")
                     .join("cache"),
@@ -679,7 +707,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.system_root = Some(PathBuf::from("/base/Windows"));
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 86);
+        assert_eq!(registry.items.len(), 90);
 
         let chrome = registry
             .items
@@ -855,12 +883,13 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.program_files_x86 = None;
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 83);
+        assert_eq!(registry.items.len(), 87);
+        // The profile cache stays; only the install-folder item is gated.
         assert!(
             !registry
                 .items
                 .iter()
-                .any(|item| item.app == "Ubisoft Connect")
+                .any(|item| item.label == "Install folder cache")
         );
         assert!(!registry.items.iter().any(|item| item.label == "prefetch"));
     }

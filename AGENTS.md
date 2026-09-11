@@ -30,3 +30,13 @@ Unit tests live beside their implementations in `#[cfg(test)]` modules. Use `tem
 Cover the rejection path as well as the success path, especially for the safe-root guard, glob expansion, symlink and reparse-point handling, and empty-folder removal. No coverage percentage is required, but a safety regression should have a test that catches it.
 
 CI cannot reach the Recycle Bin. Exercise locked files, very large directories, and aborting a run by hand on Windows, along with known-folder resolution.
+
+## Bump CI tool pins by hand
+
+`scripts/install-ci-tool.sh` downloads cargo-audit, cargo-machete, actionlint, and zizmor from their release pages and checks each archive against a pinned SHA-256 before it extracts anything. Dependabot cannot bump these pins. To bump one, change its row in the script and take the new hash from the digest GitHub records for the asset:
+
+```sh
+gh release view <tag> -R <owner>/<repo> --json assets --jq '.assets[] | select(.name == "<asset>") | .digest'
+```
+
+CI runs actionlint, shellcheck, and `zizmor --persona pedantic` on every push. Run all three before you push a workflow change.

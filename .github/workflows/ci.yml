@@ -29,6 +29,28 @@ defaults:
     shell: bash
 
 jobs:
+  workflows:
+    name: Workflows
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install actionlint and zizmor
+        run: scripts/install-ci-tool.sh actionlint zizmor
+      - name: Lint workflows
+        run: actionlint
+      - name: Lint scripts
+        run: shellcheck scripts/*.sh
+      # The pedantic persona is the one that reports unpinned container images.
+      - name: Audit workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --persona pedantic --format github .github/workflows .github/dependabot.yml
+
   portable:
     name: Portable
     permissions:

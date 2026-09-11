@@ -12,6 +12,8 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
 - Give each category its own color. It tints the category icon in the sidebar and above the
   cards, and runs down the left edge of each app card. No category is red, which still marks
   large sizes and errors.
+- Show the three sort orders as toolbar buttons instead of hiding them in a drop-down. A button
+  next to the search box clears it.
 
 ## 1.0.9
 

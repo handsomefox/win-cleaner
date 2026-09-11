@@ -109,35 +109,30 @@ fn toolbar(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
                 .hint_text(texts.cache_search_hint)
                 .desired_width(260.0),
         );
+        if !state.filter.is_empty()
+            && components::icon_button(ui, icons::CLEAR, texts.tooltip_clear_search).clicked()
+        {
+            state.filter.clear();
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            egui::ComboBox::from_id_salt("cache-sort")
-                .selected_text(icons::with_label(
-                    icons::SORT,
-                    sort_label(texts, state.sort),
-                ))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut state.sort, SortMode::Name, texts.cache_sort_name);
-                    ui.selectable_value(
-                        &mut state.sort,
-                        SortMode::SizeDesc,
-                        texts.cache_sort_largest,
-                    );
-                    ui.selectable_value(
-                        &mut state.sort,
-                        SortMode::SizeAsc,
-                        texts.cache_sort_smallest,
-                    );
-                });
+            // Laid out right to left, so the last mode listed sits leftmost.
+            for (mode, glyph, label) in [
+                (
+                    SortMode::SizeAsc,
+                    icons::SORT_SMALLEST,
+                    texts.cache_sort_smallest,
+                ),
+                (
+                    SortMode::SizeDesc,
+                    icons::SORT_LARGEST,
+                    texts.cache_sort_largest,
+                ),
+                (SortMode::Name, icons::SORT_NAME, texts.cache_sort_name),
+            ] {
+                ui.selectable_value(&mut state.sort, mode, icons::with_label(glyph, label));
+            }
         });
     });
-}
-
-fn sort_label(texts: &UiText, sort: SortMode) -> &str {
-    match sort {
-        SortMode::Name => texts.cache_sort_name,
-        SortMode::SizeDesc => texts.cache_sort_largest,
-        SortMode::SizeAsc => texts.cache_sort_smallest,
-    }
 }
 
 /// The categories currently shown in the main pane.

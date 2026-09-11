@@ -40,7 +40,7 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-CI runs those three commands on Ubuntu and Windows, plus a native release build on Windows and `cargo audit`.
+CI runs those three commands on Ubuntu and the last two on Windows. It also runs `cargo audit` and `cargo machete`. Only the release workflow builds release binaries.
 
 To cross-build the Windows 10/11 x86-64 app from Linux, use `cargo-xwin`:
 

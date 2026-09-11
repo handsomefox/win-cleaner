@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Weekly, so a new RustSec advisory fails the audit without waiting for a push.
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
 
 permissions: {}
 
@@ -14,8 +18,11 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: 1.97.1
-  CARGO_XWIN_VERSION: 0.23.0
+  # Nothing is cached between runs, so incremental artifacts would be written and never read.
+  CARGO_INCREMENTAL: 0
+  # Keeps file and line numbers in panic backtraces without the full debug info, which is
+  # slow to write and link on Windows.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 defaults:
   run:
@@ -27,25 +34,15 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Trace runner tools
+      - name: Install the pinned Rust toolchain
         run: |
-          echo "ImageOS=${ImageOS:-unknown}"
-          echo "ImageVersion=${ImageVersion:-unknown}"
-          rustup --version
-          rustc +stable --version
-          cargo +stable --version
-          git --version
-          gh --version
-      - name: Install pinned Rust toolchain
-        run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy,rustfmt
-          rustup default "$RUST_VERSION"
-      - name: Trace pinned Rust tools
-        run: |
+          echo "ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
+          rustup toolchain install
           rustc --version
           cargo --version
       - name: Check formatting
@@ -64,69 +61,34 @@ jobs:
     permissions:
       contents: read
     runs-on: windows-2025
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Trace runner tools
+      - name: Install the pinned Rust toolchain
         run: |
-          echo "ImageOS=${ImageOS:-unknown}"
-          echo "ImageVersion=${ImageVersion:-unknown}"
-          rustup --version
-          rustc +stable --version
-          cargo +stable --version
-          git --version
-          gh --version
-      - name: Install pinned Rust toolchain
-        run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy,rustfmt
-          rustup default "$RUST_VERSION"
-      - name: Trace pinned Rust tools
-        run: |
+          echo "ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
+          rustup toolchain install
           rustc --version
           cargo --version
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      # Test and Clippy share one job so Clippy reuses the dependencies the tests compiled.
       - name: Test complete workspace
         run: cargo test --workspace --no-fail-fast --locked
       - name: Lint complete workspace
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Build native release
-        run: cargo build --workspace --release --locked
-      - name: Upload Windows executable
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: win-cleaner-windows-x86_64
-          path: target/release/win-cleaner.exe
-          if-no-files-found: error
 
   audit:
     name: Audit
     permissions:
       contents: read
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Trace runner tools
-        run: |
-          echo "ImageOS=${ImageOS:-unknown}"
-          echo "ImageVersion=${ImageVersion:-unknown}"
-          rustup --version
-          rustc +stable --version
-          cargo +stable --version
-          git --version
-          gh --version
-      - name: Install pinned Rust toolchain
-        run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal
-          rustup default "$RUST_VERSION"
-      - name: Trace pinned Rust tools
-        run: |
-          rustc --version
-          cargo --version
       - name: Install cargo-audit
         run: scripts/install-ci-tool.sh cargo-audit
       - name: Audit committed lockfile
-        run: cargo audit --file Cargo.lock
+        run: cargo-audit audit --file Cargo.lock

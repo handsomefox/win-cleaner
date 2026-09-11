@@ -50,7 +50,7 @@ fn chromium_profile_globs(user_data: &Path) -> Vec<PathBuf> {
 
 /// A Chromium-family browser with shared user-data caches and per-profile caches.
 fn chromium_browser(app: &str, user_data: &Path) -> Item {
-    item(app, "all profiles cache", true)
+    item(app, "Profile cache", true)
         .paths([
             user_data.join("extensions_crx_cache"),
             user_data.join("component_crx_cache"),
@@ -105,6 +105,10 @@ pub fn build_registry(roots: &Roots) -> Registry {
         return Registry::default();
     };
 
+    // A label is a short sentence-case noun phrase naming what gets deleted:
+    // "Cache and logs", not "cache + logs" or "cache/media/temp/dumps". It
+    // never repeats the app name, and it never lists the paths. The details
+    // button in the UI shows those.
     let mut items = vec![
         chromium_browser(
             "Chrome",
@@ -133,7 +137,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
             "Edge",
             &local.join("Microsoft").join("Edge").join("User Data"),
         ),
-        item("Firefox", "cache + crash reports", true)
+        item("Firefox", "Cache and crash reports", true)
             .paths([roaming
                 .join("Mozilla")
                 .join("Firefox")
@@ -178,7 +182,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
                     .join("*")
                     .join("startupCache"),
             ]),
-        item("Brave", "all profiles cache", true)
+        item("Brave", "Profile cache", true)
             .paths([
                 local
                     .join("BraveSoftware")
@@ -197,14 +201,14 @@ pub fn build_registry(roots: &Roots) -> Registry {
                     .join("Brave-Browser")
                     .join("User Data"),
             )),
-        item("Opera", "cache", true).paths(chromium_set(
+        item("Opera", "Cache", true).paths(chromium_set(
             &local.join("Opera Software").join("Opera Stable"),
         )),
-        item("Vivaldi", "all profiles cache", true).globs(chromium_profile_globs(
+        item("Vivaldi", "Profile cache", true).globs(chromium_profile_globs(
             &local.join("Vivaldi").join("User Data"),
         )),
         chromium_browser("Chromium", &local.join("Chromium").join("User Data")),
-        item("Opera GX", "cache", true)
+        item("Opera GX", "Cache", true)
             .paths(
                 chromium_set(&local.join("Opera Software").join("Opera GX Stable"))
                     .into_iter()
@@ -230,7 +234,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
                             .join(sub)
                     })),
             ),
-        item("Thunderbird", "all profiles cache + crash reports", true)
+        item("Thunderbird", "Cache and crash reports", true)
             .paths([roaming.join("Thunderbird").join("Crash Reports")])
             .globs([
                 local
@@ -262,7 +266,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
                     .join("*")
                     .join("startupCache"),
             ]),
-        item("Discord", "cache + logs", true).paths(
+        item("Discord", "Cache and logs", true).paths(
             chromium_set(&roaming.join("discord"))
                 .into_iter()
                 .chain([roaming.join("discord").join("logs")]),
@@ -273,12 +277,12 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .versioned(local.join("Discord").join("app-*"), 1)
             .versioned(local.join("Discord").join("packages").join("*.nupkg"), 1),
         item("Discord", "Update downloads", true).paths([local.join("Discord").join("download")]),
-        item("Slack", "cache + logs", true).paths(
+        item("Slack", "Cache and logs", true).paths(
             electron_set(&roaming.join("Slack"))
                 .into_iter()
                 .chain([roaming.join("Slack").join("logs")]),
         ),
-        item("Teams (classic)", "cache + logs", true).paths([
+        item("Teams (classic)", "Cache and logs", true).paths([
             roaming.join("Microsoft").join("Teams").join("Cache"),
             roaming.join("Microsoft").join("Teams").join("Code Cache"),
             roaming.join("Microsoft").join("Teams").join("GPUCache"),
@@ -289,17 +293,17 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("CacheStorage"),
             roaming.join("Microsoft").join("Teams").join("logs"),
         ]),
-        item("Teams (new)", "local cache", true).paths([local
+        item("Teams (new)", "Local cache", true).paths([local
             .join("Packages")
             .join("MSTeams_8wekyb3d8bbwe")
             .join("LocalCache")
             .join("Microsoft")
             .join("MSTeams")]),
-        item("Zoom", "cache + logs", true).paths([
+        item("Zoom", "Cache and logs", true).paths([
             roaming.join("Zoom").join("data").join("Cache"),
             roaming.join("Zoom").join("logs"),
         ]),
-        item("Telegram", "cache/media/temp/dumps", true)
+        item("Telegram", "Cache and temp data", true)
             .paths([
                 roaming.join("Telegram Desktop").join("tdata").join("temp"),
                 roaming.join("Telegram Desktop").join("tdata").join("dumps"),
@@ -316,15 +320,15 @@ pub fn build_registry(roots: &Roots) -> Registry {
                     .join("user_data*")
                     .join("media_cache"),
             ]),
-        item("WhatsApp", "cache", true).paths([local.join("WhatsApp").join("Cache")]),
-        item("Signal", "cache + logs", true).paths(
+        item("WhatsApp", "Cache", true).paths([local.join("WhatsApp").join("Cache")]),
+        item("Signal", "Cache and logs", true).paths(
             electron_set(&roaming.join("Signal"))
                 .into_iter()
                 .chain([roaming.join("Signal").join("logs")]),
         ),
         item("Steam", "HTML cache", true)
             .paths(chromium_set(&local.join("Steam").join("htmlcache"))),
-        item("Battle.net", "browser caches + logs", true).paths(
+        item("Battle.net", "Browser cache and logs", true).paths(
             chromium_set(
                 &local
                     .join("Battle.net")
@@ -344,7 +348,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("Agent.*"),
             1,
         ),
-        item("Epic Games Launcher", "webcache", true)
+        item("Epic Games Launcher", "Web cache", true)
             .paths([local
                 .join("EpicGamesLauncher")
                 .join("Saved")
@@ -353,9 +357,9 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("EpicGamesLauncher")
                 .join("Saved")
                 .join("webcache_*")]),
-        item("GOG Galaxy", "web cache", true)
+        item("GOG Galaxy", "Web cache", true)
             .paths([program_data.join("GOG.com").join("Galaxy").join("webcache")]),
-        item("EA/Origin", "logs + CEF cache", true).paths(
+        item("EA/Origin", "Cache and logs", true).paths(
             chromium_set(
                 &local
                     .join("Electronic Arts")
@@ -375,7 +379,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 local.join("EALaunchHelper").join("cache"),
             ]),
         ),
-        item("Rockstar Games Launcher", "cache + logs", true).paths([
+        item("Rockstar Games Launcher", "Cache and logs", true).paths([
             local.join("Rockstar Games").join("Launcher").join("Cache"),
             local
                 .join("Rockstar Games")
@@ -383,26 +387,26 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("webcache"),
             local.join("Rockstar Games").join("Launcher").join("Logs"),
         ]),
-        item("Battlefield 2042", "cache", true).paths([local
+        item("Battlefield 2042", "Cache", true).paths([local
             .join("BattlefieldGameData.kin-release.Win32")
             .join("cache")]),
-        item("osu! (lazer)", "cache + logs", true).paths([
+        item("osu! (lazer)", "Cache and logs", true).paths([
             roaming.join("osu").join("cache"),
             roaming.join("osu").join("logs"),
         ]),
         // Velopack keeps the package the current build was installed from.
         item("osu! (lazer)", "Old versions", false)
             .versioned(local.join("osulazer").join("packages").join("*.nupkg"), 1),
-        item("VSCode", "cache + logs", true).paths(vscode_set(&roaming.join("Code"))),
-        item("Cursor", "cache + logs", true).paths(vscode_set(&roaming.join("Cursor"))),
-        item("VSCodium", "cache + logs", true).paths(vscode_set(&roaming.join("VSCodium"))),
-        item("GitHub Desktop", "cache + logs", true).globs([
+        item("VSCode", "Cache and logs", true).paths(vscode_set(&roaming.join("Code"))),
+        item("Cursor", "Cache and logs", true).paths(vscode_set(&roaming.join("Cursor"))),
+        item("VSCodium", "Cache and logs", true).paths(vscode_set(&roaming.join("VSCodium"))),
+        item("GitHub Desktop", "Cache and logs", true).globs([
             roaming.join("GitHub Desktop").join("*Cache"),
             roaming.join("GitHub Desktop").join("logs"),
             roaming.join("GitHubDesktop").join("*Cache"),
             roaming.join("GitHubDesktop").join("logs"),
         ]),
-        item("Postman", "cache + logs", true).paths(
+        item("Postman", "Cache and logs", true).paths(
             electron_set(&roaming.join("Postman")).into_iter().chain([
                 roaming
                     .join("Postman")
@@ -412,39 +416,36 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 roaming.join("Postman").join("logs"),
             ]),
         ),
-        item("Obsidian", "cache + logs", true)
+        item("Obsidian", "Cache and logs", true)
             .paths(electron_set(&roaming.join("obsidian")))
             .globs([roaming.join("obsidian").join("*.log")]),
-        item("Android Studio", "logs", true)
+        item("Android Studio", "Logs", true)
             .globs([local.join("Google").join("AndroidStudio*").join("log")]),
-        item("Android Studio", "IDE caches", false)
+        item("Android Studio", "Cache", false)
             .globs([local.join("Google").join("AndroidStudio*").join("caches")]),
-        item("JetBrains", "IDE caches", true)
-            .globs([local.join("JetBrains").join("*").join("caches")]),
-        item("JetBrains", "IDE logs", false).globs([local.join("JetBrains").join("*").join("log")]),
-        item("npm", "package cache", true).paths([local.join("npm-cache")]),
-        item("Yarn", "package cache", true).paths([local.join("Yarn").join("Cache")]),
-        item("Go modules", "module download cache", false).paths([profile
+        item("JetBrains", "Cache", true).globs([local.join("JetBrains").join("*").join("caches")]),
+        item("JetBrains", "Logs", false).globs([local.join("JetBrains").join("*").join("log")]),
+        item("npm", "Package cache", true).paths([local.join("npm-cache")]),
+        item("Yarn", "Package cache", true).paths([local.join("Yarn").join("Cache")]),
+        item("Go modules", "Download cache", false).paths([profile
             .join("go")
             .join("pkg")
             .join("mod")
             .join("cache")]),
-        item("Cargo", "registry cache", false)
+        item("Cargo", "Registry cache", false)
             .paths([profile.join(".cargo").join("registry").join("cache")]),
-        item("Cargo", "git cache", false).paths([profile.join(".cargo").join("git").join("db")]),
-        item("Gradle", "build cache", false).paths([profile.join(".gradle").join("caches")]),
-        item("Maven", "local repository", false).paths([profile.join(".m2").join("repository")]),
-        item("NuGet", "packages cache", true).paths([profile.join(".nuget").join("packages")]),
-        item("pip", "download cache", false).paths([local.join("pip").join("Cache")]),
-        item("pnpm", "store cache", false).paths([local.join("pnpm-cache")]),
-        item("uv", "package cache", false).paths([local.join("uv").join("cache")]),
-        item("Bun", "install cache", false)
+        item("Cargo", "Git cache", false).paths([profile.join(".cargo").join("git").join("db")]),
+        item("Gradle", "Build cache", false).paths([profile.join(".gradle").join("caches")]),
+        item("Maven", "Local repository", false).paths([profile.join(".m2").join("repository")]),
+        item("NuGet", "Package cache", true).paths([profile.join(".nuget").join("packages")]),
+        item("pip", "Download cache", false).paths([local.join("pip").join("Cache")]),
+        item("pnpm", "Store cache", false).paths([local.join("pnpm-cache")]),
+        item("uv", "Package cache", false).paths([local.join("uv").join("cache")]),
+        item("Bun", "Install cache", false)
             .paths([profile.join(".bun").join("install").join("cache")]),
-        item("Cypress", "downloaded browser binaries", false)
-            .paths([local.join("Cypress").join("Cache")]),
-        item("Playwright", "downloaded browser binaries", false)
-            .paths([local.join("ms-playwright")]),
-        item("Visual Studio", "component model cache", false).globs([local
+        item("Cypress", "Downloaded browsers", false).paths([local.join("Cypress").join("Cache")]),
+        item("Playwright", "Downloaded browsers", false).paths([local.join("ms-playwright")]),
+        item("Visual Studio", "Component model cache", false).globs([local
             .join("Microsoft")
             .join("VisualStudio")
             .join("*")
@@ -454,7 +455,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .join("LocalLow")
             .join("Unity")
             .join("Caches")]),
-        item("NVIDIA", "CEF cache + OTA + logs", true).paths(
+        item("NVIDIA", "App cache and logs", true).paths(
             chromium_set(
                 &local
                     .join("NVIDIA Corporation")
@@ -481,7 +482,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
                     .join("Logs"),
             ]),
         ),
-        item("NVIDIA", "shader cache (DX + GL)", false).paths([
+        item("NVIDIA", "Shader cache", false).paths([
             local.join("NVIDIA").join("DXCache"),
             local.join("NVIDIA").join("GLCache"),
             // The driver writes a second, often larger shader cache here.
@@ -491,19 +492,19 @@ pub fn build_registry(roots: &Roots) -> Registry {
             local.join("DLSS Updater").join("cache"),
             local.join("DLSS Updater").join("logs"),
         ]),
-        item("AMD", "shader cache", false).paths([
+        item("AMD", "Shader cache", false).paths([
             local.join("AMD").join("DxCache"),
             local.join("AMD").join("VkCache"),
             local.join("AMD").join("OglCache"),
         ]),
-        item("Razer Synapse", "cache", true).paths(chromium_set(
+        item("Razer Synapse", "Cache", true).paths(chromium_set(
             &local
                 .join("Razer")
                 .join("RazerAppEngine")
                 .join("User Data")
                 .join("Default"),
         )),
-        item("Spotify", "streaming cache", true)
+        item("Spotify", "Streaming cache", true)
             .paths([
                 local.join("Spotify").join("Storage"),
                 local.join("Spotify").join("Data"),
@@ -533,7 +534,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 )),
             ),
         item("VLC", "Crash dumps", true).paths([roaming.join("vlc").join("crashdump")]),
-        item("OBS Studio", "logs + crashes + browser cache", true).paths([
+        item("OBS Studio", "Logs and caches", true).paths([
             roaming.join("obs-studio").join("logs"),
             roaming.join("obs-studio").join("crashes"),
             roaming.join("obs-studio").join("updates"),
@@ -543,30 +544,30 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("obs-browser")
                 .join("cache"),
         ]),
-        item("Adobe", "media cache", false).paths([roaming
+        item("Adobe", "Media cache", false).paths([roaming
             .join("Adobe")
             .join("Common")
             .join("Media Cache Files")]),
-        item("Blender", "cache", true).globs([roaming
+        item("Blender", "Cache", true).globs([roaming
             .join("Blender Foundation")
             .join("Blender")
             .join("*")
             .join("cache")]),
-        item("Figma", "desktop cache", true).paths([roaming.join("Figma").join("Desktop")]),
-        item("Notion", "cache", true).paths(electron_set(&roaming.join("Notion"))),
-        item("Vortex", "cache", true).paths(
+        item("Figma", "Desktop cache", true).paths([roaming.join("Figma").join("Desktop")]),
+        item("Notion", "Cache", true).paths(electron_set(&roaming.join("Notion"))),
+        item("Vortex", "Cache", true).paths(
             chromium_set(&roaming.join("Vortex"))
                 .into_iter()
                 .chain([roaming.join("Vortex").join("temp")]),
         ),
-        item("qBittorrent", "logs", true).paths([
+        item("qBittorrent", "Cache and logs", true).paths([
             local.join("qBittorrent").join("Logs"),
             local.join("qBittorrent").join("cache"),
         ]),
         item("Cloudflare WARP", "Updates and logs", true)
             .paths([local.join("Cloudflare").join("updates")])
             .globs([local.join("Cloudflare").join("*.log")]),
-        item("PowerToys", "logs", true).globs([
+        item("PowerToys", "Logs", true).globs([
             local.join("Microsoft").join("PowerToys").join("*.log"),
             local
                 .join("Microsoft")
@@ -574,38 +575,38 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("*")
                 .join("Logs"),
         ]),
-        item("Riot Client", "logs + crash reports", true)
+        item("Riot Client", "Logs and crash reports", true)
             .paths([local.join("Riot Games").join("Riot Client").join("Logs")])
             .globs([local
                 .join("Riot Games")
                 .join("Riot Client")
                 .join("Crashes")
                 .join("Riot Client *")]),
-        item("Minecraft", "logs + crash data", true).paths([
+        item("Minecraft", "Logs and crash reports", true).paths([
             roaming.join(".minecraft").join("logs"),
             roaming.join(".minecraft").join("crash-reports"),
             roaming.join(".minecraft").join("debug"),
         ]),
-        item("Roblox", "logs", true)
+        item("Roblox", "Logs", true)
             .paths([local.join("Roblox").join("logs")])
             .globs([local
                 .join("Packages")
                 .join("ROBLOXCORPORATION.ROBLOX_*")
                 .join("LocalState")
                 .join("logs")]),
-        item("Roblox", "download caches", false).paths([
+        item("Roblox", "Download cache", false).paths([
             local.join("Roblox").join("Downloads"),
             program_data.join("Roblox").join("Downloads"),
         ]),
-        item("Windows", "Temp folder", true).paths([local.join("Temp")]),
-        item("Windows", "internet cache (IE/legacy)", true)
+        item("Windows", "Temp files", true).paths([local.join("Temp")]),
+        item("Windows", "Internet cache", true)
             .paths([local.join("Microsoft").join("Windows").join("INetCache")]),
-        item("Windows", "delivery optimization cache", true).paths([program_data
+        item("Windows", "Delivery optimization cache", true).paths([program_data
             .join("Microsoft")
             .join("Windows")
             .join("DeliveryOptimization")
             .join("Cache")]),
-        item("Windows", "thumbnail + icon cache", true).globs([
+        item("Windows", "Thumbnail and icon cache", true).globs([
             local
                 .join("Microsoft")
                 .join("Windows")
@@ -617,7 +618,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("Explorer")
                 .join("iconcache*"),
         ]),
-        item("Windows Error Reporting", "report archives", true).paths([
+        item("Windows Error Reporting", "Report archives", true).paths([
             local
                 .join("Microsoft")
                 .join("Windows")
@@ -629,14 +630,14 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("WER")
                 .join("ReportQueue"),
         ]),
-        item("Crash dumps", "local crash dumps", true).paths([local.join("CrashDumps")]),
+        item("Crash dumps", "Dump files", true).paths([local.join("CrashDumps")]),
         // The launcher installed from the store keeps its cache under the
         // profile instead of its install folder.
         item("Ubisoft Connect", "Launcher cache", true).paths([
             local.join("Ubisoft Game Launcher").join("cache"),
             local.join("Ubisoft Game Launcher").join("logs"),
         ]),
-        item("Misc", "misc caches", true).paths([
+        item("Misc", "Leftover caches", true).paths([
             local.join("cache"),
             local.join("D3DSCache"),
             local.join("vlc").join("cache"),
@@ -659,10 +660,10 @@ pub fn build_registry(roots: &Roots) -> Registry {
     }
     if let Some(system_root) = roots.system_root.as_deref() {
         items.push(
-            item("Windows", "update download cache", true)
+            item("Windows", "Update downloads", true)
                 .paths([system_root.join("SoftwareDistribution").join("Download")]),
         );
-        items.push(item("Windows", "prefetch", false).paths([system_root.join("Prefetch")]));
+        items.push(item("Windows", "Prefetch data", false).paths([system_root.join("Prefetch")]));
     }
 
     Registry { items }
@@ -743,7 +744,7 @@ mod tests {
         let prefetch = registry
             .items
             .iter()
-            .find(|i| i.app == "Windows" && i.label == "prefetch")
+            .find(|i| i.app == "Windows" && i.label == "Prefetch data")
             .unwrap();
         assert!(!prefetch.default_on);
         assert_eq!(prefetch.paths.len(), 1);
@@ -891,7 +892,12 @@ mod tests {
                 .iter()
                 .any(|item| item.label == "Install folder cache")
         );
-        assert!(!registry.items.iter().any(|item| item.label == "prefetch"));
+        assert!(
+            !registry
+                .items
+                .iter()
+                .any(|item| item.label == "Prefetch data")
+        );
     }
 
     /// Superseded versions are program files, so they stay opt-in and always
@@ -1027,7 +1033,7 @@ mod tests {
             let group = plan
                 .groups
                 .iter()
-                .find(|group| group.app == app && (app != "Roblox" || group.label == "logs"))
+                .find(|group| group.app == app && (app != "Roblox" || group.label == "Logs"))
                 .unwrap();
             assert_eq!(group.bytes, bytes, "{app}");
             assert!(group.on, "{app}");
@@ -1060,7 +1066,7 @@ mod tests {
         let shader = plan
             .groups
             .iter()
-            .find(|group| group.app == "NVIDIA" && group.label.starts_with("shader"))
+            .find(|group| group.app == "NVIDIA" && group.label.starts_with("Shader"))
             .unwrap();
         assert_eq!(shader.bytes, 100);
         assert!(!shader.on);

@@ -1,11 +1,13 @@
+// A template. build.rs replaces @ICON@, @MANIFEST@, @VERSION@, and @VERSION_NUMBER@, taking
+// the version from Cargo.toml, and compiles the result.
 #include <winver.h>
 
-1 ICON "assets/app.ico"
-1 RT_MANIFEST "app.manifest"
+1 ICON "@ICON@"
+1 RT_MANIFEST "@MANIFEST@"
 
 1 VERSIONINFO
-FILEVERSION 1,0,4,0
-PRODUCTVERSION 1,0,4,0
+FILEVERSION @VERSION_NUMBER@
+PRODUCTVERSION @VERSION_NUMBER@
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 FILEFLAGS 0
 FILEOS VOS_NT_WINDOWS32
@@ -17,11 +19,11 @@ BEGIN
     BLOCK "040904B0"
     BEGIN
       VALUE "FileDescription", "Windows Cleaner\0"
-      VALUE "FileVersion", "1.0.4\0"
-      VALUE "InternalName", "Windows Cleaner.exe\0"
-      VALUE "OriginalFilename", "Windows Cleaner.exe\0"
+      VALUE "FileVersion", "@VERSION@\0"
+      VALUE "InternalName", "win-cleaner.exe\0"
+      VALUE "OriginalFilename", "win-cleaner.exe\0"
       VALUE "ProductName", "Windows Cleaner\0"
-      VALUE "ProductVersion", "1.0.4\0"
+      VALUE "ProductVersion", "@VERSION@\0"
     END
   END
   BLOCK "VarFileInfo"

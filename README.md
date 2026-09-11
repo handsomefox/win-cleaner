@@ -48,13 +48,13 @@ To cross-build the Windows 10/11 x86-64 app from Linux, use `cargo-xwin`:
 cargo xwin build --workspace --release --target x86_64-pc-windows-msvc
 ```
 
-To produce the portable executable, its SHA-256 checksum, and a ZIP under `dist/`:
+To pack the same archive and `SHA256SUMS` a release publishes, under `dist/`:
 
 ```sh
 bash scripts/package-windows.sh
 ```
 
-The packaging script needs `cargo-xwin`, `zip`, and GNU `sha256sum`. It verifies the checksum file and the ZIP before it reports success.
+The packaging script needs `cargo-xwin` 0.23.1, `jq`, `zip`, `unzip`, and GNU `sha256sum`. It checks the archive contents and the checksums before it reports success.
 
 The GUI runs on Linux for development work, but scanning and cleaning call Windows APIs and only work there.
 

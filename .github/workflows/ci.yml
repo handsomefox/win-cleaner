@@ -9,12 +9,21 @@ on:
     # Weekly, so a new RustSec advisory fails the audit without waiting for a push.
     - cron: "23 5 * * 1"
   workflow_dispatch:
+  # release.yml runs these same checks on the commit it releases.
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to check; empty means the triggering event's default
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
+# A called workflow sees the caller's name here, so only a CI run cancels an older CI run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.workflow == 'CI' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -39,6 +48,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
       - name: Install actionlint and zizmor
         run: scripts/install-ci-tool.sh actionlint zizmor
       - name: Lint workflows
@@ -61,6 +71,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
       - name: Install the pinned Rust toolchain
         run: |
           echo "ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
@@ -88,6 +99,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
       - name: Install the pinned Rust toolchain
         run: |
           echo "ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
@@ -110,6 +122,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
       - name: Install cargo-audit
         run: scripts/install-ci-tool.sh cargo-audit
       - name: Audit committed lockfile

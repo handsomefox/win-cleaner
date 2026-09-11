@@ -2,7 +2,7 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
-## Unreleased
+## 1.0.11
 
 - Offer the old versions that self-updating apps leave on disk: Discord's previous `app-*`
   build and the package it was installed from, Battle.net's superseded `Agent.NNNN`, and

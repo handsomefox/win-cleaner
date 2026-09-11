@@ -14,6 +14,10 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
   looked for in its install folder. Vortex's `temp`, qBittorrent's `cache`, and OBS Studio's
   `updates` folders are covered now too.
 - Support three more apps: DLSS Updater, Cloudflare WARP, and VLC.
+- Give every cleanup target one kind of data and one plain name. Cache, logs, crash reports,
+  and downloaded updates used to share a row labelled `cache + logs` or
+  `cache/media/temp/dumps`; each is now its own row, so you can clear a cache and keep the
+  logs. The list holds 123 targets instead of 90.
 
 ## 1.0.10
 

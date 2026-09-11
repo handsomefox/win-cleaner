@@ -284,6 +284,37 @@ pub(crate) fn category_summaries(plan: &Plan) -> Vec<CategorySummary> {
         .collect()
 }
 
+/// How a cleanup target is identified between runs: its app and label. Paths
+/// change with the machine, but these two are the catalog's own names.
+pub(crate) type TargetKey = (String, String);
+
+/// The keys of every currently selected target, for storing across launches.
+pub(crate) fn selected_keys(plan: &Plan) -> Vec<TargetKey> {
+    plan.groups
+        .iter()
+        .filter(|group| group.on)
+        .map(|group| (group.app.clone(), group.label.clone()))
+        .collect()
+}
+
+/// Selects exactly the targets named by `keys` and clears the rest.
+///
+/// Two kinds are never restored: a target with nothing to clean, matching what
+/// a fresh scan does, and an empty-folder group, because removing empty folders
+/// stays opt-in for each run.
+pub(crate) fn apply_saved_selection(plan: &mut Plan, keys: &[TargetKey]) {
+    let saved: std::collections::HashSet<(&str, &str)> = keys
+        .iter()
+        .map(|(app, label)| (app.as_str(), label.as_str()))
+        .collect();
+    for group in &mut plan.groups {
+        group.on = group.bytes > 0
+            && group.app != EMPTY_FOLDERS_APP
+            && saved.contains(&(group.app.as_str(), group.label.as_str()));
+    }
+    plan.recompute_totals();
+}
+
 /// Total number of empty targets ([`is_empty_target`]) in the plan.
 pub(crate) fn empty_target_count(plan: &Plan) -> usize {
     plan.groups.iter().filter(|g| is_empty_target(g)).count()
@@ -800,6 +831,60 @@ mod tests {
         // More columns than cards leaves the rest empty.
         assert_eq!(pack_columns(&[2], 3), vec![vec![0], vec![], vec![]]);
         assert_eq!(pack_columns(&[1, 1], 0), vec![vec![0, 1]]);
+    }
+
+    #[test]
+    fn saved_selection_restores_by_app_and_label() {
+        let mut plan = sample_plan();
+        plan.groups
+            .push(group_with_path("Empty folders", "temp", 10));
+        let keys = selected_keys(&plan);
+        assert_eq!(
+            keys,
+            vec![
+                ("Chrome".to_owned(), "all profiles cache".to_owned()),
+                ("npm".to_owned(), "package cache".to_owned()),
+                ("Windows".to_owned(), "Temp folder".to_owned()),
+                ("Empty folders".to_owned(), "temp".to_owned()),
+            ]
+        );
+
+        for g in &mut plan.groups {
+            g.on = false;
+        }
+        apply_saved_selection(&mut plan, &keys);
+        let on: Vec<&str> = plan
+            .groups
+            .iter()
+            .filter(|g| g.on)
+            .map(|g| g.app.as_str())
+            .collect();
+        // Empty-folder removal stays opt-in, so it is not restored.
+        assert_eq!(on, vec!["Chrome", "npm", "Windows"]);
+        assert_eq!(plan.selected, 3);
+    }
+
+    #[test]
+    fn saved_selection_ignores_unknown_and_empty_targets() {
+        let mut plan = Plan {
+            groups: vec![
+                group("Chrome", "cache", 500, false),
+                // Nothing to clean: a fresh scan would not select it either.
+                group("Edge", "cache", 0, false),
+            ],
+            ..Plan::default()
+        };
+        let keys = vec![
+            ("Chrome".to_owned(), "cache".to_owned()),
+            ("Edge".to_owned(), "cache".to_owned()),
+            // An app that is no longer installed.
+            ("Vivaldi".to_owned(), "cache".to_owned()),
+        ];
+
+        apply_saved_selection(&mut plan, &keys);
+        assert!(plan.groups[0].on);
+        assert!(!plan.groups[1].on, "an empty target is never restored");
+        assert_eq!(plan.selected, 1);
     }
 
     #[test]

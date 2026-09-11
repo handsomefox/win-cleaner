@@ -14,8 +14,54 @@ use crate::ui::history::HistoryAction;
 use crate::ui::results::ResultsAction;
 use crate::ui::select::SelectAction;
 use crate::ui::sidebar::SidebarAction;
-use crate::viewmodel::{self, Category, SortMode};
+use crate::viewmodel::{self, Category, SortMode, TargetKey};
 use crate::worker::{self, Command, Event, Worker};
+
+/// What the app remembers between launches, held in eframe's storage.
+///
+/// Preview-only mode and empty-folder removal are deliberately absent. Both
+/// stay per run, so a launch is never one click away from deleting.
+pub(crate) struct Prefs {
+    /// Whether the last selection is restored after a scan.
+    pub remember_selection: bool,
+    pub show_empty: bool,
+    pub selection: Vec<TargetKey>,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        Self {
+            remember_selection: true,
+            show_empty: false,
+            selection: Vec::new(),
+        }
+    }
+}
+
+const KEY_REMEMBER: &str = "remember_selection";
+const KEY_SHOW_EMPTY: &str = "show_empty";
+const KEY_SELECTION: &str = "selection";
+
+impl Prefs {
+    fn load(storage: Option<&dyn eframe::Storage>) -> Self {
+        let Some(storage) = storage else {
+            return Self::default();
+        };
+        let fallback = Self::default();
+        Self {
+            remember_selection: eframe::get_value(storage, KEY_REMEMBER)
+                .unwrap_or(fallback.remember_selection),
+            show_empty: eframe::get_value(storage, KEY_SHOW_EMPTY).unwrap_or(fallback.show_empty),
+            selection: eframe::get_value(storage, KEY_SELECTION).unwrap_or(fallback.selection),
+        }
+    }
+
+    fn store(&self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, KEY_REMEMBER, &self.remember_selection);
+        eframe::set_value(storage, KEY_SHOW_EMPTY, &self.show_empty);
+        eframe::set_value(storage, KEY_SELECTION, &self.selection);
+    }
+}
 
 pub(crate) struct WinCleanerApp {
     texts: &'static UiText,
@@ -28,6 +74,7 @@ pub(crate) struct WinCleanerApp {
     /// restores exactly where the user was.
     history: Option<HistoryState>,
     about_open: bool,
+    prefs: Prefs,
 }
 
 pub(crate) enum Screen {
@@ -151,6 +198,7 @@ impl WinCleanerApp {
             screen: Screen::Unsupported(String::new()),
             history: None,
             about_open: false,
+            prefs: Prefs::load(cc.storage),
         };
         app.start_scan();
         app
@@ -221,7 +269,7 @@ impl WinCleanerApp {
                 generation,
                 outcome,
             } if generation == self.generation => match outcome {
-                Ok(plan) => self.screen = Screen::Select(SelectState::new(plan)),
+                Ok(plan) => self.screen = Screen::Select(self.restored_state(plan)),
                 Err(message) => self.screen = Screen::Unsupported(message),
             },
             Event::DeleteProgress(update) => {
@@ -265,6 +313,17 @@ impl WinCleanerApp {
             // Stale scan events from an abandoned generation.
             Event::ScanProgress { .. } | Event::ScanDone { .. } => {}
         }
+    }
+
+    /// The selection screen for a fresh scan, with the remembered view and
+    /// selection applied.
+    fn restored_state(&self, plan: Plan) -> SelectState {
+        let mut state = SelectState::new(plan);
+        state.show_empty = self.prefs.show_empty;
+        if self.prefs.remember_selection {
+            viewmodel::apply_saved_selection(&mut state.plan, &self.prefs.selection);
+        }
+        state
     }
 
     fn header_info(&mut self) -> HeaderInfo {
@@ -531,6 +590,20 @@ impl WinCleanerApp {
 }
 
 impl eframe::App for WinCleanerApp {
+    /// Called on a timer and at exit. Reads the live selection screen, so what
+    /// is stored is what the user last saw.
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Screen::Select(state) = &self.screen {
+            self.prefs.show_empty = state.show_empty;
+            self.prefs.selection = if self.prefs.remember_selection {
+                viewmodel::selected_keys(&state.plan)
+            } else {
+                Vec::new()
+            };
+        }
+        self.prefs.store(storage);
+    }
+
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_events();
         let ctx = root.ctx().clone();
@@ -570,6 +643,7 @@ mod tests {
                 screen: Screen::Unsupported(String::new()),
                 history: None,
                 about_open: false,
+                prefs: Prefs::default(),
             },
             commands,
             events,
@@ -686,6 +760,47 @@ mod tests {
         assert!(
             matches!(&app.screen, Screen::Results(state) if state.stats_error.as_deref() == Some("disk full"))
         );
+    }
+
+    #[test]
+    fn a_scan_applies_the_remembered_view_and_selection() {
+        let (mut remembered, _, _) = app();
+        remembered.prefs = Prefs {
+            remember_selection: true,
+            show_empty: true,
+            // A target that is no longer in the catalog is simply ignored.
+            selection: vec![("Gone".to_owned(), "cache".to_owned())],
+        };
+        remembered.generation = 1;
+        remembered.apply_event(Event::ScanDone {
+            generation: 1,
+            outcome: Ok(plan()),
+        });
+        let Screen::Select(state) = &remembered.screen else {
+            panic!("expected the selection screen");
+        };
+        assert!(state.show_empty, "the remembered view comes back");
+        assert!(
+            !state.plan.groups[0].on,
+            "a target left unselected stays unselected, whatever its default"
+        );
+        assert!(state.dry_run, "preview stays on at every launch");
+
+        // Remembering off: the catalog defaults decide again.
+        let (mut fresh, _, _) = app();
+        fresh.prefs = Prefs {
+            remember_selection: false,
+            ..Prefs::default()
+        };
+        fresh.generation = 1;
+        fresh.apply_event(Event::ScanDone {
+            generation: 1,
+            outcome: Ok(plan()),
+        });
+        let Screen::Select(state) = &fresh.screen else {
+            panic!("expected the selection screen");
+        };
+        assert!(state.plan.groups[0].on);
     }
 
     #[test]

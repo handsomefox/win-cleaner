@@ -213,6 +213,11 @@ fn app_card(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppView)
     let mut toggle = false;
     components::surface_frame().show(ui, |ui| {
         ui.set_min_width(ui.available_width());
+        // An app with one target needs no header: its one row names the app.
+        if let [index] = app.indices[..] {
+            item_row(ui, texts, state, index, Some(&app.app), false);
+            return;
+        }
         ui.horizontal(|ui| {
             toggle =
                 components::tri_checkbox(ui, components::check_state(selected, total)).clicked();
@@ -223,7 +228,7 @@ fn app_card(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppView)
             });
         });
         for (row, &index) in app.indices.iter().enumerate() {
-            item_row(ui, texts, state, index, row % 2 == 1);
+            item_row(ui, texts, state, index, None, row % 2 == 1);
         }
     });
     if toggle {
@@ -235,7 +240,16 @@ fn app_card(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppView)
     ui.add_space(theme::SPACE_SM);
 }
 
-fn item_row(ui: &mut Ui, texts: &UiText, state: &mut SelectState, index: usize, striped: bool) {
+/// One target row. `app` is set when the row stands in for a whole
+/// single-target app card, and then leads the row in bold.
+fn item_row(
+    ui: &mut Ui,
+    texts: &UiText,
+    state: &mut SelectState,
+    index: usize,
+    app: Option<&str>,
+    striped: bool,
+) {
     let mut open_details = false;
     components::striped_row(ui, striped, |ui| {
         let group = &state.plan.groups[index];
@@ -245,7 +259,7 @@ fn item_row(ui: &mut Ui, texts: &UiText, state: &mut SelectState, index: usize, 
         let has_errs = !group.errs.is_empty();
         let err_count = group.errs.len();
         let mut label = RichText::new(&group.label);
-        if empty {
+        if empty || app.is_some() {
             label = label.color(theme::MUTED);
         }
 
@@ -258,6 +272,9 @@ fn item_row(ui: &mut Ui, texts: &UiText, state: &mut SelectState, index: usize, 
             },
         )
         .clicked();
+        if let Some(app) = app {
+            ui.label(RichText::new(app).family(theme::bold()));
+        }
         ui.label(label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(size);

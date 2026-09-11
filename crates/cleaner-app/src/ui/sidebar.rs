@@ -16,6 +16,7 @@ pub(crate) enum SidebarAction {
     /// leaving the history view if it was open.
     SelectCategory(Option<Category>),
     History,
+    Settings,
     About,
 }
 
@@ -80,6 +81,19 @@ pub(crate) fn show(
             .clicked()
             {
                 action = Some(SidebarAction::History);
+            }
+            if components::sidebar_row(
+                ui,
+                icons::SETTINGS,
+                None,
+                texts.menu_settings,
+                "",
+                None,
+                false,
+            )
+            .clicked()
+            {
+                action = Some(SidebarAction::Settings);
             }
             if components::sidebar_row(ui, icons::ABOUT, None, texts.menu_about, "", None, false)
                 .clicked()

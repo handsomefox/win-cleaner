@@ -22,6 +22,7 @@ pub(crate) const CHECKBOX_UNCHECKED: &str = "\u{E45E}"; // SQUARE
 pub(crate) const CHECKBOX_PARTIAL: &str = "\u{ED4C}"; // MINUS_SQUARE
 pub(crate) const HISTORY: &str = "\u{E1A0}"; // CLOCK_COUNTER_CLOCKWISE
 pub(crate) const ABOUT: &str = "\u{E2CE}"; // INFO
+pub(crate) const SETTINGS: &str = "\u{E272}"; // GEAR_SIX
 pub(crate) const RESCAN: &str = "\u{E036}"; // ARROW_CLOCKWISE
 pub(crate) const SEARCH: &str = "\u{E30C}"; // MAGNIFYING_GLASS
 pub(crate) const SORT_NAME: &str = "\u{E6EE}"; // TEXT_AA

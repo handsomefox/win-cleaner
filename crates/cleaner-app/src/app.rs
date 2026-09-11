@@ -74,6 +74,7 @@ pub(crate) struct WinCleanerApp {
     /// restores exactly where the user was.
     history: Option<HistoryState>,
     about_open: bool,
+    settings_open: bool,
     prefs: Prefs,
 }
 
@@ -163,6 +164,7 @@ pub(crate) struct HistoryState {
 #[expect(clippy::struct_excessive_bools, reason = "one flag per UI intent")]
 struct Nav {
     about: bool,
+    settings: bool,
     show_history: bool,
     refresh_history: bool,
     close_history: bool,
@@ -198,6 +200,7 @@ impl WinCleanerApp {
             screen: Screen::Unsupported(String::new()),
             history: None,
             about_open: false,
+            settings_open: false,
             prefs: Prefs::load(cc.storage),
         };
         app.start_scan();
@@ -511,6 +514,7 @@ impl WinCleanerApp {
                         nav.close_history = true;
                     }
                     Some(SidebarAction::History) => nav.show_history = true,
+                    Some(SidebarAction::Settings) => nav.settings = true,
                     Some(SidebarAction::About) => nav.about = true,
                     None => {}
                 }
@@ -534,6 +538,29 @@ impl WinCleanerApp {
                     nav.rescan = true;
                 }
             });
+    }
+
+    /// The Settings modal. It edits the live view directly, so toggling
+    /// "List empty targets" updates the list behind it; `save` stores what the
+    /// view ended up holding.
+    fn draw_settings(&mut self, ctx: &egui::Context) {
+        if !self.settings_open {
+            return;
+        }
+        let Screen::Select(state) = &mut self.screen else {
+            self.settings_open = false;
+            return;
+        };
+        let action = ui::settings::show(
+            ctx,
+            self.texts,
+            &mut self.prefs.remember_selection,
+            &mut state.show_empty,
+            &mut self.settings_open,
+        );
+        if let Some(ui::settings::SettingsAction::ForgetSelection) = action {
+            self.prefs.selection.clear();
+        }
     }
 
     fn on_header_action(&mut self, ctx: &egui::Context) {
@@ -561,6 +588,9 @@ impl WinCleanerApp {
     fn handle_nav(&mut self, ctx: &egui::Context, nav: Nav) {
         if nav.about {
             self.about_open = true;
+        }
+        if nav.settings {
+            self.settings_open = true;
         }
         if nav.close_history {
             self.history = None;
@@ -620,6 +650,7 @@ impl eframe::App for WinCleanerApp {
         }
         self.draw_central(root, &mut nav);
         ui::about::show(&ctx, self.texts, &mut self.about_open);
+        self.draw_settings(&ctx);
         self.handle_nav(&ctx, nav);
     }
 }
@@ -643,6 +674,7 @@ mod tests {
                 screen: Screen::Unsupported(String::new()),
                 history: None,
                 about_open: false,
+                settings_open: false,
                 prefs: Prefs::default(),
             },
             commands,

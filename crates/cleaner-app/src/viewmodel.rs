@@ -75,6 +75,35 @@ pub(crate) struct AppView {
     pub bytes: u64,
 }
 
+impl AppView {
+    /// How many rows its card takes: one for a single target, which carries
+    /// the app name, otherwise a header row plus one row per target.
+    pub(crate) fn card_rows(&self) -> usize {
+        match self.indices.len() {
+            1 => 1,
+            n => n + 1,
+        }
+    }
+}
+
+/// Assigns cards of the given row `heights` to `columns` columns, each card
+/// to the shortest column so far (leftmost on a tie). Returns card indices
+/// per column. Cards of equal height fill row by row.
+pub(crate) fn pack_columns(heights: &[usize], columns: usize) -> Vec<Vec<usize>> {
+    let mut packed = vec![Vec::new(); columns.max(1)];
+    let mut filled = vec![0; packed.len()];
+    for (card, &height) in heights.iter().enumerate() {
+        let (shortest, _) = filled
+            .iter()
+            .enumerate()
+            .min_by_key(|&(column, &rows)| (rows, column))
+            .expect("at least one column");
+        packed[shortest].push(card);
+        filled[shortest] += height;
+    }
+    packed
+}
+
 /// Maps an app name to its [`Category`].
 pub(crate) fn category_of(app_name: &str) -> Category {
     match app_name.to_lowercase().as_str() {
@@ -740,6 +769,31 @@ mod tests {
         // A very wide pane stops at the cap.
         assert_eq!(grid_columns(5000.0, 420.0, 8.0, 4), 4);
         assert_eq!(grid_columns(5000.0, 420.0, 8.0, 0), 1);
+    }
+
+    #[test]
+    fn card_rows_count_the_header_only_for_several_targets() {
+        let app = |n: usize| AppView {
+            app: "App".into(),
+            indices: (0..n).collect(),
+            bytes: 0,
+        };
+        assert_eq!(app(1).card_rows(), 1);
+        assert_eq!(app(3).card_rows(), 4);
+    }
+
+    #[test]
+    fn pack_columns_fills_the_shortest_column() {
+        // Equal heights fill row by row.
+        assert_eq!(
+            pack_columns(&[1, 1, 1, 1, 1], 2),
+            vec![vec![0, 2, 4], vec![1, 3]]
+        );
+        // A card beside a tall one goes under the short one, not to a new row.
+        assert_eq!(pack_columns(&[1, 4, 1, 1], 2), vec![vec![0, 2, 3], vec![1]]);
+        // More columns than cards leaves the rest empty.
+        assert_eq!(pack_columns(&[2], 3), vec![vec![0], vec![], vec![]]);
+        assert_eq!(pack_columns(&[1, 1], 0), vec![vec![0, 1]]);
     }
 
     #[test]

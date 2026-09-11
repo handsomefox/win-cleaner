@@ -242,20 +242,19 @@ fn category_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, catego
         ui.spacing().item_spacing.x,
         theme::GRID_MAX_COLUMNS,
     );
-    // Row by row, so the reading order still follows the sort order.
-    for row in category.apps.chunks(columns) {
-        ui.columns(columns, |cells| {
-            for (cell, app) in cells.iter_mut().zip(row) {
-                app_card(
-                    cell,
-                    texts,
-                    state,
-                    app,
-                    theme::category_color(category.category),
-                );
+    // Each card goes to the shortest column so far, so a tall card leaves no
+    // hole beside it. Cards of equal height still follow the sort order row
+    // by row.
+    let heights: Vec<usize> = category.apps.iter().map(AppView::card_rows).collect();
+    let packed = viewmodel::pack_columns(&heights, columns);
+    let tag = theme::category_color(category.category);
+    ui.columns(columns, |cells| {
+        for (cell, cards) in cells.iter_mut().zip(&packed) {
+            for &card in cards {
+                app_card(cell, texts, state, &category.apps[card], tag);
             }
-        });
-    }
+        }
+    });
     ui.add_space(theme::SPACE_MD);
 }
 
@@ -281,20 +280,25 @@ fn app_card(
             item_row(ui, texts, state, index, Some(&app.app), false);
             return;
         }
-        components::split_row(
-            ui,
-            |ui| {
-                toggle = components::tri_checkbox(ui, components::check_state(selected, total))
-                    .clicked();
-                ui.add(egui::Label::new(RichText::new(&app.app).family(theme::bold())).truncate());
-                ui.label(
-                    RichText::new(texts.selected_of_count(selected, total)).color(theme::MUTED),
-                );
-            },
-            |ui| {
-                ui.label(components::size_text(app.bytes));
-            },
-        );
+        // Same padding as the target rows, so the checkboxes line up.
+        components::striped_row(ui, false, |ui| {
+            components::split_row(
+                ui,
+                |ui| {
+                    toggle = components::tri_checkbox(ui, components::check_state(selected, total))
+                        .clicked();
+                    ui.add(
+                        egui::Label::new(RichText::new(&app.app).family(theme::bold())).truncate(),
+                    );
+                    ui.label(
+                        RichText::new(texts.selected_of_count(selected, total)).color(theme::MUTED),
+                    );
+                },
+                |ui| {
+                    ui.label(components::size_text(app.bytes));
+                },
+            );
+        });
         for (row, &index) in app.indices.iter().enumerate() {
             item_row(ui, texts, state, index, None, row % 2 == 1);
         }

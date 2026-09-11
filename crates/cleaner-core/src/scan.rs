@@ -8,6 +8,7 @@ use crate::globs::expand;
 use crate::plan::{Group, Phase, Plan, ProgressUpdate};
 use crate::roots::Roots;
 use crate::safety::{is_reparse_point, is_safe_path, normalized_key};
+use crate::versions::superseded;
 
 /// Builds the cleanup plan: resolves catalog paths and globs, applies the
 /// safety guard, estimates reclaimable sizes, and appends the opt-in
@@ -34,6 +35,16 @@ pub fn build_plan(
                 resolved.extend(expand(pattern));
             } else {
                 errs.push(format!("skipping unsafe glob: {}", pattern.display()));
+            }
+        }
+        for versioned in &item.versioned {
+            if is_safe_path(&versioned.pattern, &guard_roots) {
+                resolved.extend(superseded(&versioned.pattern, versioned.keep));
+            } else {
+                errs.push(format!(
+                    "skipping unsafe version pattern: {}",
+                    versioned.pattern.display()
+                ));
             }
         }
         let resolved = unique_paths(resolved);

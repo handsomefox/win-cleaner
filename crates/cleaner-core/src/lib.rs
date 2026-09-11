@@ -18,8 +18,9 @@ pub mod roots;
 pub mod safety;
 pub mod scan;
 pub mod stats;
+pub mod versions;
 
-pub use catalog::{Item, Registry};
+pub use catalog::{Item, Registry, Versioned};
 pub use empty_folders::EMPTY_FOLDERS_APP;
 pub use error::{RecycleError, ScanError, StatsError};
 pub use execute::{Recycler, execute_with_result};

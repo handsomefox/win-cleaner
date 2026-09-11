@@ -77,8 +77,9 @@ pub(crate) fn statusbar(
 
 fn toolbar(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
     ui.horizontal(|ui| {
-        // Master checkbox: selects or clears every item currently shown, which
-        // with hidden empty targets equals the old "Select non-empty".
+        // Master checkbox: selects or clears every item the filters let
+        // through, collapsed sections included. With empty targets hidden,
+        // that equals the old "Select non-empty".
         let categories = visible(texts, state);
         let (selected, total) = categories
             .iter()
@@ -131,6 +132,25 @@ fn toolbar(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
             ] {
                 ui.selectable_value(&mut state.sort, mode, icons::with_label(glyph, label));
             }
+            ui.separator();
+            let all_collapsed = !categories.is_empty()
+                && categories
+                    .iter()
+                    .all(|category| state.collapsed.contains(&category.category));
+            let (glyph, label) = if all_collapsed {
+                (icons::EXPAND_ALL, texts.action_expand_all)
+            } else {
+                (icons::COLLAPSE_ALL, texts.action_collapse_all)
+            };
+            if ui.button(icons::with_label(glyph, label)).clicked() {
+                for category in &categories {
+                    if all_collapsed {
+                        state.collapsed.remove(&category.category);
+                    } else {
+                        state.collapsed.insert(category.category);
+                    }
+                }
+            }
         });
     });
 }
@@ -163,19 +183,33 @@ fn body(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
 fn category_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, category: &CategoryView) {
     let (selected, total) = category_selection_counts(state, category);
 
+    let collapsed = state.collapsed.contains(&category.category);
     let mut toggle = false;
+    let mut fold = false;
     ui.horizontal(|ui| {
         toggle = components::tri_checkbox(ui, components::check_state(selected, total)).clicked();
+        let (caret, tooltip) = if collapsed {
+            (icons::EXPAND, texts.tooltip_expand_section)
+        } else {
+            (icons::COLLAPSE, texts.tooltip_collapse_section)
+        };
+        fold = components::icon_button(ui, caret, tooltip).clicked();
         ui.label(
             RichText::new(icons::category_glyph(category.category))
                 .size(theme::ICON_LG)
                 .color(theme::category_color(category.category)),
         );
-        ui.label(
+        // The name folds the section too, a bigger target than the caret.
+        let name = egui::Label::new(
             RichText::new(&category.name)
                 .family(theme::bold())
                 .size(theme::FONT_HEADING),
-        );
+        )
+        .sense(egui::Sense::click());
+        fold |= ui
+            .add(name)
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked();
         ui.label(RichText::new(texts.apps_count(category.apps.len())).color(theme::MUTED));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(components::size_text(category.bytes));
@@ -188,6 +222,17 @@ fn category_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, catego
                 state.plan.groups[index].on = select;
             }
         }
+    }
+    if fold {
+        if collapsed {
+            state.collapsed.remove(&category.category);
+        } else {
+            state.collapsed.insert(category.category);
+        }
+    }
+    if collapsed {
+        ui.add_space(theme::SPACE_MD);
+        return;
     }
 
     ui.add_space(theme::SPACE_XS);

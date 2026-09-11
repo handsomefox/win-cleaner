@@ -14,6 +14,9 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
   large sizes and errors.
 - Show the three sort orders as toolbar buttons instead of hiding them in a drop-down. A button
   next to the search box clears it.
+- Collapse a category section to its header with the arrow beside its checkbox, or by clicking
+  its name. **Collapse all** and **Expand all** in the toolbar do the same for every section in
+  view. The select-all checkbox still covers items in collapsed sections.
 
 ## 1.0.9
 

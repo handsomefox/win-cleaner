@@ -1,6 +1,7 @@
 //! The eframe application: screen state machine, header, and event plumbing
 //! between the UI and the background worker.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use cleaner_core::{ExecResult, Plan, StoredRun};
@@ -47,6 +48,8 @@ pub(crate) struct SelectState {
     pub filter: String,
     /// The sidebar-selected category, or `None` for "All".
     pub selected_category: Option<Category>,
+    /// Category sections folded down to their header. All start expanded.
+    pub collapsed: HashSet<Category>,
     pub sort: SortMode,
     /// Whether empty targets are revealed; hidden by default.
     pub show_empty: bool,
@@ -61,6 +64,7 @@ impl SelectState {
             plan,
             filter: String::new(),
             selected_category: None,
+            collapsed: HashSet::new(),
             sort: SortMode::Name,
             show_empty: false,
             dry_run: true,

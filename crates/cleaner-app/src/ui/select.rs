@@ -174,7 +174,7 @@ fn category_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, catego
         ui.label(
             RichText::new(icons::category_glyph(category.category))
                 .size(theme::ICON_LG)
-                .color(theme::MUTED),
+                .color(theme::category_color(category.category)),
         );
         ui.label(
             RichText::new(&category.name)
@@ -206,14 +206,26 @@ fn category_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, catego
     for row in category.apps.chunks(columns) {
         ui.columns(columns, |cells| {
             for (cell, app) in cells.iter_mut().zip(row) {
-                app_card(cell, texts, state, app);
+                app_card(
+                    cell,
+                    texts,
+                    state,
+                    app,
+                    theme::category_color(category.category),
+                );
             }
         });
     }
     ui.add_space(theme::SPACE_MD);
 }
 
-fn app_card(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppView) {
+fn app_card(
+    ui: &mut Ui,
+    texts: &UiText,
+    state: &mut SelectState,
+    app: &AppView,
+    tag: egui::Color32,
+) {
     let selected = app
         .indices
         .iter()
@@ -222,7 +234,7 @@ fn app_card(ui: &mut Ui, texts: &UiText, state: &mut SelectState, app: &AppView)
     let total = app.indices.len();
 
     let mut toggle = false;
-    components::surface_frame().show(ui, |ui| {
+    components::tagged_card(ui, tag, |ui| {
         ui.set_min_width(ui.available_width());
         // An app with one target needs no header: its one row names the app.
         if let [index] = app.indices[..] {

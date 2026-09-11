@@ -4,6 +4,8 @@
 
 use eframe::egui::{self, Color32};
 
+use crate::viewmodel::Category;
+
 pub(crate) const BACKGROUND: Color32 = Color32::from_rgb(0x0f, 0x11, 0x15);
 pub(crate) const SURFACE: Color32 = Color32::from_rgb(0x18, 0x1b, 0x22);
 pub(crate) const SURFACE_RAISED: Color32 = Color32::from_rgb(0x1f, 0x23, 0x2c);
@@ -204,9 +206,40 @@ pub(crate) fn magnitude_color(bytes: u64) -> Color32 {
     )
 }
 
+/// The color that marks a category on its glyph and on its app cards. No hue
+/// is red, because [`magnitude_color`] and [`DANGER`] use red for large sizes
+/// and errors. Empty folders and Other hold no single kind of app, so they get
+/// neutral slates.
+#[must_use]
+pub(crate) fn category_color(category: Category) -> Color32 {
+    match category {
+        Category::Browsers => Color32::from_rgb(0x60, 0xa5, 0xfa),
+        Category::Chat => Color32::from_rgb(0xa7, 0x8b, 0xfa),
+        Category::Development => Color32::from_rgb(0x34, 0xd3, 0x99),
+        Category::Gaming => Color32::from_rgb(0xfb, 0xbf, 0x24),
+        Category::Media => Color32::from_rgb(0xe8, 0x79, 0xf9),
+        Category::System => Color32::from_rgb(0x22, 0xd3, 0xee),
+        Category::Creative => Color32::from_rgb(0xa3, 0xe6, 0x35),
+        Category::EmptyFolders => Color32::from_rgb(0xcb, 0xd5, 0xe1),
+        Category::Other => Color32::from_rgb(0x94, 0xa3, 0xb8),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn category_colors_are_distinct_and_never_red() {
+        let colors: Vec<Color32> = Category::ALL.into_iter().map(category_color).collect();
+        for (i, color) in colors.iter().enumerate() {
+            assert!(!colors[i + 1..].contains(color), "{color:?} repeats");
+            // Hue runs 0..1 around the wheel; red sits within 20 degrees of 0.
+            let hsva = egui::ecolor::Hsva::from(*color);
+            let red = hsva.h < 20.0 / 360.0 || hsva.h > 340.0 / 360.0;
+            assert!(hsva.s < 0.2 || !red, "{color:?} reads as red");
+        }
+    }
 
     #[test]
     #[expect(clippy::float_cmp, reason = "clamp returns its exact bounds")]

@@ -9,6 +9,9 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
   target.
 - Lay app cards out in up to four columns when the window is wide enough. A name or target
   too long for its card ends in an ellipsis and shows in full on hover.
+- Give each category its own color. It tints the category icon in the sidebar and above the
+  cards, and runs down the left edge of each app card. No category is red, which still marks
+  large sizes and errors.
 
 ## 1.0.9
 

@@ -19,6 +19,25 @@ pub(crate) fn surface_frame() -> egui::Frame {
         .inner_margin(12)
 }
 
+/// A [`surface_frame`] card with a short bar of `tag` color down its left
+/// edge, which ties an app card to its category.
+pub(crate) fn tagged_card(ui: &mut Ui, tag: Color32, add: impl FnOnce(&mut Ui)) {
+    let card = surface_frame()
+        .inner_margin(egui::Margin {
+            left: 18,
+            right: 12,
+            top: 12,
+            bottom: 12,
+        })
+        .show(ui, add);
+    let rect = card.response.rect;
+    let bar = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 7.0, rect.top() + 12.0),
+        egui::pos2(rect.left() + 10.0, rect.bottom() - 12.0),
+    );
+    ui.painter().rect_filled(bar, 2.0, tag);
+}
+
 /// Compact rounded pill used for header stats and progress figures.
 pub(crate) fn chip_frame() -> egui::Frame {
     egui::Frame::new()
@@ -185,10 +204,13 @@ pub(crate) fn split_row(
 }
 
 /// One sidebar row: a tinted, rounded button carrying an icon, a bold title,
-/// an optional muted subtitle, and an optional right-aligned value.
+/// an optional muted subtitle, and an optional right-aligned value. An
+/// `icon_color` keeps the icon that color; without one, the icon turns accent
+/// while the row is selected.
 pub(crate) fn sidebar_row(
     ui: &mut Ui,
     icon: &str,
+    icon_color: Option<Color32>,
     title: &str,
     subtitle: &str,
     value: Option<RichText>,
@@ -199,6 +221,7 @@ pub(crate) fn sidebar_row(
     } else {
         (Color32::TRANSPARENT, theme::MUTED)
     };
+    let tint = icon_color.unwrap_or(tint);
     let response = egui::Frame::new()
         .fill(fill)
         .corner_radius(theme::RADIUS_MD)

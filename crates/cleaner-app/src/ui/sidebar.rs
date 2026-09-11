@@ -36,6 +36,7 @@ pub(crate) fn show(
             if components::sidebar_row(
                 ui,
                 icons::CAT_ALL,
+                None,
                 texts.sidebar_all,
                 &texts.apps_count(total_apps),
                 Some(components::size_text(total_bytes)),
@@ -51,6 +52,7 @@ pub(crate) fn show(
                 if components::sidebar_row(
                     ui,
                     icons::category_glyph(summary.category),
+                    Some(theme::category_color(summary.category)),
                     summary.category.label(texts),
                     &texts.apps_count(summary.apps),
                     Some(components::size_text(summary.bytes)),
@@ -69,6 +71,7 @@ pub(crate) fn show(
             if components::sidebar_row(
                 ui,
                 icons::HISTORY,
+                None,
                 texts.menu_history,
                 "",
                 None,
@@ -78,7 +81,7 @@ pub(crate) fn show(
             {
                 action = Some(SidebarAction::History);
             }
-            if components::sidebar_row(ui, icons::ABOUT, texts.menu_about, "", None, false)
+            if components::sidebar_row(ui, icons::ABOUT, None, texts.menu_about, "", None, false)
                 .clicked()
             {
                 action = Some(SidebarAction::About);

@@ -8,7 +8,7 @@ A Windows desktop app that scans known cache locations, shows how much space eac
 ## Features
 
 - A built-in catalog of 82 cleanup targets covering browsers, chat apps, game launchers, developer tools, GPU shader caches, and Windows system caches. To regenerate that count, run `cargo test -p cleaner-catalog full_registry_shape`, which asserts it.
-- A selection tree of category, then app, then target, with a size estimate on each target, plus search and sorting.
+- A selection list that groups cleanup targets by category and app, with a size estimate on each target, search, sorting, and collapsible sections.
 - Preview mode by default. Nothing is deleted until you start a clean.
 - Optional detection of empty top-level folders under AppData and ProgramData.
 - Run history with per-run detail and totals for the last 7 and last 30 days.

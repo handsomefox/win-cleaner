@@ -15,9 +15,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_VERSION: 1.97.1
-  CARGO_AUDIT_VERSION: 0.22.2
   CARGO_XWIN_VERSION: 0.23.0
-  CARGO_MACHETE_VERSION: 0.9.2
 
 defaults:
   run:
@@ -56,8 +54,10 @@ jobs:
         run: cargo test --workspace --no-fail-fast --locked
       - name: Lint complete workspace
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Install cargo-machete
+        run: scripts/install-ci-tool.sh cargo-machete
       - name: Detect unused dependencies
-        uses: bnjbvr/cargo-machete@ac30a525c0a8d163a92d727b3ff079ee3f6ecb08 # v0.9.2
+        run: cargo machete
 
   windows:
     name: Windows
@@ -127,6 +127,6 @@ jobs:
           rustc --version
           cargo --version
       - name: Install cargo-audit
-        run: cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked --no-default-features
+        run: scripts/install-ci-tool.sh cargo-audit
       - name: Audit committed lockfile
         run: cargo audit --file Cargo.lock

@@ -263,6 +263,12 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .into_iter()
                 .chain([roaming.join("discord").join("logs")]),
         ),
+        // Squirrel leaves the previous build beside the running one, and keeps
+        // the installer package it was built from.
+        item("Discord", "Old versions", false)
+            .versioned(local.join("Discord").join("app-*"), 1)
+            .versioned(local.join("Discord").join("packages").join("*.nupkg"), 1),
+        item("Discord", "Update downloads", true).paths([local.join("Discord").join("download")]),
         item("Slack", "cache + logs", true).paths(
             electron_set(&roaming.join("Slack"))
                 .into_iter()
@@ -327,6 +333,13 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 local.join("Battle.net").join("Logs"),
             ]),
         ),
+        item("Battle.net", "Old agent versions", false).versioned(
+            program_data
+                .join("Battle.net")
+                .join("Agent")
+                .join("Agent.*"),
+            1,
+        ),
         item("Epic Games Launcher", "webcache", true)
             .paths([local
                 .join("EpicGamesLauncher")
@@ -373,6 +386,9 @@ pub fn build_registry(roots: &Roots) -> Registry {
             roaming.join("osu").join("cache"),
             roaming.join("osu").join("logs"),
         ]),
+        // Velopack keeps the package the current build was installed from.
+        item("osu! (lazer)", "Old versions", false)
+            .versioned(local.join("osulazer").join("packages").join("*.nupkg"), 1),
         item("VSCode", "cache + logs", true).paths(vscode_set(&roaming.join("Code"))),
         item("Cursor", "cache + logs", true).paths(vscode_set(&roaming.join("Cursor"))),
         item("VSCodium", "cache + logs", true).paths(vscode_set(&roaming.join("VSCodium"))),
@@ -663,7 +679,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.system_root = Some(PathBuf::from("/base/Windows"));
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 82);
+        assert_eq!(registry.items.len(), 86);
 
         let chrome = registry
             .items
@@ -805,7 +821,7 @@ mod tests {
             assert!(!item.app.trim().is_empty());
             assert!(!item.label.trim().is_empty());
             assert!(
-                !item.paths.is_empty() || !item.globs.is_empty(),
+                !item.paths.is_empty() || !item.globs.is_empty() || !item.versioned.is_empty(),
                 "{} - {} has no cleanup paths",
                 item.app,
                 item.label
@@ -816,7 +832,12 @@ mod tests {
                 item.app,
                 item.label
             );
-            for path in item.paths.iter().chain(&item.globs) {
+            for path in item
+                .paths
+                .iter()
+                .chain(&item.globs)
+                .chain(item.versioned.iter().map(|versioned| &versioned.pattern))
+            {
                 assert!(
                     is_safe_path(path, &guard_roots),
                     "unsafe catalog path for {} - {}: {}",
@@ -834,7 +855,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.program_files_x86 = None;
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 79);
+        assert_eq!(registry.items.len(), 83);
         assert!(
             !registry
                 .items
@@ -842,6 +863,40 @@ mod tests {
                 .any(|item| item.app == "Ubisoft Connect")
         );
         assert!(!registry.items.iter().any(|item| item.label == "prefetch"));
+    }
+
+    /// Superseded versions are program files, so they stay opt-in and always
+    /// leave the live version in place.
+    #[test]
+    fn version_items_keep_the_newest_and_never_preselect() {
+        let registry = build_registry(&test_roots(Path::new("/base")));
+        let versioned: Vec<&Item> = registry
+            .items
+            .iter()
+            .filter(|item| !item.versioned.is_empty())
+            .collect();
+        let apps: Vec<&str> = versioned.iter().map(|item| item.app.as_str()).collect();
+        assert_eq!(apps, vec!["Discord", "Battle.net", "osu! (lazer)"]);
+
+        for item in &versioned {
+            assert!(
+                !item.default_on,
+                "{} - {} must stay opt-in",
+                item.app, item.label
+            );
+            for pattern in &item.versioned {
+                assert_eq!(pattern.keep, 1, "{}", item.app);
+                assert!(
+                    pattern.pattern.to_string_lossy().contains('*'),
+                    "{} needs a pattern that can match several versions",
+                    item.app
+                );
+            }
+        }
+
+        // Discord leaves behind both the old build and the package it came from.
+        let discord = versioned.iter().find(|i| i.app == "Discord").unwrap();
+        assert_eq!(discord.versioned.len(), 2);
     }
 
     /// End-to-end: the built-in catalog scanned against a fake profile tree.

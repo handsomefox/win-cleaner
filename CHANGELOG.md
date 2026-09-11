@@ -2,6 +2,14 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## Unreleased
+
+- Offer the old versions that self-updating apps leave on disk: Discord's previous `app-*`
+  build and the package it was installed from, Battle.net's superseded `Agent.NNNN`, and
+  osu!lazer's previous package. The newest version is always kept, a name without a version
+  number is never touched, and none of these targets is selected for you.
+- Clean Discord's folder of downloaded updates.
+
 ## 1.0.10
 
 - Show an app with one cleanup target as a single row that holds the app name, the target, and

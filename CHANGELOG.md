@@ -2,7 +2,7 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
-## Unreleased
+## 1.0.9
 
 - Ship `win-cleaner-<version>-windows-x86_64.zip`, which holds a folder of the same name with
   `win-cleaner.exe`, `README.md`, and `LICENSE` in it, beside a `SHA256SUMS` file. The

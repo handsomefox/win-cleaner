@@ -2,12 +2,14 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
-## Unreleased
+## 1.0.12
 
 - Remember which targets you selected, and whether empty ones were listed, so the next launch
   starts where you left off. Targets are matched by app and name, and anything no longer on the
   machine is skipped. Preview only stays on at every launch and empty-folder removal stays
   opt-in per run.
+- Add a Settings entry to the sidebar for those two preferences, with a button that forgets the
+  saved selection.
 
 ## 1.0.11
 

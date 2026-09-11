@@ -2,7 +2,7 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
-## Unreleased
+## 1.0.10
 
 - Show an app with one cleanup target as a single row that holds the app name, the target, and
   its size. It used to take a header row with a "0/1 selected" count and a second row for the

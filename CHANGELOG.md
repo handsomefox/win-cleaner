@@ -2,24 +2,22 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
-## Unreleased
+## 1.0.13
 
-- Keep remembering a target through a run where it is empty or its app is
-  gone. 1.0.12 dropped it from the saved selection instead, so a target you
-  cleaned in one run came back unchecked two runs later even once it had data
-  again. An empty target is still never checked for you, because there is
-  nothing to free; the choice now waits for the run that has something to
+- Keep remembering a target through a run where it is empty or its app is gone. 1.0.12 dropped
+  it from the saved selection instead, so a target you cleaned in one run came back unchecked
+  two runs later, even once it had data again. An empty target is still never checked for you,
+  because there is nothing to free. The choice now waits for the run that has something to
   offer.
-- Store the selection a cleanup ran with. It was only saved from the selection
-  screen, so cleaning and then closing from the results kept whatever the app
-  had loaded at startup.
-- Check the catalog's own picks again on a first launch.
-- Rename **Forget saved selection** in Settings to **Reset selection to
-  defaults**, and make it scan again so the catalog's picks come back on the
-  spot. It used to drop the stored selection and nothing else, and the next
-  automatic save wrote the same selection straight back. 1.0.12 applied an
-  empty remembered selection over them, so a new install opened with nothing
-  selected.
+- Store the selection a cleanup ran with. It was only saved from the selection screen, so
+  cleaning and then closing from the results kept whatever the app had loaded at startup.
+- Check the catalog's own picks again on a first launch. 1.0.12 applied an empty remembered
+  selection over them, so a new install opened with nothing selected.
+- Rename **Forget saved selection** in Settings to **Reset selection to defaults**, and make it
+  scan again so the catalog's picks come back on the spot. It used to drop the stored selection
+  and nothing else, and the next automatic save wrote the same selection straight back.
+- Say 123 cleanup targets in the README. The catalog grew to that in 1.0.11 and the count
+  stayed at 82.
 
 ## 1.0.12
 

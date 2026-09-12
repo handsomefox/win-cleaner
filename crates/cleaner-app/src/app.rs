@@ -320,10 +320,15 @@ impl WinCleanerApp {
 
     /// The selection screen for a fresh scan, with the remembered view and
     /// selection applied.
+    ///
+    /// An empty stored selection means nothing is remembered, so the catalog
+    /// defaults the scan computed stand. That makes a first launch and a reset
+    /// behave alike, at the price of one case: someone who clears every
+    /// checkbox and quits gets the defaults back rather than an empty list.
     fn restored_state(&self, plan: Plan) -> SelectState {
         let mut state = SelectState::new(plan);
         state.show_empty = self.prefs.show_empty;
-        if self.prefs.remember_selection {
+        if self.prefs.remember_selection && !self.prefs.selection.is_empty() {
             viewmodel::apply_saved_selection(&mut state.plan, &self.prefs.selection);
         }
         state
@@ -833,6 +838,28 @@ mod tests {
             panic!("expected the selection screen");
         };
         assert!(state.plan.groups[0].on);
+    }
+
+    #[test]
+    fn a_first_launch_keeps_the_catalog_defaults() {
+        // Remembering is on by default with nothing stored yet, which is also
+        // the state a reset leaves behind.
+        let (mut app, _, _) = app();
+        assert!(app.prefs.remember_selection);
+        assert!(app.prefs.selection.is_empty());
+        app.generation = 1;
+        app.apply_event(Event::ScanDone {
+            generation: 1,
+            outcome: Ok(plan()),
+        });
+        let Screen::Select(state) = &app.screen else {
+            panic!("expected the selection screen");
+        };
+        assert!(
+            state.plan.groups[0].on,
+            "an empty stored selection leaves the scan's defaults alone"
+        );
+        assert_eq!(state.plan.selected, 1);
     }
 
     #[test]

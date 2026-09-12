@@ -2,6 +2,12 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## Unreleased
+
+- Check the catalog's own picks again on a first launch. 1.0.12 applied an
+  empty remembered selection over them, so a new install opened with nothing
+  selected.
+
 ## 1.0.12
 
 - Remember which targets you selected, and whether empty ones were listed, so the next launch

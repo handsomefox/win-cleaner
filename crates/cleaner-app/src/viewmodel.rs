@@ -288,27 +288,65 @@ pub(crate) fn category_summaries(plan: &Plan) -> Vec<CategorySummary> {
 /// change with the machine, but these two are the catalog's own names.
 pub(crate) type TargetKey = (String, String);
 
-/// The keys of every currently selected target, for storing across launches.
-pub(crate) fn selected_keys(plan: &Plan) -> Vec<TargetKey> {
-    plan.groups
+/// Whether this run could offer the target at all. An empty target is hidden
+/// by default and worth nothing, so its checkbox is not an answer the user
+/// gave. Anything else is: they saw it and left it on or off.
+fn answerable(group: &Group) -> bool {
+    !is_empty_target(group)
+}
+
+/// What to remember after this run: every selected target, plus the keys in
+/// `previous` this run could not ask about.
+///
+/// Carrying those forward is what keeps a selection alive across a run where
+/// the target was empty or its app was gone. Reading the plan alone would drop
+/// the key, and the next run would have nothing left to restore.
+///
+/// Empty-folder groups are never stored. Their labels come from the scanned
+/// root, so a key saved on one machine matches nothing on another, and the
+/// restore skips them regardless.
+///
+/// One consequence: with empty targets listed, an empty one shows unchecked
+/// yet stays remembered, so clearing its box does not forget it. Resetting the
+/// selection does.
+pub(crate) fn remembered_keys(plan: &Plan, previous: &[TargetKey]) -> Vec<TargetKey> {
+    let mut keys: Vec<TargetKey> = plan
+        .groups
         .iter()
-        .filter(|group| group.on)
+        .filter(|group| group.on && group.app != EMPTY_FOLDERS_APP)
         .map(|group| (group.app.clone(), group.label.clone()))
-        .collect()
+        .collect();
+    let answered: std::collections::HashSet<(&str, &str)> = plan
+        .groups
+        .iter()
+        .filter(|group| answerable(group))
+        .map(|group| (group.app.as_str(), group.label.as_str()))
+        .collect();
+    for (app, label) in previous {
+        if app == EMPTY_FOLDERS_APP || answered.contains(&(app.as_str(), label.as_str())) {
+            continue;
+        }
+        if !keys.iter().any(|(a, l)| a == app && l == label) {
+            keys.push((app.clone(), label.clone()));
+        }
+    }
+    keys
 }
 
 /// Selects exactly the targets named by `keys` and clears the rest.
 ///
-/// Two kinds are never restored: a target with nothing to clean, matching what
-/// a fresh scan does, and an empty-folder group, because removing empty folders
-/// stays opt-in for each run.
+/// Two kinds stay unselected. An empty target, because this run has nothing to
+/// offer for it and selecting it would only queue a folder that frees no
+/// space; its key is still remembered, so it comes back the run it has data
+/// again. And an empty-folder group, because removing empty folders stays
+/// opt-in for each run.
 pub(crate) fn apply_saved_selection(plan: &mut Plan, keys: &[TargetKey]) {
     let saved: std::collections::HashSet<(&str, &str)> = keys
         .iter()
         .map(|(app, label)| (app.as_str(), label.as_str()))
         .collect();
     for group in &mut plan.groups {
-        group.on = group.bytes > 0
+        group.on = answerable(group)
             && group.app != EMPTY_FOLDERS_APP
             && saved.contains(&(group.app.as_str(), group.label.as_str()));
     }
@@ -838,20 +876,23 @@ mod tests {
         let mut plan = sample_plan();
         plan.groups
             .push(group_with_path("Empty folders", "temp", 10));
-        let keys = selected_keys(&plan);
+        let mut keys = remembered_keys(&plan, &[]);
         assert_eq!(
             keys,
             vec![
                 ("Chrome".to_owned(), "all profiles cache".to_owned()),
                 ("npm".to_owned(), "package cache".to_owned()),
                 ("Windows".to_owned(), "Temp folder".to_owned()),
-                ("Empty folders".to_owned(), "temp".to_owned()),
-            ]
+            ],
+            "an empty-folder group is selected here but never stored"
         );
 
         for g in &mut plan.groups {
             g.on = false;
         }
+        // Feed the empty-folder key in anyway: restoring must refuse it even
+        // when something put it in the stored set.
+        keys.push(("Empty folders".to_owned(), "temp".to_owned()));
         apply_saved_selection(&mut plan, &keys);
         let on: Vec<&str> = plan
             .groups
@@ -865,7 +906,7 @@ mod tests {
     }
 
     #[test]
-    fn saved_selection_ignores_unknown_and_empty_targets() {
+    fn an_empty_target_stays_unselected_but_stays_remembered() {
         let mut plan = Plan {
             groups: vec![
                 group("Chrome", "cache", 500, false),
@@ -883,8 +924,59 @@ mod tests {
 
         apply_saved_selection(&mut plan, &keys);
         assert!(plan.groups[0].on);
-        assert!(!plan.groups[1].on, "an empty target is never restored");
+        assert!(!plan.groups[1].on, "an empty target is not selected for you");
         assert_eq!(plan.selected, 1);
+
+        // Both keys this run could not ask about survive the save.
+        assert_eq!(remembered_keys(&plan, &keys), keys);
+    }
+
+    #[test]
+    fn a_target_empty_for_one_run_comes_back_the_run_it_has_data() {
+        // Run 1: the user selects Chrome's cache and quits.
+        let mut first = Plan {
+            groups: vec![group("Chrome", "cache", 500, true)],
+            ..Plan::default()
+        };
+        first.recompute_totals();
+        let stored = remembered_keys(&first, &[]);
+        assert_eq!(stored, vec![("Chrome".to_owned(), "cache".to_owned())]);
+
+        // Run 2: the cache is empty, so the scan has nothing to offer.
+        let mut second = Plan {
+            groups: vec![group("Chrome", "cache", 0, false)],
+            ..Plan::default()
+        };
+        apply_saved_selection(&mut second, &stored);
+        assert!(!second.groups[0].on);
+        let stored = remembered_keys(&second, &stored);
+        assert_eq!(
+            stored,
+            vec![("Chrome".to_owned(), "cache".to_owned())],
+            "the key outlives the run that could not offer it"
+        );
+
+        // Run 3: the cache has data again, so the choice from run 1 applies.
+        let mut third = Plan {
+            groups: vec![group("Chrome", "cache", 700, false)],
+            ..Plan::default()
+        };
+        apply_saved_selection(&mut third, &stored);
+        assert!(third.groups[0].on);
+        assert_eq!(third.selected, 1);
+    }
+
+    #[test]
+    fn unselecting_an_offered_target_forgets_it() {
+        let plan = Plan {
+            groups: vec![group("Chrome", "cache", 500, false)],
+            ..Plan::default()
+        };
+        let stored = vec![("Chrome".to_owned(), "cache".to_owned())];
+        assert!(
+            remembered_keys(&plan, &stored).is_empty(),
+            "the user saw the target and cleared it, so that is the answer"
+        );
     }
 
     #[test]

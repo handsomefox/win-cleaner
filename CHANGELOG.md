@@ -4,6 +4,12 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
 
 ## Unreleased
 
+- Keep remembering a target through a run where it is empty or its app is
+  gone. 1.0.12 dropped it from the saved selection instead, so a target you
+  cleaned in one run came back unchecked two runs later even once it had data
+  again. An empty target is still never checked for you, because there is
+  nothing to free; the choice now waits for the run that has something to
+  offer.
 - Check the catalog's own picks again on a first launch. 1.0.12 applied an
   empty remembered selection over them, so a new install opened with nothing
   selected.

@@ -630,8 +630,9 @@ impl eframe::App for WinCleanerApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         if let Screen::Select(state) = &self.screen {
             self.prefs.show_empty = state.show_empty;
+            let previous = std::mem::take(&mut self.prefs.selection);
             self.prefs.selection = if self.prefs.remember_selection {
-                viewmodel::selected_keys(&state.plan)
+                viewmodel::remembered_keys(&state.plan, &previous)
             } else {
                 Vec::new()
             };

@@ -10,6 +10,9 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
   again. An empty target is still never checked for you, because there is
   nothing to free; the choice now waits for the run that has something to
   offer.
+- Store the selection a cleanup ran with. It was only saved from the selection
+  screen, so cleaning and then closing from the results kept whatever the app
+  had loaded at startup.
 - Check the catalog's own picks again on a first launch. 1.0.12 applied an
   empty remembered selection over them, so a new install opened with nothing
   selected.

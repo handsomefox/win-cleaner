@@ -56,6 +56,19 @@ impl Prefs {
         }
     }
 
+    /// Copies what the selection screen holds, ready for the next `save`.
+    /// Called on the autosave path and again before a cleanup takes the plan
+    /// away.
+    fn remember(&mut self, state: &SelectState) {
+        self.show_empty = state.show_empty;
+        let previous = std::mem::take(&mut self.selection);
+        self.selection = if self.remember_selection {
+            viewmodel::remembered_keys(&state.plan, &previous)
+        } else {
+            Vec::new()
+        };
+    }
+
     fn store(&self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, KEY_REMEMBER, &self.remember_selection);
         eframe::set_value(storage, KEY_SHOW_EMPTY, &self.show_empty);
@@ -228,6 +241,11 @@ impl WinCleanerApp {
         match std::mem::replace(&mut self.screen, Screen::Unsupported(String::new())) {
             Screen::Select(mut state) => {
                 state.plan.recompute_totals();
+                // The plan moves to the worker next, and `save` only reads the
+                // selection screen. Without this, closing from the results
+                // stores whatever was loaded at startup and loses the
+                // selection the cleanup just ran with.
+                self.prefs.remember(&state);
                 self.screen = Screen::Deleting(DeletingState {
                     current: 0,
                     total: state.plan.selected,
@@ -629,13 +647,7 @@ impl eframe::App for WinCleanerApp {
     /// is stored is what the user last saw.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         if let Screen::Select(state) = &self.screen {
-            self.prefs.show_empty = state.show_empty;
-            let previous = std::mem::take(&mut self.prefs.selection);
-            self.prefs.selection = if self.prefs.remember_selection {
-                viewmodel::remembered_keys(&state.plan, &previous)
-            } else {
-                Vec::new()
-            };
+            self.prefs.remember(state);
         }
         self.prefs.store(storage);
     }
@@ -873,6 +885,12 @@ mod tests {
             commands.recv().unwrap(),
             Command::Execute { dry_run: false, .. }
         ));
+        // The plan is gone to the worker, so the selection has to be captured
+        // before the screen leaves Select.
+        assert_eq!(
+            app.prefs.selection,
+            vec![("App".to_owned(), "cache".to_owned())]
+        );
 
         app.show_history();
         assert!(matches!(commands.recv().unwrap(), Command::LoadHistory));

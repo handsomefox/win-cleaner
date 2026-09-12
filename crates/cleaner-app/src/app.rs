@@ -185,6 +185,7 @@ struct Nav {
     clear_history: bool,
     header_action: bool,
     rescan: bool,
+    reset_selection: bool,
     execute: bool,
 }
 
@@ -566,7 +567,7 @@ impl WinCleanerApp {
     /// The Settings modal. It edits the live view directly, so toggling
     /// "List empty targets" updates the list behind it; `save` stores what the
     /// view ended up holding.
-    fn draw_settings(&mut self, ctx: &egui::Context) {
+    fn draw_settings(&mut self, ctx: &egui::Context, nav: &mut Nav) {
         if !self.settings_open {
             return;
         }
@@ -581,8 +582,8 @@ impl WinCleanerApp {
             &mut state.show_empty,
             &mut self.settings_open,
         );
-        if let Some(ui::settings::SettingsAction::ForgetSelection) = action {
-            self.prefs.selection.clear();
+        if let Some(ui::settings::SettingsAction::ResetSelection) = action {
+            nav.reset_selection = true;
         }
     }
 
@@ -632,7 +633,15 @@ impl WinCleanerApp {
         if nav.header_action {
             self.on_header_action(ctx);
         }
-        if nav.rescan {
+        // Clearing the stored selection is only half of it. `save` rewrites
+        // that field from the live screen within 30 seconds, so the reset has
+        // to reach the plan too, and a fresh scan is what puts the catalog
+        // defaults back on it.
+        if nav.reset_selection {
+            self.prefs.selection.clear();
+            self.settings_open = false;
+        }
+        if nav.rescan || nav.reset_selection {
             self.history = None;
             self.start_scan();
         }
@@ -668,7 +677,7 @@ impl eframe::App for WinCleanerApp {
         }
         self.draw_central(root, &mut nav);
         ui::about::show(&ctx, self.texts, &mut self.about_open);
-        self.draw_settings(&ctx);
+        self.draw_settings(&ctx, &mut nav);
         self.handle_nav(&ctx, nav);
     }
 }
@@ -873,6 +882,30 @@ mod tests {
             "an empty stored selection leaves the scan's defaults alone"
         );
         assert_eq!(state.plan.selected, 1);
+    }
+
+    #[test]
+    fn resetting_the_selection_clears_it_and_rescans() {
+        let (mut app, commands, _) = app();
+        app.screen = Screen::Select(SelectState::new(plan()));
+        app.settings_open = true;
+        app.prefs.selection = vec![("App".to_owned(), "cache".to_owned())];
+
+        app.handle_nav(
+            &egui::Context::default(),
+            Nav {
+                reset_selection: true,
+                ..Nav::default()
+            },
+        );
+        assert!(app.prefs.selection.is_empty());
+        assert!(!app.settings_open, "the modal has no screen to sit on");
+        // Only a fresh scan can put the catalog defaults back on the plan.
+        assert!(matches!(
+            commands.recv().unwrap(),
+            Command::Scan { generation: 1 }
+        ));
+        assert!(matches!(app.screen, Screen::Scanning { .. }));
     }
 
     #[test]

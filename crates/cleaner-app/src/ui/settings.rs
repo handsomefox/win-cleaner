@@ -9,8 +9,9 @@ use crate::strings::UiText;
 use crate::theme;
 
 pub(crate) enum SettingsAction {
-    /// Drop the stored selection, so the next scan uses catalog defaults.
-    ForgetSelection,
+    /// Drop the stored selection and rescan, so the catalog defaults decide
+    /// again.
+    ResetSelection,
 }
 
 pub(crate) fn show(
@@ -56,8 +57,12 @@ pub(crate) fn show(
         );
         ui.separator();
         ui.horizontal(|ui| {
-            if ui.button(texts.settings_forget).clicked() {
-                action = Some(SettingsAction::ForgetSelection);
+            if ui
+                .button(texts.settings_reset)
+                .on_hover_text(texts.settings_reset_hint)
+                .clicked()
+            {
+                action = Some(SettingsAction::ResetSelection);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(texts.dialog_close).clicked() {

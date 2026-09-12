@@ -924,7 +924,10 @@ mod tests {
 
         apply_saved_selection(&mut plan, &keys);
         assert!(plan.groups[0].on);
-        assert!(!plan.groups[1].on, "an empty target is not selected for you");
+        assert!(
+            !plan.groups[1].on,
+            "an empty target is not selected for you"
+        );
         assert_eq!(plan.selected, 1);
 
         // Both keys this run could not ask about survive the save.

@@ -13,7 +13,11 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
 - Store the selection a cleanup ran with. It was only saved from the selection
   screen, so cleaning and then closing from the results kept whatever the app
   had loaded at startup.
-- Check the catalog's own picks again on a first launch. 1.0.12 applied an
+- Check the catalog's own picks again on a first launch.
+- Rename **Forget saved selection** in Settings to **Reset selection to
+  defaults**, and make it scan again so the catalog's picks come back on the
+  spot. It used to drop the stored selection and nothing else, and the next
+  automatic save wrote the same selection straight back. 1.0.12 applied an
   empty remembered selection over them, so a new install opened with nothing
   selected.
 

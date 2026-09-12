@@ -2,7 +2,7 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
-## Unreleased
+## 1.0.14
 
 - Add presets. **Presets** in the toolbar saves the targets you have checked under a name, and
   picking that name checks them again. Manage presets renames, applies, and deletes them, and

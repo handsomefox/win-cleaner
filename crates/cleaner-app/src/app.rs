@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use cleaner_core::{ExecResult, Plan, StoredRun};
 use eframe::egui::{self, RichText};
 
+use crate::presets::{PresetError, Presets};
 use crate::strings::{ENGLISH, UiText};
 use crate::theme;
 use crate::ui;
@@ -26,6 +27,9 @@ pub(crate) struct Prefs {
     pub remember_selection: bool,
     pub show_empty: bool,
     pub selection: Vec<TargetKey>,
+    /// Named selections the user saved. One of them may be marked to apply at
+    /// launch, which takes precedence over `selection`.
+    pub presets: Presets,
 }
 
 impl Default for Prefs {
@@ -34,6 +38,7 @@ impl Default for Prefs {
             remember_selection: true,
             show_empty: false,
             selection: Vec::new(),
+            presets: Presets::default(),
         }
     }
 }
@@ -41,6 +46,7 @@ impl Default for Prefs {
 const KEY_REMEMBER: &str = "remember_selection";
 const KEY_SHOW_EMPTY: &str = "show_empty";
 const KEY_SELECTION: &str = "selection";
+const KEY_PRESETS: &str = "presets";
 
 impl Prefs {
     fn load(storage: Option<&dyn eframe::Storage>) -> Self {
@@ -48,11 +54,17 @@ impl Prefs {
             return Self::default();
         };
         let fallback = Self::default();
+        let mut presets: Presets =
+            eframe::get_value(storage, KEY_PRESETS).unwrap_or(fallback.presets);
+        // Storage is a file the user can edit, and an older build may have
+        // written a shape this one no longer allows.
+        presets.sanitize();
         Self {
             remember_selection: eframe::get_value(storage, KEY_REMEMBER)
                 .unwrap_or(fallback.remember_selection),
             show_empty: eframe::get_value(storage, KEY_SHOW_EMPTY).unwrap_or(fallback.show_empty),
             selection: eframe::get_value(storage, KEY_SELECTION).unwrap_or(fallback.selection),
+            presets,
         }
     }
 
@@ -61,6 +73,9 @@ impl Prefs {
     /// away.
     fn remember(&mut self, state: &SelectState) {
         self.show_empty = state.show_empty;
+        // The selection screen owns the preset list while it is up, the same
+        // way it owns `show_empty`.
+        self.presets = state.presets.clone();
         let previous = std::mem::take(&mut self.selection);
         self.selection = if self.remember_selection {
             viewmodel::remembered_keys(&state.plan, &previous)
@@ -73,6 +88,7 @@ impl Prefs {
         eframe::set_value(storage, KEY_REMEMBER, &self.remember_selection);
         eframe::set_value(storage, KEY_SHOW_EMPTY, &self.show_empty);
         eframe::set_value(storage, KEY_SELECTION, &self.selection);
+        eframe::set_value(storage, KEY_PRESETS, &self.presets);
     }
 }
 
@@ -116,6 +132,9 @@ pub(crate) struct SelectState {
     pub show_empty: bool,
     /// Preview-only mode; enabled by default.
     pub dry_run: bool,
+    /// The saved presets, edited in place here and copied back to [`Prefs`] on
+    /// the next save.
+    pub presets: Presets,
     pub modal: Option<SelectModal>,
 }
 
@@ -129,6 +148,7 @@ impl SelectState {
             sort: SortMode::Name,
             show_empty: false,
             dry_run: true,
+            presets: Presets::default(),
             modal: None,
         }
     }
@@ -139,6 +159,13 @@ pub(crate) enum SelectModal {
     Preview,
     Confirm,
     GroupDetails(usize),
+    /// Naming the current selection. Carries the field's text and the last
+    /// refusal, so the dialog can say why nothing was saved.
+    SavePreset {
+        name: String,
+        error: Option<PresetError>,
+    },
+    ManagePresets,
 }
 
 pub(crate) struct DeletingState {
@@ -340,6 +367,9 @@ impl WinCleanerApp {
     /// The selection screen for a fresh scan, with the remembered view and
     /// selection applied.
     ///
+    /// A preset marked to apply at launch wins, because the user asked for
+    /// that selection by name. Otherwise the last selection comes back.
+    ///
     /// An empty stored selection means nothing is remembered, so the catalog
     /// defaults the scan computed stand. That makes a first launch and a reset
     /// behave alike, at the price of one case: someone who clears every
@@ -347,7 +377,10 @@ impl WinCleanerApp {
     fn restored_state(&self, plan: Plan) -> SelectState {
         let mut state = SelectState::new(plan);
         state.show_empty = self.prefs.show_empty;
-        if self.prefs.remember_selection && !self.prefs.selection.is_empty() {
+        state.presets = self.prefs.presets.clone();
+        if let Some(preset) = self.prefs.presets.on_start() {
+            viewmodel::apply_saved_selection(&mut state.plan, &preset.keys);
+        } else if self.prefs.remember_selection && !self.prefs.selection.is_empty() {
             viewmodel::apply_saved_selection(&mut state.plan, &self.prefs.selection);
         }
         state
@@ -829,6 +862,7 @@ mod tests {
             show_empty: true,
             // A target that is no longer in the catalog is simply ignored.
             selection: vec![("Gone".to_owned(), "cache".to_owned())],
+            presets: Presets::default(),
         };
         remembered.generation = 1;
         remembered.apply_event(Event::ScanDone {
@@ -882,6 +916,54 @@ mod tests {
             "an empty stored selection leaves the scan's defaults alone"
         );
         assert_eq!(state.plan.selected, 1);
+    }
+
+    #[test]
+    fn a_startup_preset_wins_over_the_last_selection() {
+        let (mut app, _, _) = app();
+        let mut presets = Presets::default();
+        presets
+            .save("Weekly", vec![("App".to_owned(), "cache".to_owned())])
+            .unwrap();
+        presets.set_on_start(0, true);
+        app.prefs = Prefs {
+            remember_selection: true,
+            // The last selection says otherwise, and the preset overrules it.
+            selection: vec![("Gone".to_owned(), "cache".to_owned())],
+            presets,
+            ..Prefs::default()
+        };
+        app.generation = 1;
+        app.apply_event(Event::ScanDone {
+            generation: 1,
+            outcome: Ok(plan()),
+        });
+        let Screen::Select(state) = &app.screen else {
+            panic!("expected the selection screen");
+        };
+        assert!(state.plan.groups[0].on, "the preset decided");
+        assert_eq!(state.plan.selected, 1);
+        assert_eq!(
+            state.presets.as_slice().len(),
+            1,
+            "the screen carries the presets so the toolbar can edit them"
+        );
+        assert!(state.dry_run, "preview still stays on at every launch");
+    }
+
+    #[test]
+    fn presets_edited_on_screen_reach_storage() {
+        let (mut app, _, _) = app();
+        let mut state = SelectState::new(plan());
+        state.presets.save("Weekly", Vec::new()).unwrap();
+        app.screen = Screen::Select(state);
+
+        let Screen::Select(state) = &app.screen else {
+            unreachable!()
+        };
+        app.prefs.remember(state);
+        assert_eq!(app.prefs.presets.as_slice().len(), 1);
+        assert_eq!(app.prefs.presets.get(0).unwrap().name, "Weekly");
     }
 
     #[test]

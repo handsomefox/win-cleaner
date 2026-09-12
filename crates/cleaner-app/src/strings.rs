@@ -105,6 +105,24 @@ pub(crate) struct UiText {
     pub settings_reset: &'static str,
     pub settings_reset_hint: &'static str,
     pub settings_safety_note: &'static str,
+
+    pub presets_menu: &'static str,
+    pub presets_tooltip: &'static str,
+    pub presets_none: &'static str,
+    pub presets_save_current: &'static str,
+    pub presets_manage: &'static str,
+    pub presets_save_title: &'static str,
+    pub presets_save_action: &'static str,
+    pub presets_name_hint: &'static str,
+    pub presets_replace_note: &'static str,
+    pub presets_manage_title: &'static str,
+    pub presets_startup_note: &'static str,
+    pub presets_on_start: &'static str,
+    pub presets_on_start_hint: &'static str,
+    pub presets_apply: &'static str,
+    pub presets_delete: &'static str,
+    pub presets_error_empty: &'static str,
+    pub presets_error_duplicate: &'static str,
     pub about_version_label: &'static str,
     pub about_fonts: &'static str,
     pub about_repo_label: &'static str,
@@ -214,6 +232,24 @@ pub(crate) const ENGLISH: UiText = UiText {
     settings_reset: "Reset selection to defaults",
     settings_reset_hint: "Clears what the app remembers and scans again, so the targets the catalog picks come back.",
     settings_safety_note: "Preview only is on at every launch, and empty folders are removed only when you ask for it in that run.",
+
+    presets_menu: "Presets",
+    presets_tooltip: "Save the targets you have checked under a name, and check them again in one click.",
+    presets_none: "No presets yet.",
+    presets_save_current: "Save current selection...",
+    presets_manage: "Manage presets...",
+    presets_save_title: "Save current selection",
+    presets_save_action: "Save",
+    presets_name_hint: "Preset name",
+    presets_replace_note: "A preset of this name already exists. Saving replaces what it holds.",
+    presets_manage_title: "Presets",
+    presets_startup_note: "The preset marked Use on start is checked for you at every launch, in place of your last selection.",
+    presets_on_start: "Use on start",
+    presets_on_start_hint: "Check this preset at every launch. Only one preset can do that.",
+    presets_apply: "Apply",
+    presets_delete: "Delete this preset",
+    presets_error_empty: "Give the preset a name.",
+    presets_error_duplicate: "Another preset already uses that name.",
     about_version_label: "Version",
     about_fonts: "Inter — SIL Open Font License 1.1 · Phosphor Icons — MIT",
     about_repo_label: "Project page",
@@ -265,6 +301,25 @@ impl UiText {
 
     pub(crate) fn show_empty_label(&self, n: usize) -> String {
         format!("Show empty ({n})")
+    }
+
+    /// What the Save dialog says it is about to store.
+    pub(crate) fn presets_save_count(&self, n: usize) -> String {
+        format!("{} checked right now.", self.items_selected(n))
+    }
+
+    pub(crate) fn presets_target_count(&self, n: usize) -> String {
+        self.items_count(n)
+    }
+
+    pub(crate) fn presets_apply_hint(&self, n: usize) -> String {
+        format!("Check the {} in this preset", self.items_count(n))
+    }
+
+    pub(crate) fn presets_error_full(&self, max: usize) -> String {
+        format!(
+            "You can keep {max} presets. Delete one first, or save over a name you already have."
+        )
     }
 
     /// The status-bar overview line: apps scanned, cleanup targets, and their

@@ -11,6 +11,7 @@ use crate::strings::UiText;
 use crate::theme;
 use crate::ui::components;
 use crate::ui::components::CheckState;
+use crate::ui::presets;
 use crate::viewmodel::{self, AppView, CategoryView, SortMode, ViewFilter, visible_categories};
 
 pub(crate) enum SelectAction {
@@ -115,6 +116,7 @@ fn toolbar(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
         {
             state.filter.clear();
         }
+        presets::menu(ui, texts, state);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Laid out right to left, so the last mode listed sits leftmost.
             for (mode, glyph, label) in [
@@ -405,36 +407,40 @@ fn modals(
     state: &mut SelectState,
     action: &mut Option<SelectAction>,
 ) {
-    match state.modal {
-        None => {}
-        Some(SelectModal::NothingSelected) => {
-            if components::text_modal(
+    // Taken out for the frame so a dialog can hold its own editable state (the
+    // preset name field) while it also borrows the rest of the screen.
+    // Whatever is still open goes back at the end.
+    let Some(modal) = state.modal.take() else {
+        return;
+    };
+    match modal {
+        SelectModal::NothingSelected => {
+            if !components::text_modal(
                 ctx,
                 "nothing-selected",
                 texts.dialog_nothing_selected_title,
                 texts.dialog_select_cache_group,
                 texts.dialog_close,
             ) {
-                state.modal = None;
+                state.modal = Some(SelectModal::NothingSelected);
             }
         }
-        Some(SelectModal::GroupDetails(index)) => {
+        SelectModal::GroupDetails(index) => {
             let Some(group) = state.plan.groups.get(index) else {
-                state.modal = None;
                 return;
             };
             let title = format!("{} - {}", group.app, group.label);
             let body = components::group_details_text(texts, group);
-            if components::text_modal(ctx, "group-details", &title, &body, texts.dialog_close) {
-                state.modal = None;
+            if !components::text_modal(ctx, "group-details", &title, &body, texts.dialog_close) {
+                state.modal = Some(SelectModal::GroupDetails(index));
             }
         }
-        Some(SelectModal::Preview) => {
-            if preview_modal(ctx, texts, state) {
-                state.modal = None;
+        SelectModal::Preview => {
+            if !preview_modal(ctx, texts, state) {
+                state.modal = Some(SelectModal::Preview);
             }
         }
-        Some(SelectModal::Confirm) => {
+        SelectModal::Confirm => {
             let mut close = false;
             let mut confirmed = false;
             let response = egui::Modal::new(egui::Id::new("confirm-cleanup")).show(ctx, |ui| {
@@ -460,10 +466,22 @@ fn modals(
                 });
             });
             if confirmed {
-                state.modal = None;
                 *action = Some(SelectAction::ConfirmedCleanup);
-            } else if close || response.should_close() {
-                state.modal = None;
+            } else if !(close || response.should_close()) {
+                state.modal = Some(SelectModal::Confirm);
+            }
+        }
+        SelectModal::SavePreset {
+            mut name,
+            mut error,
+        } => {
+            if !presets::save_dialog(ctx, texts, state, &mut name, &mut error) {
+                state.modal = Some(SelectModal::SavePreset { name, error });
+            }
+        }
+        SelectModal::ManagePresets => {
+            if !presets::manage_dialog(ctx, texts, state) {
+                state.modal = Some(SelectModal::ManagePresets);
             }
         }
     }

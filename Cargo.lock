@@ -281,6 +281,7 @@ dependencies = [
  "embed-resource",
  "image",
  "jiff",
+ "serde",
  "tempfile",
  "tracing",
  "tracing-subscriber",

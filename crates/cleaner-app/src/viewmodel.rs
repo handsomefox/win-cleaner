@@ -288,6 +288,19 @@ pub(crate) fn category_summaries(plan: &Plan) -> Vec<CategorySummary> {
 /// change with the machine, but these two are the catalog's own names.
 pub(crate) type TargetKey = (String, String);
 
+/// The keys of every target checked right now. This is what a preset stores:
+/// the selection as it stands, with nothing carried over from a previous run.
+///
+/// Empty-folder groups are left out. Their labels come from the scanned root,
+/// so a key saved on one machine never matches on another.
+pub(crate) fn selected_keys(plan: &Plan) -> Vec<TargetKey> {
+    plan.groups
+        .iter()
+        .filter(|group| group.on && group.app != EMPTY_FOLDERS_APP)
+        .map(|group| (group.app.clone(), group.label.clone()))
+        .collect()
+}
+
 /// Whether this run could offer the target at all. An empty target is hidden
 /// by default and worth nothing, so its checkbox is not an answer the user
 /// gave. Anything else is: they saw it and left it on or off.
@@ -310,12 +323,7 @@ fn answerable(group: &Group) -> bool {
 /// yet stays remembered, so clearing its box does not forget it. Resetting the
 /// selection does.
 pub(crate) fn remembered_keys(plan: &Plan, previous: &[TargetKey]) -> Vec<TargetKey> {
-    let mut keys: Vec<TargetKey> = plan
-        .groups
-        .iter()
-        .filter(|group| group.on && group.app != EMPTY_FOLDERS_APP)
-        .map(|group| (group.app.clone(), group.label.clone()))
-        .collect();
+    let mut keys = selected_keys(plan);
     let answered: std::collections::HashSet<(&str, &str)> = plan
         .groups
         .iter()

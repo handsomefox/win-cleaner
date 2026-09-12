@@ -2,6 +2,16 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## Unreleased
+
+- Add presets. **Presets** in the toolbar saves the targets you have checked under a name, and
+  picking that name checks them again. Manage presets renames, applies, and deletes them, and
+  marks one **Use on start**, which is applied at every launch in place of your last selection.
+  A preset stores individual targets, not categories, so it survives a catalog that regroups
+  its items, and it changes only when you say so. You can keep 20.
+- Apply a preset through the same rules a remembered selection uses: a target with nothing to
+  clean is not checked, and empty-folder removal stays opt-in per run.
+
 ## 1.0.13
 
 - Keep remembering a target through a run where it is empty or its app is gone. 1.0.12 dropped

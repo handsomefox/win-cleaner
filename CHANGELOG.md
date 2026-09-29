@@ -2,6 +2,11 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.1.0
+
+- Update egui to 0.36.2, along with smaller dependencies.
+- Build with Rust 1.98.1.
+
 ## 1.0.14
 
 - Add presets. **Presets** in the toolbar saves the targets you have checked under a name, and

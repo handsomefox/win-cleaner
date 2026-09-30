@@ -2,6 +2,10 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.1.1
+
+- Fix the **Project page** link in About, which did not open.
+
 ## 1.1.0
 
 - Update egui to 0.36.2, along with smaller dependencies.

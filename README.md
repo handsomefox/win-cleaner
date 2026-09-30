@@ -15,6 +15,14 @@ A Windows desktop app that scans known cache locations, shows how much space eac
 - Run history with per-run detail and totals for the last 7 and last 30 days.
 - A diagnostics log you can attach to a bug report.
 
+After a scan, each cleanup target that holds data shows its size.
+
+![The cleanup target list after a scan, grouped into Browsers, Chat, and Development](docs/targets.png)
+
+**Preview** lists what a clean would move to the Recycle Bin, and moves nothing.
+
+![The preview dialog, listing 29 checked targets and an estimated 11.15 GB](docs/preview.png)
+
 ## Safety model
 
 Cache cleanup moves each selected top-level path to the Recycle Bin, using `SHFileOperationW` with `FOF_ALLOWUNDO`. There is no fallback to permanent deletion: if the move fails, the path stays.
@@ -64,6 +72,15 @@ bash scripts/package-windows.sh
 The packaging script needs `cargo-xwin` 0.23.1, `jq`, `zip`, `unzip`, and GNU `sha256sum`. It checks the archive contents and the checksums before it reports success.
 
 The GUI runs on Linux for development work, but a release build disables scanning and cleaning there. A debug build scans the folder that `WIN_CLEANER_DEV_ROOT` names, laid out like a Windows user profile. Cleaning still needs the Windows Recycle Bin, so it fails on Linux.
+
+The pictures above are taken against a profile this writes, not against anyone's own PC:
+
+```sh
+cargo run -p cleaner-catalog --example demo_profile -- /tmp/demo
+WIN_CLEANER_DEV_ROOT=/tmp/demo cargo run -p cleaner-app
+```
+
+The example fills the cleanup targets of 14 common apps and writes every file sparse, so the sizes the window reports are real while the directory takes almost no disk space.
 
 ## License
 

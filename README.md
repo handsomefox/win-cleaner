@@ -27,6 +27,12 @@ Symlinks and reparse points count as content everywhere else too. The app never 
 
 Each clean writes a JSON record of what it attempted to the run history.
 
+## Install
+
+Download the latest release from the [releases page](https://github.com/handsomefox/win-cleaner/releases). Unpack `win-cleaner-<version>-windows-x86_64.zip` and run `win-cleaner.exe` from the folder inside it. `SHA256SUMS` beside the archive holds its checksum.
+
+The app runs on Windows 10 and 11, x86-64.
+
 ## Diagnostics
 
 The app writes logs to `%LOCALAPPDATA%\win-cleaner\logs\` and run history to `%LOCALAPPDATA%\win-cleaner\stats\`. If something fails, attach the newest log file to your issue.
@@ -57,7 +63,7 @@ bash scripts/package-windows.sh
 
 The packaging script needs `cargo-xwin` 0.23.1, `jq`, `zip`, `unzip`, and GNU `sha256sum`. It checks the archive contents and the checksums before it reports success.
 
-The GUI runs on Linux for development work, but scanning and cleaning call Windows APIs and only work there.
+The GUI runs on Linux for development work, but a release build disables scanning and cleaning there. A debug build scans the folder that `WIN_CLEANER_DEV_ROOT` names, laid out like a Windows user profile. Cleaning still needs the Windows Recycle Bin, so it fails on Linux.
 
 ## License
 

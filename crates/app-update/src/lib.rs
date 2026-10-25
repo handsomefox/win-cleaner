@@ -937,6 +937,8 @@ enum Message {
 /// Call [`Updater::poll`] once per frame.
 pub struct Updater {
     app: AppInfo,
+    /// Read once, because the UI asks for it on every frame.
+    current: Option<Version>,
     client: Option<Arc<Client>>,
     executable: Option<PathBuf>,
     repaint: Arc<dyn Fn() + Send + Sync>,
@@ -967,6 +969,7 @@ impl Updater {
         let (sender, receiver) = mpsc::channel();
         Self {
             app,
+            current: running_version(&app),
             client: None,
             executable,
             repaint: Arc::new(repaint),
@@ -991,7 +994,7 @@ impl Updater {
     /// The running version, or `None` when it does not parse.
     #[must_use]
     pub fn current(&self) -> Option<Version> {
-        running_version(&self.app)
+        self.current
     }
 
     #[must_use]

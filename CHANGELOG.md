@@ -2,6 +2,10 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.1.4
+
+- Replace the yanked clipboard-win 5.4.1 with 5.4.3.
+
 ## 1.1.3
 
 - Update jiff to 0.2.38 and embed-resource to 3.0.12.

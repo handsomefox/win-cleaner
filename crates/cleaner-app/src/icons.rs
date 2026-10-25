@@ -42,6 +42,9 @@ pub(crate) const RECYCLE: &str = "\u{E4A6}"; // TRASH
 pub(crate) const PRESETS: &str = "\u{E112}"; // BOOKMARKS_SIMPLE
 pub(crate) const PRESET_ITEM: &str = "\u{E10E}"; // BOOKMARK_SIMPLE
 pub(crate) const PIN: &str = "\u{E3E8}"; // PUSH_PIN
+pub(crate) const UPDATE: &str = "\u{E030}"; // ARROW_CIRCLE_UP
+pub(crate) const DOWNLOAD: &str = "\u{E20C}"; // DOWNLOAD_SIMPLE
+pub(crate) const EXTERNAL_LINK: &str = "\u{E5DE}"; // ARROW_SQUARE_OUT
 
 /// Prefixes a label with its glyph and two spaces of separation.
 pub(crate) fn with_label(glyph: &str, label: &str) -> String {

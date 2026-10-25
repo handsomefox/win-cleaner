@@ -31,12 +31,26 @@ fn main() -> eframe::Result {
             .with_icon(app_icon()),
         ..Default::default()
     };
-    eframe::run_native(
+    let result = eframe::run_native(
         strings::ENGLISH.app_title,
         options,
         Box::new(|cc| Ok(Box::new(app::WinCleanerApp::new(cc)))),
-    )
+    );
+    // eframe saves the app's state before `run_native` returns, so the
+    // updated copy starts from everything this one knew.
+    if let Err(error) = app_update::restart_if_requested() {
+        tracing::error!(%error, "could not start the updated app");
+    }
+    result
 }
+
+/// Where this app's releases are published.
+const APP_INFO: app_update::AppInfo = app_update::AppInfo {
+    owner: "handsomefox",
+    repo: "win-cleaner",
+    bin: "win-cleaner",
+    version: env!("CARGO_PKG_VERSION"),
+};
 
 fn app_icon() -> egui::IconData {
     let bytes = include_bytes!("../assets/icon.png");

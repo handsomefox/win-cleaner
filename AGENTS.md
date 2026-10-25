@@ -10,6 +10,7 @@ The workspace is layered so that everything portable stays testable on Linux:
 - `cleaner-catalog` holds the built-in catalog. `build_registry` derives every path from an injected `Roots`, so no username is hardcoded and tests can point everything at a temp directory.
 - `cleaner-platform` wraps the Windows APIs: known-folder resolution, root discovery, and the Recycle Bin in `recycle.rs`.
 - `cleaner-app` is the egui binary. `worker.rs` runs blocking work off the UI thread, `viewmodel.rs` shapes state for `ui/`, and `strings.rs` holds the user-facing text.
+- `app-update` updates the app itself from its GitHub releases. Its `lib.rs` is byte-for-byte the same in all five apps, so change it in every app at once. `cleaner-app/src/ui/update.rs` holds this app's chip and dialog around it.
 
 One catalog entry is a `cleaner_core::Item` in code and a "cleanup target" in the UI and the README. Keep those two names attached to those two contexts.
 
@@ -29,7 +30,7 @@ Unit tests live beside their implementations in `#[cfg(test)]` modules. Use `tem
 
 Cover the rejection path as well as the success path, especially for the safe-root guard, glob expansion, symlink and reparse-point handling, and empty-folder removal. No coverage percentage is required, but a safety regression should have a test that catches it.
 
-CI cannot reach the Recycle Bin. Exercise locked files, very large directories, and aborting a run by hand on Windows, along with known-folder resolution.
+CI cannot reach the Recycle Bin. Exercise locked files, very large directories, and aborting a run by hand on Windows, along with known-folder resolution. The same goes for an app update: run a debug build with `APP_UPDATE_PRETEND_VERSION` set to an older version.
 
 ## Bump CI tool pins by hand
 

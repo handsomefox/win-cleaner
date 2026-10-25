@@ -11,3 +11,4 @@ pub(crate) mod scan;
 pub(crate) mod select;
 pub(crate) mod settings;
 pub(crate) mod sidebar;
+pub(crate) mod update;

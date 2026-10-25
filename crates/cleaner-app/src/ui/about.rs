@@ -1,16 +1,19 @@
-//! The About modal: icon, version, credits, project link, and a shortcut to
-//! the diagnostics log folder.
+//! The About modal: icon, version, credits, project link, and shortcuts to
+//! the diagnostics log folder and the app updates modal.
 
 use eframe::egui::{self, RichText};
 
+use crate::icons;
 use crate::strings::UiText;
 use crate::theme;
 
-pub(crate) fn show(ctx: &egui::Context, texts: &UiText, open: &mut bool) {
+/// Returns true when the user asked for the app updates modal.
+pub(crate) fn show(ctx: &egui::Context, texts: &UiText, open: &mut bool) -> bool {
     if !*open {
-        return;
+        return false;
     }
     let mut close = false;
+    let mut updates = false;
     let response = egui::Modal::new(egui::Id::new("about")).show(ctx, |ui| {
         ui.set_max_width(440.0);
         ui.horizontal(|ui| {
@@ -41,6 +44,14 @@ pub(crate) fn show(ctx: &egui::Context, texts: &UiText, open: &mut bool) {
             if ui.button(texts.about_open_log).clicked() {
                 open_log_folder();
             }
+            if ui
+                .button(icons::with_label(icons::UPDATE, texts.about_updates))
+                .on_hover_text(texts.about_updates_hint)
+                .clicked()
+            {
+                updates = true;
+                close = true;
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(texts.dialog_close).clicked() {
                     close = true;
@@ -51,6 +62,7 @@ pub(crate) fn show(ctx: &egui::Context, texts: &UiText, open: &mut bool) {
     if close || response.should_close() {
         *open = false;
     }
+    updates
 }
 
 /// Opens the diagnostics log directory in the system file manager, so the

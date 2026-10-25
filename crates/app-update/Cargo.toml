@@ -1,0 +1,25 @@
+[package]
+name = "app-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+flate2.workspace = true
+reqwest.workspace = true
+# reqwest's `rustls-no-provider` feature deliberately selects no crypto backend;
+# this direct dependency exposes ring, which `Client` installs once.
+rustls.workspace = true
+serde.workspace = true
+sha2.workspace = true
+tar.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true

@@ -128,6 +128,33 @@ pub(crate) struct UiText {
     pub about_repo_label: &'static str,
     pub about_repo_url: &'static str,
     pub about_open_log: &'static str,
+    pub about_updates: &'static str,
+    pub about_updates_hint: &'static str,
+
+    pub update_chip_hint: &'static str,
+    pub update_title: &'static str,
+    pub update_ready: &'static str,
+    pub update_skipped_note: &'static str,
+    pub update_no_build: &'static str,
+    pub update_release_page: &'static str,
+    pub update_whats_new: &'static str,
+    pub update_no_notes: &'static str,
+    pub update_all_releases: &'static str,
+    pub update_checking: &'static str,
+    pub update_schedule_title: &'static str,
+    pub update_period_label: &'static str,
+    pub update_check_now: &'static str,
+    pub update_never_checked: &'static str,
+    pub update_privacy_note: &'static str,
+    pub update_download: &'static str,
+    pub update_download_hint: &'static str,
+    pub update_restart: &'static str,
+    pub update_restart_hint: &'static str,
+    pub update_restart_busy: &'static str,
+    pub update_skip: &'static str,
+    pub update_skip_hint: &'static str,
+    pub update_later: &'static str,
+    pub update_later_hint: &'static str,
 
     pub unsupported_platform: &'static str,
 }
@@ -255,6 +282,33 @@ pub(crate) const ENGLISH: UiText = UiText {
     about_repo_label: "Project page",
     about_repo_url: "https://github.com/handsomefox/win-cleaner",
     about_open_log: "Open log folder",
+    about_updates: "App updates…",
+    about_updates_hint: "Check for a new version and choose how often to check",
+
+    update_chip_hint: "A new version of Windows Cleaner is out. Click to see what changed.",
+    update_title: "App updates",
+    update_ready: "Downloaded and verified. Restart Windows Cleaner to finish.",
+    update_skipped_note: "You skipped this version, so the header does not point it out.",
+    update_no_build: "This release has no build that Windows Cleaner can install by itself. Download it from the release page instead.",
+    update_release_page: "Release page",
+    update_whats_new: "What's new",
+    update_no_notes: "No notes for this release.",
+    update_all_releases: "All releases",
+    update_checking: "Checking GitHub for a new version…",
+    update_schedule_title: "Checking",
+    update_period_label: "Check for new versions",
+    update_check_now: "Check now",
+    update_never_checked: "Never checked",
+    update_privacy_note: "A check asks GitHub for this app's releases and sends nothing else.",
+    update_download: "Download update",
+    update_download_hint: "Download the new version and check it against its published SHA-256",
+    update_restart: "Restart to update",
+    update_restart_hint: "Close Windows Cleaner and open the new version",
+    update_restart_busy: "Wait for the scan or cleanup in progress to finish",
+    update_skip: "Skip this version",
+    update_skip_hint: "Stop pointing out this version. A newer one shows up again.",
+    update_later: "Not now",
+    update_later_hint: "Hide the reminder until Windows Cleaner starts again",
 
     unsupported_platform: "Windows Cleaner only supports Windows. Scanning and cleaning are disabled on this platform.",
 };
@@ -366,6 +420,43 @@ impl UiText {
             self.items_count(plan.selected),
             human_bytes(plan.total_bytes),
         )
+    }
+
+    pub(crate) fn update_chip(&self, version: &str, ready: bool) -> String {
+        if ready {
+            format!("Restart for {version}")
+        } else {
+            format!("Update {version} available")
+        }
+    }
+
+    pub(crate) fn update_available(&self, version: &str) -> String {
+        format!("Version {version} is available")
+    }
+
+    /// The running version, and when the newest one came out if GitHub says.
+    pub(crate) fn update_current(&self, current: &str, released: &str) -> String {
+        if released.is_empty() {
+            format!("You have version {current}.")
+        } else {
+            format!("You have version {current}. It was released on {released}.")
+        }
+    }
+
+    pub(crate) fn update_latest(&self, current: &str) -> String {
+        format!("Version {current} is the latest version.")
+    }
+
+    pub(crate) fn update_not_checked(&self, current: &str) -> String {
+        format!("You have version {current}. It has not checked for a new version yet.")
+    }
+
+    pub(crate) fn update_last_checked(&self, age: &str) -> String {
+        format!("Last checked {age}")
+    }
+
+    pub(crate) fn update_downloading(&self, version: &str, percent: u64) -> String {
+        format!("Downloading {version}… {percent}%")
     }
 
     pub(crate) fn cache_result_summary(&self, result: &ExecResult) -> String {

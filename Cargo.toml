@@ -4,6 +4,7 @@ members = [
     "crates/cleaner-catalog",
     "crates/cleaner-platform",
     "crates/cleaner-app",
+    "crates/app-update",
 ]
 resolver = "3"
 
@@ -18,15 +19,21 @@ description = "A Windows desktop app that safely cleans application and system c
 crossbeam-channel = "=0.5.17"
 eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "glow", "links", "persistence", "x11"] }
 egui_extras = { version = "=0.36.2", features = ["image"] }
+flate2 = { version = "=1.1.9", default-features = false, features = ["zlib-rs"] }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 jiff = { version = "=0.2.38", features = ["serde"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
+sha2 = "=0.11.0"
+tar = { version = "=0.4.46", default-features = false }
 tempfile = "=3.27.0"
 thiserror = "=2.0.21"
 tracing = "=0.1.44"
 tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 walkdir = "=2.5.0"
+zip = { version = "=9.0.5", default-features = false, features = ["deflate"] }
 
 [profile.release]
 lto = "thin"

@@ -30,6 +30,8 @@ pub(crate) struct Prefs {
     /// Named selections the user saved. One of them may be marked to apply at
     /// launch, which takes precedence over `selection`.
     pub presets: Presets,
+    /// How often to check for a new version, and what the user skipped.
+    pub app_updates: app_update::Settings,
 }
 
 impl Default for Prefs {
@@ -39,6 +41,7 @@ impl Default for Prefs {
             show_empty: false,
             selection: Vec::new(),
             presets: Presets::default(),
+            app_updates: app_update::Settings::default(),
         }
     }
 }
@@ -47,6 +50,7 @@ const KEY_REMEMBER: &str = "remember_selection";
 const KEY_SHOW_EMPTY: &str = "show_empty";
 const KEY_SELECTION: &str = "selection";
 const KEY_PRESETS: &str = "presets";
+const KEY_APP_UPDATES: &str = "app_updates";
 
 impl Prefs {
     fn load(storage: Option<&dyn eframe::Storage>) -> Self {
@@ -65,6 +69,8 @@ impl Prefs {
             show_empty: eframe::get_value(storage, KEY_SHOW_EMPTY).unwrap_or(fallback.show_empty),
             selection: eframe::get_value(storage, KEY_SELECTION).unwrap_or(fallback.selection),
             presets,
+            app_updates: eframe::get_value(storage, KEY_APP_UPDATES)
+                .unwrap_or(fallback.app_updates),
         }
     }
 
@@ -89,6 +95,7 @@ impl Prefs {
         eframe::set_value(storage, KEY_SHOW_EMPTY, &self.show_empty);
         eframe::set_value(storage, KEY_SELECTION, &self.selection);
         eframe::set_value(storage, KEY_PRESETS, &self.presets);
+        eframe::set_value(storage, KEY_APP_UPDATES, &self.app_updates);
     }
 }
 
@@ -104,7 +111,9 @@ pub(crate) struct WinCleanerApp {
     history: Option<HistoryState>,
     about_open: bool,
     settings_open: bool,
+    update_open: bool,
     prefs: Prefs,
+    updater: app_update::Updater,
 }
 
 pub(crate) enum Screen {
@@ -205,6 +214,8 @@ pub(crate) struct HistoryState {
 struct Nav {
     about: bool,
     settings: bool,
+    updates: bool,
+    update_action: Option<ui::update::UpdateAction>,
     show_history: bool,
     refresh_history: bool,
     close_history: bool,
@@ -242,7 +253,12 @@ impl WinCleanerApp {
             history: None,
             about_open: false,
             settings_open: false,
+            update_open: false,
             prefs: Prefs::load(cc.storage),
+            updater: app_update::Updater::new(crate::APP_INFO, {
+                let ctx = cc.egui_ctx.clone();
+                move || ctx.request_repaint()
+            }),
         };
         app.start_scan();
         app
@@ -480,6 +496,9 @@ impl WinCleanerApp {
                             .family(theme::bold())
                             .size(theme::FONT_HEADING),
                     );
+                    if ui::update::chip(ui, texts, &self.updater, &self.prefs.app_updates) {
+                        nav.updates = true;
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if let Some(action) = &info.action {
                             // Fixed width so toggling the label (Preview ⇄
@@ -620,6 +639,36 @@ impl WinCleanerApp {
         }
     }
 
+    /// The app updates modal. The install is gated on this: a restart in the
+    /// middle of a scan or a cleanup would cut it short.
+    fn draw_updates(&mut self, ctx: &egui::Context, nav: &mut Nav) {
+        let busy = matches!(self.screen, Screen::Scanning { .. } | Screen::Deleting(_));
+        nav.update_action = ui::update::show(
+            ctx,
+            self.texts,
+            &self.updater,
+            &mut self.prefs.app_updates,
+            busy,
+            &mut self.update_open,
+        );
+    }
+
+    fn apply_update_action(&mut self, ctx: &egui::Context, action: ui::update::UpdateAction) {
+        use ui::update::UpdateAction;
+        match action {
+            UpdateAction::CheckNow => self.updater.check_now(),
+            UpdateAction::Download => self.updater.download(),
+            UpdateAction::Restart => {
+                if self.updater.install_and_restart().is_ok() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+            UpdateAction::Skip => self.updater.skip(&mut self.prefs.app_updates),
+            UpdateAction::Later => self.updater.dismiss(),
+            UpdateAction::Close => {}
+        }
+    }
+
     fn on_header_action(&mut self, ctx: &egui::Context) {
         if self.history.is_some() {
             self.history = None;
@@ -648,6 +697,12 @@ impl WinCleanerApp {
         }
         if nav.settings {
             self.settings_open = true;
+        }
+        if nav.updates {
+            self.update_open = true;
+        }
+        if let Some(action) = nav.update_action {
+            self.apply_update_action(ctx, action);
         }
         if nav.close_history {
             self.history = None;
@@ -696,6 +751,7 @@ impl eframe::App for WinCleanerApp {
 
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_events();
+        self.updater.poll(&mut self.prefs.app_updates);
         let ctx = root.ctx().clone();
         let mut nav = Nav::default();
         self.draw_header(root, &mut nav);
@@ -709,8 +765,11 @@ impl eframe::App for WinCleanerApp {
             }
         }
         self.draw_central(root, &mut nav);
-        ui::about::show(&ctx, self.texts, &mut self.about_open);
+        if ui::about::show(&ctx, self.texts, &mut self.about_open) {
+            nav.updates = true;
+        }
         self.draw_settings(&ctx, &mut nav);
+        self.draw_updates(&ctx, &mut nav);
         self.handle_nav(&ctx, nav);
     }
 }
@@ -735,7 +794,9 @@ mod tests {
                 history: None,
                 about_open: false,
                 settings_open: false,
+                update_open: false,
                 prefs: Prefs::default(),
+                updater: app_update::Updater::new(crate::APP_INFO, || {}),
             },
             commands,
             events,
@@ -863,6 +924,7 @@ mod tests {
             // A target that is no longer in the catalog is simply ignored.
             selection: vec![("Gone".to_owned(), "cache".to_owned())],
             presets: Presets::default(),
+            app_updates: app_update::Settings::default(),
         };
         remembered.generation = 1;
         remembered.apply_event(Event::ScanDone {

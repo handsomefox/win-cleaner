@@ -68,7 +68,7 @@ checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
 
 [[package]]
 name = "app-update"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "flate2",
  "reqwest",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "cleaner-app"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "app-update",
  "cleaner-catalog",
@@ -322,7 +322,7 @@ dependencies = [
 
 [[package]]
 name = "cleaner-catalog"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "cleaner-core",
  "tempfile",
@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "cleaner-core"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "jiff",
  "serde",
@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "cleaner-platform"
-version = "1.1.4"
+version = "1.2.0"
 dependencies = [
  "cleaner-core",
  "tempfile",

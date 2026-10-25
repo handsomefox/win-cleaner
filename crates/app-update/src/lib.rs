@@ -899,13 +899,30 @@ pub fn request_restart(executable: &Path) {
 /// Starts the executable [`request_restart`] named. Call this after the GUI
 /// event loop returns, so the app's own state is saved first.
 ///
+/// The new process gets no standard handles. An app linked for the console
+/// subsystem frees its console before the window opens, and Windows then
+/// refuses to pass the stale console handles on (`ERROR_NOT_SUPPORTED`). For
+/// the same app, `CREATE_NO_WINDOW` keeps the new copy's console from
+/// flashing up; Windows ignores the flag for window-subsystem programs.
+///
 /// # Errors
 /// Returns an error when the new process cannot be started.
 pub fn restart_if_requested() -> io::Result<()> {
     let executable = RESTART.lock().ok().and_then(|mut restart| restart.take());
     if let Some(executable) = executable {
         tracing::info!(path = %executable.display(), "restarting into the updated app");
-        std::process::Command::new(executable).spawn()?;
+        let mut command = std::process::Command::new(executable);
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+        command.spawn()?;
     }
     Ok(())
 }

@@ -2,6 +2,13 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.2.1
+
+- Give Windows Cleaner a new icon.
+- Update eframe and egui_extras to 0.37. The first launch after this update opens at the default
+  window size and position. Later launches remember the window again.
+- Update flate2 to 1.1.10, serde_json to 1.0.154, sha2 to 0.11.1, and zip to 9.2.0.
+
 ## 1.2.0
 
 - Windows Cleaner can now update itself from its GitHub releases. It checks once a day, and when

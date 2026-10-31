@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#4650CC"/>
+  <g transform="translate(544 480) rotate(45)">
+    <path fill="#FFFFFF" d="M-40-40V-350a40 40 0 0 1 80 0v310Z"/>
+    <path fill="#FFFFFF" d="M-60 16H60L188 300H84V220H52V300H-52V220H-84V300H-188Z"/>
+    <rect x="-60" y="-40" width="120" height="56" fill="#C9CEFF"/>
+  </g>
+</svg>

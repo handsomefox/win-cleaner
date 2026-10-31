@@ -2,6 +2,15 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.2.2
+
+- New installs check for a new version each time the app starts. Existing installs keep their
+  setting. To change it, open **About** > **App updates**.
+- Keep a found update visible after a restart. With a check period of a day or longer, a restart
+  hid the new version until the next check was due.
+- Remove the line in **App updates** that said no check had run, which appeared beside the time
+  of the last check.
+
 ## 1.2.1
 
 - Give Windows Cleaner a new icon.

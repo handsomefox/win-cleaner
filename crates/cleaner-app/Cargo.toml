@@ -14,10 +14,10 @@ name = "win-cleaner"
 path = "src/main.rs"
 
 [dependencies]
-app-update = { version = "=1.2.1", path = "../app-update" }
-cleaner-catalog = { version = "=1.2.1", path = "../cleaner-catalog" }
-cleaner-core = { version = "=1.2.1", path = "../cleaner-core" }
-cleaner-platform = { version = "=1.2.1", path = "../cleaner-platform" }
+app-update = { version = "=1.2.2", path = "../app-update" }
+cleaner-catalog = { version = "=1.2.2", path = "../cleaner-catalog" }
+cleaner-core = { version = "=1.2.2", path = "../cleaner-core" }
+cleaner-platform = { version = "=1.2.2", path = "../cleaner-platform" }
 crossbeam-channel.workspace = true
 eframe.workspace = true
 egui_extras.workspace = true

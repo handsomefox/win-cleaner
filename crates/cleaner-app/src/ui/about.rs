@@ -14,7 +14,7 @@ pub(crate) fn show(ctx: &egui::Context, texts: &UiText, open: &mut bool) -> bool
     }
     let mut close = false;
     let mut updates = false;
-    let response = egui::Modal::new(egui::Id::new("about")).show(ctx, |ui| {
+    let response = egui::Modal::new(egui::Id::unique("about")).show(ctx, |ui| {
         ui.set_max_width(440.0);
         ui.horizontal(|ui| {
             ui.add(

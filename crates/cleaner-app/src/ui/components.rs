@@ -3,7 +3,7 @@
 
 use cleaner_core::{Group, GroupResult, human_bytes};
 use eframe::egui::{
-    self, Align2, Color32, FontId, Response, RichText, Sense, Ui, Vec2, WidgetInfo, WidgetType,
+    self, Align2, Color32, FontId, Response, RichText, Role, Sense, Ui, Vec2, WidgetInfo,
 };
 
 use crate::icons;
@@ -91,7 +91,7 @@ pub(crate) fn tri_checkbox(ui: &mut Ui, state: CheckState) -> Response {
     }
     let enabled = ui.is_enabled();
     let checked = state == CheckState::Checked;
-    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, checked, ""));
+    response.widget_info(|| WidgetInfo::selected(Role::CheckBox, enabled, checked, ""));
     response
 }
 
@@ -300,7 +300,7 @@ pub(crate) fn text_modal(
     close: &str,
 ) -> bool {
     let mut close_clicked = false;
-    let response = egui::Modal::new(egui::Id::new(id)).show(ctx, |ui| {
+    let response = egui::Modal::new(egui::Id::unique(id)).show(ctx, |ui| {
         ui.set_max_width(720.0);
         ui.label(
             RichText::new(title)

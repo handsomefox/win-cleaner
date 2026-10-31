@@ -105,7 +105,7 @@ pub(crate) fn save_dialog(
     let selected = viewmodel::selected_keys(&state.plan);
     let mut close = false;
     let mut commit = false;
-    let response = egui::Modal::new(egui::Id::new("save_preset")).show(ctx, |ui| {
+    let response = egui::Modal::new(egui::Id::unique("save_preset")).show(ctx, |ui| {
         ui.set_max_width(420.0);
         ui.label(
             RichText::new(texts.presets_save_title)
@@ -170,7 +170,7 @@ pub(crate) fn manage_dialog(ctx: &egui::Context, texts: &UiText, state: &mut Sel
     let mut startup: Option<(usize, bool)> = None;
     let mut renamed: Option<(usize, String)> = None;
 
-    let response = egui::Modal::new(egui::Id::new("manage_presets")).show(ctx, |ui| {
+    let response = egui::Modal::new(egui::Id::unique("manage_presets")).show(ctx, |ui| {
         ui.set_max_width(560.0);
         ui.label(
             RichText::new(texts.presets_manage_title)

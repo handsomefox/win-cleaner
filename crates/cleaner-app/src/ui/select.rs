@@ -443,7 +443,7 @@ fn modals(
         SelectModal::Confirm => {
             let mut close = false;
             let mut confirmed = false;
-            let response = egui::Modal::new(egui::Id::new("confirm-cleanup")).show(ctx, |ui| {
+            let response = egui::Modal::new(egui::Id::unique("confirm-cleanup")).show(ctx, |ui| {
                 ui.set_max_width(480.0);
                 ui.label(
                     RichText::new(texts.dialog_confirm_cache_title)
@@ -491,7 +491,7 @@ fn modals(
 /// selection total. Returns `true` when it should close.
 fn preview_modal(ctx: &egui::Context, texts: &UiText, state: &SelectState) -> bool {
     let mut close = false;
-    let response = egui::Modal::new(egui::Id::new("dry-run-preview")).show(ctx, |ui| {
+    let response = egui::Modal::new(egui::Id::unique("dry-run-preview")).show(ctx, |ui| {
         ui.set_max_width(680.0);
         ui.label(
             RichText::new(texts.dialog_preview_title)

@@ -52,7 +52,7 @@ pub(crate) fn show(
         return None;
     }
     let mut action = None;
-    let response = egui::Modal::new(egui::Id::new("app-update")).show(ctx, |ui| {
+    let response = egui::Modal::new(egui::Id::unique("app-update")).show(ctx, |ui| {
         ui.set_max_width(540.0);
         ui.label(
             RichText::new(texts.update_title)

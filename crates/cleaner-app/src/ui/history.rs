@@ -129,7 +129,7 @@ fn clear_confirm_modal(
     action: &mut Option<HistoryAction>,
 ) -> bool {
     let mut close = false;
-    let response = egui::Modal::new(egui::Id::new("clear-history")).show(ctx, |ui| {
+    let response = egui::Modal::new(egui::Id::unique("clear-history")).show(ctx, |ui| {
         ui.set_max_width(420.0);
         ui.label(
             RichText::new(texts.dialog_clear_history_title)

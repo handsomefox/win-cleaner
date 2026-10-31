@@ -26,7 +26,7 @@ pub(crate) fn show(
     }
     let mut action = None;
     let mut close = false;
-    let response = egui::Modal::new(egui::Id::new("settings")).show(ctx, |ui| {
+    let response = egui::Modal::new(egui::Id::unique("settings")).show(ctx, |ui| {
         ui.set_max_width(460.0);
         ui.label(
             RichText::new(texts.settings_title)

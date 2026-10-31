@@ -448,7 +448,7 @@ impl UiText {
     }
 
     pub(crate) fn update_not_checked(&self, current: &str) -> String {
-        format!("You have version {current}. It has not checked for a new version yet.")
+        format!("You have version {current}.")
     }
 
     pub(crate) fn update_last_checked(&self, age: &str) -> String {

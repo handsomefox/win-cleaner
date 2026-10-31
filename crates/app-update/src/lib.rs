@@ -142,8 +142,8 @@ impl fmt::Display for Version {
 /// How often the app checks for a new release on its own.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CheckPeriod {
-    EveryStart,
     #[default]
+    EveryStart,
     Daily,
     Weekly,
     Monthly,
@@ -189,6 +189,8 @@ pub struct Settings {
     pub last_check: Option<u64>,
     /// A version the user chose to skip. A newer release notifies again.
     pub skipped: Option<String>,
+    /// Whether the last successful check found a newer release.
+    pub update_found: bool,
 }
 
 impl Settings {
@@ -204,6 +206,11 @@ impl Settings {
                 let Some(interval) = period.interval_secs() else {
                     return false;
                 };
+                // A session keeps what a check found only in memory, so the
+                // first check of a session is what brings a found release back.
+                if self.update_found && attempted.is_none() {
+                    return true;
+                }
                 match attempted.or(self.last_check) {
                     None => true,
                     // A clock moved backwards would otherwise postpone checks
@@ -1078,6 +1085,7 @@ impl Updater {
                     match result {
                         Ok(update) => {
                             settings.last_check = Some(now());
+                            settings.update_found = update.is_some();
                             self.checked = true;
                             self.error = None;
                             if self.staged.as_ref().map(|staged| staged.version)
@@ -1287,7 +1295,7 @@ mod tests {
         let settings = |period, last_check| Settings {
             period,
             last_check,
-            skipped: None,
+            ..Settings::default()
         };
         assert!(!settings(CheckPeriod::Never, None).is_due(now, None));
         assert!(settings(CheckPeriod::EveryStart, Some(now)).is_due(now, None));
@@ -1304,13 +1312,22 @@ mod tests {
         assert!(settings(CheckPeriod::Daily, Some(now - 2 * day)).is_due(now, Some(now - day)));
         // A clock that moved backwards does not postpone the next check.
         assert!(settings(CheckPeriod::Weekly, Some(now + day)).is_due(now, None));
+        // A release an earlier session found is looked up once per session.
+        let found = Settings {
+            period: CheckPeriod::Monthly,
+            last_check: Some(now - 60),
+            update_found: true,
+            ..Settings::default()
+        };
+        assert!(found.is_due(now, None));
+        assert!(!found.is_due(now, Some(now)));
     }
 
     #[test]
     fn settings_load_from_older_or_partial_state() {
         let settings: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(settings, Settings::default());
-        assert_eq!(settings.period, CheckPeriod::Daily);
+        assert_eq!(settings.period, CheckPeriod::EveryStart);
         let settings: Settings =
             serde_json::from_str(r#"{"period":"Weekly","skipped":"1.4.0"}"#).unwrap();
         assert_eq!(settings.period, CheckPeriod::Weekly);
@@ -1930,6 +1947,7 @@ mod tests {
             updater.update().is_some()
         });
         assert!(settings.last_check.is_some());
+        assert!(settings.update_found);
         assert_eq!(updater.notification(&settings).unwrap().tag, "v1.3.0");
         assert!(updater.can_install());
 
@@ -1957,6 +1975,25 @@ mod tests {
         let restart = RESTART.lock().unwrap().take();
         assert_eq!(restart, Some(executable));
         assert_eq!(updater.staged(), None);
+    }
+
+    #[test]
+    fn a_restart_finds_again_the_update_an_earlier_session_found() {
+        let Some(platform) = platform() else { return };
+        let client = Served::new(platform).start(platform);
+        let (_directory, executable) = running_app(platform);
+        let mut updater = Updater::with_client(APP, client, executable);
+        let mut settings = Settings {
+            period: CheckPeriod::Daily,
+            last_check: Some(now()),
+            update_found: true,
+            ..Settings::default()
+        };
+
+        poll_until(&mut updater, &mut settings, |updater| {
+            updater.update().is_some()
+        });
+        assert_eq!(updater.notification(&settings).unwrap().tag, "v1.3.0");
     }
 
     #[test]

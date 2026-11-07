@@ -196,12 +196,17 @@ pub(crate) enum ResultsModal {
     GroupDetails(usize),
 }
 
-#[derive(Default)]
-pub(crate) struct HistoryState {
-    pub loaded: bool,
+pub(crate) enum HistoryState {
+    /// Waiting for the worker to read the stats directory.
+    Loading,
+    /// The stats directory could not be read.
+    Failed(String),
+    Loaded(LoadedHistory),
+}
+
+pub(crate) struct LoadedHistory {
     pub runs: Vec<StoredRun>,
     pub skipped: usize,
-    pub error: Option<String>,
     pub selected: usize,
     /// Whether the clear-history confirmation dialog is open.
     pub confirm_clear: bool,
@@ -277,7 +282,7 @@ impl WinCleanerApp {
     }
 
     fn show_history(&mut self) {
-        self.history = Some(HistoryState::default());
+        self.history = Some(HistoryState::Loading);
         self.worker.send(Command::LoadHistory);
     }
 
@@ -359,19 +364,16 @@ impl WinCleanerApp {
                     modal: None,
                 });
             }
-            Event::HistoryLoaded {
-                runs,
-                skipped,
-                error,
-            } => {
+            Event::HistoryLoaded { outcome } => {
                 if let Some(history) = &mut self.history {
-                    *history = HistoryState {
-                        loaded: true,
-                        runs,
-                        skipped,
-                        error,
-                        selected: 0,
-                        confirm_clear: false,
+                    *history = match outcome {
+                        Ok((runs, skipped)) => HistoryState::Loaded(LoadedHistory {
+                            runs,
+                            skipped,
+                            selected: 0,
+                            confirm_clear: false,
+                        }),
+                        Err(message) => HistoryState::Failed(message),
                     };
                 }
             }
@@ -413,15 +415,12 @@ impl WinCleanerApp {
         };
 
         if let Some(history) = &self.history {
-            let task = if history.error.is_some() {
-                texts.task_history_failed
-            } else {
-                texts.task_history
-            };
-            let selection = if history.loaded && history.error.is_none() {
-                texts.runs_count(history.runs.len())
-            } else {
-                String::new()
+            let (task, selection) = match history {
+                HistoryState::Loading => (texts.task_history, String::new()),
+                HistoryState::Failed(_) => (texts.task_history_failed, String::new()),
+                HistoryState::Loaded(loaded) => {
+                    (texts.task_history, texts.runs_count(loaded.runs.len()))
+                }
             };
             return HeaderInfo {
                 task: task.to_owned(),
@@ -1069,12 +1068,11 @@ mod tests {
         app.show_history();
         assert!(matches!(commands.recv().unwrap(), Command::LoadHistory));
         app.apply_event(Event::HistoryLoaded {
-            runs: Vec::new(),
-            skipped: 2,
-            error: None,
+            outcome: Ok((Vec::new(), 2)),
         });
-        let history = app.history.as_ref().unwrap();
-        assert!(history.loaded);
+        let Some(HistoryState::Loaded(history)) = &app.history else {
+            panic!("expected loaded history");
+        };
         assert_eq!(history.skipped, 2);
         assert_eq!(history.selected, 0);
     }

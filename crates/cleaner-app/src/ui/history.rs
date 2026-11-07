@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use cleaner_core::{StoredRun, human_bytes};
 use eframe::egui::{self, Color32, RichText, Ui};
 
-use crate::app::HistoryState;
+use crate::app::{HistoryState, LoadedHistory};
 use crate::icons;
 use crate::strings::UiText;
 use crate::theme;
@@ -22,18 +22,24 @@ pub(crate) enum HistoryAction {
 }
 
 pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) -> Option<HistoryAction> {
-    let mut action = None;
+    match state {
+        HistoryState::Failed(error) => {
+            components::centered_status(ui, error);
+            None
+        }
+        HistoryState::Loading => {
+            ui.centered_and_justified(|ui| {
+                ui.add(egui::Spinner::new().size(28.0));
+            });
+            None
+        }
+        HistoryState::Loaded(state) => loaded(ui, texts, state),
+    }
+}
 
-    if let Some(error) = &state.error {
-        components::centered_status(ui, error);
-        return None;
-    }
-    if !state.loaded {
-        ui.centered_and_justified(|ui| {
-            ui.add(egui::Spinner::new().size(28.0));
-        });
-        return None;
-    }
+/// The stat chips, the run list, and the details of the selected run.
+fn loaded(ui: &mut Ui, texts: &UiText, state: &mut LoadedHistory) -> Option<HistoryAction> {
+    let mut action = None;
 
     ui.horizontal(|ui| {
         if !state.runs.is_empty() {
@@ -238,7 +244,7 @@ fn error_chip(ui: &mut Ui, texts: &UiText, count: usize) {
     });
 }
 
-fn run_list(ui: &mut Ui, texts: &UiText, state: &mut HistoryState) {
+fn run_list(ui: &mut Ui, texts: &UiText, state: &mut LoadedHistory) {
     for (index, run) in state.runs.iter().enumerate() {
         let fill = if index == state.selected {
             theme::SELECTION

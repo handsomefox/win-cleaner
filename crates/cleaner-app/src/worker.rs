@@ -44,10 +44,10 @@ pub(crate) enum Event {
         result: ExecResult,
         stats_error: Option<String>,
     },
+    /// The stored runs and how many files could not be read, or why the
+    /// stats directory could not be read.
     HistoryLoaded {
-        runs: Vec<StoredRun>,
-        skipped: usize,
-        error: Option<String>,
+        outcome: Result<(Vec<StoredRun>, usize), String>,
     },
 }
 
@@ -222,26 +222,16 @@ fn process_command<R: Recycler>(
 fn load_history(stats_dir: Option<&std::path::Path>) -> Event {
     let Some(dir) = stats_dir else {
         return Event::HistoryLoaded {
-            runs: Vec::new(),
-            skipped: 0,
-            error: Some("stats directory unavailable".to_owned()),
+            outcome: Err("stats directory unavailable".to_owned()),
         };
     };
-    match cleaner_core::load_stats(dir) {
-        Ok((mut runs, skipped)) => {
+    let outcome = cleaner_core::load_stats(dir)
+        .map(|(mut runs, skipped)| {
             runs.sort_by_key(|run| std::cmp::Reverse(run.result.run_timestamp()));
-            Event::HistoryLoaded {
-                runs,
-                skipped,
-                error: None,
-            }
-        }
-        Err(err) => Event::HistoryLoaded {
-            runs: Vec::new(),
-            skipped: 0,
-            error: Some(err.to_string()),
-        },
-    }
+            (runs, skipped)
+        })
+        .map_err(|err| err.to_string());
+    Event::HistoryLoaded { outcome }
 }
 
 fn write_stats(stats_dir: Option<&std::path::Path>, result: &mut ExecResult) -> Option<String> {
@@ -484,7 +474,10 @@ mod tests {
         process_command(&mut runtime, Command::LoadHistory, |event| {
             events.push(event);
         });
-        let Event::HistoryLoaded { runs, skipped, .. } = events.pop().unwrap() else {
+        let Event::HistoryLoaded {
+            outcome: Ok((runs, skipped)),
+        } = events.pop().unwrap()
+        else {
             panic!("expected history");
         };
         assert_eq!(runs[0].path, newer);
@@ -504,7 +497,7 @@ mod tests {
         runtime.stats_dir = None;
         assert!(matches!(
             load_history(None),
-            Event::HistoryLoaded { error: Some(_), .. }
+            Event::HistoryLoaded { outcome: Err(_) }
         ));
         let (tx, rx) = crossbeam_channel::unbounded();
         drop(tx);

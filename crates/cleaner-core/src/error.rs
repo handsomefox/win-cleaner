@@ -1,17 +1,5 @@
 use std::path::PathBuf;
 
-/// Errors surfaced while building a cleanup plan.
-#[derive(Debug, thiserror::Error)]
-pub enum ScanError {
-    #[error("this tool only supports Windows")]
-    UnsupportedPlatform,
-    #[error("failed to read {path}: {source}")]
-    Io {
-        path: PathBuf,
-        source: std::io::Error,
-    },
-}
-
 /// Errors surfaced while moving paths to the Recycle Bin.
 #[derive(Debug, thiserror::Error)]
 pub enum RecycleError {
@@ -25,11 +13,6 @@ pub enum RecycleError {
     Multiple(String),
     #[error("unsafe recycle path: {0}")]
     UnsafePath(PathBuf),
-    #[error("failed to resolve {path}: {source}")]
-    Resolve {
-        path: PathBuf,
-        source: std::io::Error,
-    },
 }
 
 /// Errors surfaced while reading or writing run statistics.

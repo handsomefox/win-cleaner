@@ -22,7 +22,7 @@ pub mod versions;
 
 pub use catalog::{Item, Registry, Versioned};
 pub use empty_folders::EMPTY_FOLDERS_APP;
-pub use error::{RecycleError, ScanError, StatsError};
+pub use error::{RecycleError, StatsError};
 pub use execute::{Recycler, execute_with_result};
 pub use format::human_bytes;
 pub use plan::{AppGroup, Group, Options, Phase, Plan, ProgressUpdate};

@@ -62,7 +62,7 @@ impl Presets {
         let name = name.trim();
         self.0
             .iter()
-            .position(|preset| preset.name.eq_ignore_ascii_case(name))
+            .position(|preset| same_name(&preset.name, name))
     }
 
     /// Stores `keys` under `name`, replacing a preset of the same name and
@@ -126,11 +126,10 @@ impl Presets {
             if preset.name.is_empty() {
                 return false;
             }
-            let lowered = preset.name.to_lowercase();
-            if seen.contains(&lowered) {
+            if seen.iter().any(|name| same_name(name, &preset.name)) {
                 return false;
             }
-            seen.push(lowered);
+            seen.push(preset.name.clone());
             if preset.on_start {
                 if startup_taken {
                     preset.on_start = false;
@@ -142,6 +141,13 @@ impl Presets {
         });
         self.0.truncate(MAX_PRESETS);
     }
+}
+
+/// Whether two trimmed preset names count as the same name. Saving, renaming,
+/// and loading all compare through this, so a list the app saved never loses
+/// an entry when it is loaded again.
+fn same_name(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
 }
 
 #[cfg(test)]
@@ -276,6 +282,19 @@ mod tests {
             "the first startup preset keeps the mark"
         );
         assert!(!presets.get(1).unwrap().on_start);
+    }
+
+    #[test]
+    fn sanitize_keeps_every_name_that_saving_accepts() {
+        let mut presets = Presets::default();
+        // Saving compares names in ASCII case only, so these are two presets.
+        presets.save("Über", keys(&["Chrome"])).unwrap();
+        presets.save("über", keys(&["npm"])).unwrap();
+        assert_eq!(presets.as_slice().len(), 2);
+
+        let stored = presets.clone();
+        presets.sanitize();
+        assert_eq!(presets, stored, "loading the list again drops nothing");
     }
 
     #[test]

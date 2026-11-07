@@ -69,9 +69,11 @@ pub(crate) fn show(ctx: &egui::Context, texts: &UiText, open: &mut bool) -> bool
 /// user can grab the log file when reporting a problem.
 fn open_log_folder() {
     let Some(dir) = cleaner_platform::logs_dir() else {
+        tracing::warn!("failed to open log folder: no app data directory");
         return;
     };
-    if std::fs::create_dir_all(&dir).is_err() {
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("failed to create log folder {}: {err}", dir.display());
         return;
     }
     if let Err(err) = cleaner_platform::open_folder(&dir) {

@@ -41,9 +41,7 @@ fn path_chain_is_safe(path: &Path, root: &Path) -> bool {
             return true;
         }
         match fs::symlink_metadata(candidate) {
-            Ok(metadata) if metadata.file_type().is_symlink() || is_reparse_point(&metadata) => {
-                return false;
-            }
+            Ok(metadata) if is_link(&metadata) => return false,
             Ok(_) => {}
             Err(err)
                 if err.kind() == std::io::ErrorKind::NotFound
@@ -53,6 +51,13 @@ fn path_chain_is_safe(path: &Path, root: &Path) -> bool {
         current = candidate.parent();
     }
     false
+}
+
+/// Reports whether metadata describes a symlink or a Windows reparse point.
+/// Either counts as content: the cleaner never follows one, sizes its target,
+/// or treats it as a plain directory.
+pub(crate) fn is_link(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink() || is_reparse_point(metadata)
 }
 
 /// Reports whether metadata describes a Windows reparse point (junction,

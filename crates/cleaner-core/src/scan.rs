@@ -7,7 +7,7 @@ use crate::empty_folders::build_empty_folder_groups;
 use crate::globs::expand;
 use crate::plan::{Group, Phase, Plan, ProgressUpdate};
 use crate::roots::Roots;
-use crate::safety::{is_reparse_point, is_safe_path, normalized_key};
+use crate::safety::{is_link, is_reparse_point, is_safe_path, normalized_key};
 use crate::versions::superseded;
 
 /// Builds the cleanup plan: resolves catalog paths and globs, applies the
@@ -113,7 +113,7 @@ fn dir_size(path: &Path) -> std::io::Result<u64> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(err) => return Err(err),
     };
-    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+    if is_link(&metadata) {
         return Ok(0);
     }
     if !metadata.is_dir() {

@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::empty_folders::EMPTY_FOLDERS_APP;
 use crate::error::RecycleError;
 use crate::plan::{Options, Phase, Plan, ProgressUpdate};
-use crate::safety::{is_reparse_point, is_safe_path};
+use crate::safety::{is_link, is_safe_path};
 use crate::stats::{ExecResult, GroupResult, PathError};
 
 /// Moves paths to the Recycle Bin. The single production implementation wraps
@@ -116,9 +116,7 @@ pub fn delete_path_smart(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(_) => return recycler.recycle(&[path]),
     };
-    let is_real_directory = metadata.file_type().is_dir()
-        && !metadata.file_type().is_symlink()
-        && !is_reparse_point(&metadata);
+    let is_real_directory = metadata.file_type().is_dir() && !is_link(&metadata);
     let initial_error = match recycler.recycle(&[path]) {
         Ok(()) => return Ok(()),
         Err(_) if path_missing(path) => return Ok(()),
@@ -153,10 +151,7 @@ pub fn delete_path_smart(
                 continue;
             }
         };
-        if child_metadata.file_type().is_symlink()
-            || is_reparse_point(&child_metadata)
-            || !is_safe_path(&child, guard_roots)
-        {
+        if is_link(&child_metadata) || !is_safe_path(&child, guard_roots) {
             failures.push(format!("unsafe child retained: {}", child.display()));
             continue;
         }

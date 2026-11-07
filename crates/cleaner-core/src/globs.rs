@@ -7,7 +7,7 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use crate::safety::is_reparse_point;
+use crate::safety::is_link;
 
 /// Expands a pattern into the existing paths that match it.
 #[must_use]
@@ -29,7 +29,7 @@ pub fn expand(pattern: &Path) -> Vec<PathBuf> {
                     let Ok(metadata) = fs::symlink_metadata(&path) else {
                         continue;
                     };
-                    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+                    if is_link(&metadata) {
                         continue;
                     }
                     let name = entry.file_name();

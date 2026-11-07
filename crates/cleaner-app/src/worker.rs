@@ -222,7 +222,7 @@ fn process_command<R: Recycler>(
 fn load_history(stats_dir: Option<&std::path::Path>) -> Event {
     let Some(dir) = stats_dir else {
         return Event::HistoryLoaded {
-            outcome: Err("stats directory unavailable".to_owned()),
+            outcome: Err(crate::strings::ENGLISH.stats_dir_unavailable.to_owned()),
         };
     };
     let outcome = cleaner_core::load_stats(dir)
@@ -236,7 +236,7 @@ fn load_history(stats_dir: Option<&std::path::Path>) -> Event {
 
 fn write_stats(stats_dir: Option<&std::path::Path>, result: &mut ExecResult) -> Option<String> {
     let Some(dir) = stats_dir else {
-        return Some("stats directory unavailable".to_owned());
+        return Some(crate::strings::ENGLISH.stats_dir_unavailable.to_owned());
     };
     match cleaner_core::write_stats(dir, result) {
         Ok(path) => {

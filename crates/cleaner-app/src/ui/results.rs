@@ -30,9 +30,7 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
     let mut open_group: Option<usize> = None;
     components::titled_card(ui, &headline, &summary, |ui| {
         if let Some(stats_error) = &state.stats_error {
-            ui.label(
-                RichText::new(format!("Failed to write stats: {stats_error}")).color(theme::DANGER),
-            );
+            ui.label(RichText::new(texts.stats_write_failed(stats_error)).color(theme::DANGER));
         }
         if let Some(error_summary) = error_summary(texts, &state.result) {
             ui.label(&error_summary);
@@ -117,7 +115,7 @@ fn modals(ctx: &egui::Context, texts: &UiText, state: &mut ResultsState) {
                 state.modal = None;
                 return;
             };
-            let body = result_group_details_text(group);
+            let body = texts.result_group_details(group);
             if components::text_modal(
                 ctx,
                 "cleanup-group-details",
@@ -149,11 +147,7 @@ fn error_summary(texts: &UiText, result: &ExecResult) -> Option<String> {
         .map(|group| format!("{} - {}", group.app, group.label))
         .collect();
     let limit = group_names.len().min(3);
-    let mut summary = format!(
-        "Errors in {}: {}",
-        texts.items_count(group_names.len()),
-        group_names[..limit].join(", ")
-    );
+    let mut summary = texts.errors_in(group_names.len(), &group_names[..limit].join(", "));
     if group_names.len() > limit {
         summary.push_str(", …");
     }
@@ -184,26 +178,4 @@ fn error_details(texts: &UiText, result: &ExecResult) -> Option<String> {
         details.push('\n');
     }
     Some(details)
-}
-
-fn result_group_details_text(group: &GroupResult) -> String {
-    use std::fmt::Write as _;
-
-    let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "{} - {}\nEstimated size: {}\nPaths attempted: {}\nPaths failed: {}",
-        group.app,
-        group.label,
-        human_bytes(group.bytes),
-        group.paths_attempted,
-        group.paths_failed
-    );
-    if !group.errors.is_empty() {
-        out.push_str("\nErrors:\n");
-        for error in &group.errors {
-            let _ = writeln!(out, "- {}: {}", error.path, error.error);
-        }
-    }
-    out
 }

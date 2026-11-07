@@ -2,7 +2,6 @@
 //! app cards), its status bar, and the preview/confirm/details modals. Sidebar
 //! navigation lives in `sidebar.rs`.
 
-use cleaner_core::human_bytes;
 use eframe::egui::{self, RichText, Ui};
 
 use crate::app::{SelectModal, SelectState};
@@ -430,7 +429,7 @@ fn modals(
                 return;
             };
             let title = format!("{} - {}", group.app, group.label);
-            let body = components::group_details_text(texts, group);
+            let body = texts.group_details(group);
             if !components::text_modal(ctx, "group-details", &title, &body, texts.dialog_close) {
                 state.modal = Some(SelectModal::GroupDetails(index));
             }
@@ -520,14 +519,7 @@ fn preview_modal(ctx: &egui::Context, texts: &UiText, state: &SelectState) -> bo
                     }
                 });
             ui.separator();
-            ui.label(
-                RichText::new(format!(
-                    "{}  |  est. {}",
-                    texts.items_count(state.plan.selected),
-                    human_bytes(state.plan.total_bytes)
-                ))
-                .family(theme::bold()),
-            );
+            ui.label(RichText::new(texts.preview_total(&state.plan)).family(theme::bold()));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button(texts.dialog_close).clicked() {

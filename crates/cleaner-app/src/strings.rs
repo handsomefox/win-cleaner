@@ -1,7 +1,7 @@
 //! All user-facing text lives in one struct so the UI stays translatable and
 //! the text remains easy to review.
 
-use cleaner_core::{ExecResult, Plan, ProgressUpdate, human_bytes};
+use cleaner_core::{ExecResult, Group, GroupResult, Plan, ProgressUpdate, human_bytes};
 
 use crate::viewmodel::format_duration;
 
@@ -93,6 +93,7 @@ pub(crate) struct UiText {
     pub stats_total_freed_label: &'static str,
     pub stats_last7_label: &'static str,
     pub stats_last30_label: &'static str,
+    pub stats_dir_unavailable: &'static str,
 
     pub menu_history: &'static str,
     pub menu_settings: &'static str,
@@ -247,6 +248,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     stats_total_freed_label: "Total freed",
     stats_last7_label: "Last 7 days",
     stats_last30_label: "Last 30 days",
+    stats_dir_unavailable: "stats directory unavailable",
 
     menu_history: "History",
     menu_settings: "Settings",
@@ -420,6 +422,75 @@ impl UiText {
             self.items_count(plan.selected),
             human_bytes(plan.total_bytes),
         )
+    }
+
+    /// The total under the preview dialog's list.
+    pub(crate) fn preview_total(&self, plan: &Plan) -> String {
+        format!(
+            "{}  |  est. {}",
+            self.items_count(plan.selected),
+            human_bytes(plan.total_bytes)
+        )
+    }
+
+    /// The plain-text detail body for one plan group (paths + scan issues).
+    pub(crate) fn group_details(&self, group: &Group) -> String {
+        use std::fmt::Write as _;
+
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "App: {}\nTarget: {}\nEstimated size: {}\n\nPaths:",
+            group.app,
+            group.label,
+            human_bytes(group.bytes)
+        );
+        if group.paths.is_empty() {
+            let _ = writeln!(out, "- {}", self.result_no_matching_paths);
+        }
+        for path in &group.paths {
+            let _ = writeln!(out, "- {}", path.display());
+        }
+        if !group.errs.is_empty() {
+            let _ = writeln!(out, "\n{}", self.result_scan_issues);
+            for err in &group.errs {
+                let _ = writeln!(out, "- {err}");
+            }
+        }
+        out
+    }
+
+    /// The plain-text detail body for one group of a finished cleanup.
+    pub(crate) fn result_group_details(&self, group: &GroupResult) -> String {
+        use std::fmt::Write as _;
+
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "{} - {}\nEstimated size: {}\nPaths attempted: {}\nPaths failed: {}",
+            group.app,
+            group.label,
+            human_bytes(group.bytes),
+            group.paths_attempted,
+            group.paths_failed
+        );
+        if !group.errors.is_empty() {
+            out.push_str("\nErrors:\n");
+            for error in &group.errors {
+                let _ = writeln!(out, "- {}: {}", error.path, error.error);
+            }
+        }
+        out
+    }
+
+    /// The results screen's error line: how many targets failed, and the
+    /// first few of their names.
+    pub(crate) fn errors_in(&self, groups: usize, names: &str) -> String {
+        format!("Errors in {}: {names}", self.items_count(groups))
+    }
+
+    pub(crate) fn stats_write_failed(&self, error: &str) -> String {
+        format!("Failed to write stats: {error}")
     }
 
     pub(crate) fn update_chip(&self, version: &str, ready: bool) -> String {

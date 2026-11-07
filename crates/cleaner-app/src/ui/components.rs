@@ -323,30 +323,3 @@ pub(crate) fn text_modal(
     });
     close_clicked || response.should_close()
 }
-
-/// The plain-text detail body for one plan group (paths + scan issues).
-pub(crate) fn group_details_text(texts: &UiText, group: &Group) -> String {
-    use std::fmt::Write as _;
-
-    let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "App: {}\nTarget: {}\nEstimated size: {}\n\nPaths:",
-        group.app,
-        group.label,
-        human_bytes(group.bytes)
-    );
-    if group.paths.is_empty() {
-        let _ = writeln!(out, "- {}", texts.result_no_matching_paths);
-    }
-    for path in &group.paths {
-        let _ = writeln!(out, "- {}", path.display());
-    }
-    if !group.errs.is_empty() {
-        let _ = writeln!(out, "\n{}", texts.result_scan_issues);
-        for err in &group.errs {
-            let _ = writeln!(out, "- {err}");
-        }
-    }
-    out
-}

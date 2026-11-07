@@ -259,7 +259,13 @@ pub(crate) struct CategorySummary {
 /// Per-category app counts and sizes across the whole plan, in sidebar order.
 /// Categories with no apps are omitted.
 pub(crate) fn category_summaries(plan: &Plan) -> Vec<CategorySummary> {
-    let apps = plan.by_app();
+    // Drawn every frame, so each app is mapped to its category once rather
+    // than once per category.
+    let apps: Vec<(Category, u64)> = plan
+        .by_app()
+        .iter()
+        .map(|group| (category_of(&group.app), group.bytes))
+        .collect();
     Category::ALL
         .into_iter()
         .filter_map(|category| {
@@ -268,16 +274,12 @@ pub(crate) fn category_summaries(plan: &Plan) -> Vec<CategorySummary> {
                 apps: 0,
                 bytes: 0,
             };
-            for group in &apps {
-                if category_of(&group.app) != category {
+            for &(app_category, bytes) in &apps {
+                if app_category != category {
                     continue;
                 }
                 summary.apps += 1;
-                summary.bytes += group
-                    .indices
-                    .iter()
-                    .map(|&i| plan.groups[i].bytes)
-                    .sum::<u64>();
+                summary.bytes += bytes;
             }
             (summary.apps > 0).then_some(summary)
         })

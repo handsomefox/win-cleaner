@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Execution options.
@@ -38,24 +39,15 @@ impl Plan {
     /// state without holding references.
     #[must_use]
     pub fn by_app(&self) -> Vec<AppGroup> {
-        let mut order: Vec<&str> = Vec::new();
-        for group in &self.groups {
-            if !order.contains(&group.app.as_str()) {
-                order.push(&group.app);
-            }
+        // The UI calls this several times a frame, so one pass builds every
+        // app's index list instead of one pass per app.
+        let mut apps: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+        for (index, group) in self.groups.iter().enumerate() {
+            apps.entry(&group.app).or_default().push(index);
         }
-        order.sort_unstable();
 
-        order
-            .into_iter()
-            .map(|app| {
-                let indices: Vec<usize> = self
-                    .groups
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, g)| g.app == app)
-                    .map(|(i, _)| i)
-                    .collect();
+        apps.into_iter()
+            .map(|(app, indices)| {
                 let bytes = indices.iter().map(|&i| self.groups[i].bytes).sum();
                 AppGroup {
                     app: app.to_owned(),

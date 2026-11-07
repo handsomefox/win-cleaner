@@ -125,24 +125,9 @@ pub struct StoredRun {
 ///
 /// Returns an error when an existing stats directory cannot be listed.
 pub fn load_stats(dir: &Path) -> Result<(Vec<StoredRun>, usize), StatsError> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), 0)),
-        Err(source) => {
-            return Err(StatsError::Io {
-                path: dir.to_path_buf(),
-                source,
-            });
-        }
-    };
-
     let mut results = Vec::new();
     let mut skipped = 0usize;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() || path.extension().is_none_or(|ext| ext != "json") {
-            continue;
-        }
+    for path in stats_files(dir)? {
         let Ok(data) = fs::read(&path) else {
             skipped += 1;
             continue;
@@ -163,23 +148,8 @@ pub fn load_stats(dir: &Path) -> Result<(Vec<StoredRun>, usize), StatsError> {
 /// Returns an error when the directory cannot be listed or a file cannot be
 /// removed.
 pub fn clear_stats(dir: &Path) -> Result<usize, StatsError> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
-        Err(source) => {
-            return Err(StatsError::Io {
-                path: dir.to_path_buf(),
-                source,
-            });
-        }
-    };
-
     let mut removed = 0usize;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() || path.extension().is_none_or(|ext| ext != "json") {
-            continue;
-        }
+    for path in stats_files(dir)? {
         fs::remove_file(&path).map_err(|source| StatsError::Io {
             path: path.clone(),
             source,
@@ -187,6 +157,27 @@ pub fn clear_stats(dir: &Path) -> Result<usize, StatsError> {
         removed += 1;
     }
     Ok(removed)
+}
+
+/// The stats files in `dir`: every `.json` entry that is not a directory. A
+/// missing directory holds none. Loading and clearing both go through this, so
+/// clearing removes exactly the files history reads or counts as unreadable.
+fn stats_files(dir: &Path) -> Result<Vec<PathBuf>, StatsError> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(source) => {
+            return Err(StatsError::Io {
+                path: dir.to_path_buf(),
+                source,
+            });
+        }
+    };
+    Ok(entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| !path.is_dir() && path.extension().is_some_and(|ext| ext == "json"))
+        .collect())
 }
 
 #[cfg(test)]

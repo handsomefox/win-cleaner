@@ -463,19 +463,16 @@ impl WinCleanerApp {
                 }
             }
             Screen::Deleting(state) => empty(state.task.clone(), None),
-            Screen::Results(state) => {
-                let (headline, _) = viewmodel::cleanup_result_summary(texts, &state.result, false);
-                HeaderInfo {
-                    task: headline,
-                    selection: texts.items_count(state.result.total_selected),
-                    savings: texts.freed_summary(state.result.total_bytes),
-                    savings_bytes: state.result.total_bytes,
-                    action: Some(HeaderAction {
-                        label: texts.action_clean_again,
-                        enabled: true,
-                    }),
-                }
-            }
+            Screen::Results(state) => HeaderInfo {
+                task: viewmodel::cleanup_result_headline(texts, &state.result).to_owned(),
+                selection: texts.items_count(state.result.total_selected),
+                savings: texts.freed_summary(state.result.total_bytes),
+                savings_bytes: state.result.total_bytes,
+                action: Some(HeaderAction {
+                    label: texts.action_clean_again,
+                    enabled: true,
+                }),
+            },
             Screen::Unsupported(_) => empty(String::new(), None),
         }
     }

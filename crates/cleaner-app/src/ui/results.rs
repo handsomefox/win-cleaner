@@ -18,7 +18,7 @@ pub(crate) enum ResultsAction {
 
 pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Option<ResultsAction> {
     let mut action = None;
-    let (headline, summary) = cleanup_result_summary(texts, &state.result, false);
+    let (headline, summary) = cleanup_result_summary(texts, &state.result);
     let headline_glyph = if state.result.error_count > 0 {
         icons::WARNING
     } else {
@@ -34,7 +34,7 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
                 RichText::new(format!("Failed to write stats: {stats_error}")).color(theme::DANGER),
             );
         }
-        if let Some((error_summary, _)) = build_error_summary(texts, &state.result) {
+        if let Some(error_summary) = error_summary(texts, &state.result) {
             ui.label(&error_summary);
             if ui.button(texts.result_error_details).clicked() {
                 open_errors = true;
@@ -98,7 +98,7 @@ fn modals(ctx: &egui::Context, texts: &UiText, state: &mut ResultsState) {
     match state.modal {
         None => {}
         Some(ResultsModal::Errors) => {
-            let Some((_, details)) = build_error_summary(texts, &state.result) else {
+            let Some(details) = error_details(texts, &state.result) else {
                 state.modal = None;
                 return;
             };
@@ -131,22 +131,46 @@ fn modals(ctx: &egui::Context, texts: &UiText, state: &mut ResultsState) {
     }
 }
 
-/// Short error summary plus the full error details text, or `None` when the
-/// run had no errors.
-fn build_error_summary(texts: &UiText, result: &ExecResult) -> Option<(String, String)> {
+/// The groups of a run that recorded errors.
+fn groups_with_errors(result: &ExecResult) -> impl Iterator<Item = &GroupResult> {
+    result
+        .groups
+        .iter()
+        .filter(|group| !group.errors.is_empty())
+}
+
+/// The one-line error summary, or `None` when the run had no errors. Drawn
+/// every frame, so it leaves the per-path details to [`error_details`].
+fn error_summary(texts: &UiText, result: &ExecResult) -> Option<String> {
+    if result.error_count == 0 {
+        return None;
+    }
+    let group_names: Vec<String> = groups_with_errors(result)
+        .map(|group| format!("{} - {}", group.app, group.label))
+        .collect();
+    let limit = group_names.len().min(3);
+    let mut summary = format!(
+        "Errors in {}: {}",
+        texts.items_count(group_names.len()),
+        group_names[..limit].join(", ")
+    );
+    if group_names.len() > limit {
+        summary.push_str(", …");
+    }
+    Some(summary)
+}
+
+/// The full error details text: every failed path of every group, or `None`
+/// when the run had no errors.
+fn error_details(texts: &UiText, result: &ExecResult) -> Option<String> {
     use std::fmt::Write as _;
 
     if result.error_count == 0 {
         return None;
     }
-    let mut group_names = Vec::new();
     let mut details = String::new();
     let _ = writeln!(details, "{}\n", texts.errors_count(result.error_count));
-    for group in &result.groups {
-        if group.errors.is_empty() {
-            continue;
-        }
-        group_names.push(format!("{} - {}", group.app, group.label));
+    for group in groups_with_errors(result) {
         let _ = writeln!(
             details,
             "{} - {} ({})",
@@ -159,16 +183,7 @@ fn build_error_summary(texts: &UiText, result: &ExecResult) -> Option<(String, S
         }
         details.push('\n');
     }
-    let limit = group_names.len().min(3);
-    let mut summary = format!(
-        "Errors in {}: {}",
-        texts.items_count(group_names.len()),
-        group_names[..limit].join(", ")
-    );
-    if group_names.len() > limit {
-        summary.push_str(", …");
-    }
-    Some((summary, details))
+    Some(details)
 }
 
 fn result_group_details_text(group: &GroupResult) -> String {

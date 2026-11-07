@@ -401,18 +401,22 @@ pub(crate) fn cache_selection_summary(texts: &UiText, plan: &mut Plan) -> (Strin
     (selection, savings)
 }
 
-/// Headline plus summary line for the results screen.
-pub(crate) fn cleanup_result_summary(
-    texts: &UiText,
-    result: &ExecResult,
-    had_error: bool,
-) -> (String, String) {
-    let headline = if had_error || result.error_count > 0 {
+/// Headline for a finished cleanup, shown in the header and on the results
+/// screen.
+pub(crate) fn cleanup_result_headline<'a>(texts: &'a UiText, result: &ExecResult) -> &'a str {
+    if result.error_count > 0 {
         texts.result_cleanup_with_errors
     } else {
         texts.result_cleanup_complete
-    };
-    (headline.to_owned(), texts.cache_result_summary(result))
+    }
+}
+
+/// Headline plus summary line for the results screen.
+pub(crate) fn cleanup_result_summary(texts: &UiText, result: &ExecResult) -> (String, String) {
+    (
+        cleanup_result_headline(texts, result).to_owned(),
+        texts.cache_result_summary(result),
+    )
 }
 
 /// Joins non-empty parts with the `  |  ` separator used across summaries.
@@ -807,14 +811,14 @@ mod tests {
 
     #[test]
     fn result_summary_reports_errors() {
-        let (headline, summary) = cleanup_result_summary(&ENGLISH, &sample_result(0), false);
+        let (headline, summary) = cleanup_result_summary(&ENGLISH, &sample_result(0));
         assert_eq!(headline, "Cleanup complete");
         assert_eq!(
             summary,
             "3 items cleaned  |  est. 1.00 KB freed  |  3s  |  0 errors"
         );
 
-        let (headline, _) = cleanup_result_summary(&ENGLISH, &sample_result(2), false);
+        let (headline, _) = cleanup_result_summary(&ENGLISH, &sample_result(2));
         assert_eq!(headline, "Cleanup finished with errors");
     }
 

@@ -940,6 +940,14 @@ enum Message {
     Downloaded(Result<Staged, String>),
 }
 
+/// The background work an [`Updater`] runs. One runs at a time.
+enum Task {
+    Idle,
+    Checking,
+    /// Bytes received and expected so far.
+    Downloading(u64, Option<u64>),
+}
+
 /// Runs checks and downloads off the UI thread and holds what they found.
 /// Call [`Updater::poll`] once per frame.
 pub struct Updater {
@@ -953,11 +961,10 @@ pub struct Updater {
     receiver: mpsc::Receiver<Message>,
     /// When this session last started a check.
     attempted: Option<u64>,
-    checking: bool,
+    task: Task,
     checked: bool,
     update: Option<Update>,
     error: Option<String>,
-    progress: Option<(u64, Option<u64>)>,
     staged: Option<Staged>,
     dismissed: bool,
 }
@@ -983,11 +990,10 @@ impl Updater {
             sender,
             receiver,
             attempted: None,
-            checking: false,
+            task: Task::Idle,
             checked: false,
             update: None,
             error: None,
-            progress: None,
             staged: None,
             dismissed: false,
         }
@@ -1006,7 +1012,7 @@ impl Updater {
 
     #[must_use]
     pub fn is_checking(&self) -> bool {
-        self.checking
+        matches!(self.task, Task::Checking)
     }
 
     /// Whether a check finished this session and found nothing newer.
@@ -1029,7 +1035,10 @@ impl Updater {
     /// Bytes received and expected while a download runs.
     #[must_use]
     pub fn progress(&self) -> Option<(u64, Option<u64>)> {
-        self.progress
+        match self.task {
+            Task::Downloading(received, total) => Some((received, total)),
+            Task::Idle | Task::Checking => None,
+        }
     }
 
     /// The version waiting for a restart, once downloaded and verified.
@@ -1040,7 +1049,7 @@ impl Updater {
 
     #[must_use]
     pub fn is_busy(&self) -> bool {
-        self.checking || self.progress.is_some()
+        !matches!(self.task, Task::Idle)
     }
 
     /// Whether the latest release can be downloaded and installed here.
@@ -1081,7 +1090,7 @@ impl Updater {
         while let Ok(message) = self.receiver.try_recv() {
             match message {
                 Message::Checked(result) => {
-                    self.checking = false;
+                    self.task = Task::Idle;
                     match result {
                         Ok(update) => {
                             settings.last_check = Some(now());
@@ -1099,12 +1108,12 @@ impl Updater {
                     }
                 }
                 Message::Progress(received, total) => {
-                    if self.progress.is_some() {
-                        self.progress = Some((received, total));
+                    if let Task::Downloading(..) = self.task {
+                        self.task = Task::Downloading(received, total);
                     }
                 }
                 Message::Downloaded(result) => {
-                    self.progress = None;
+                    self.task = Task::Idle;
                     match result {
                         Ok(staged) => {
                             self.error = None;
@@ -1143,7 +1152,7 @@ impl Updater {
                 return;
             }
         };
-        self.checking = true;
+        self.task = Task::Checking;
         let sender = self.sender.clone();
         let repaint = Arc::clone(&self.repaint);
         self.spawn("update-check", move || {
@@ -1177,7 +1186,7 @@ impl Updater {
             }
         };
         self.error = None;
-        self.progress = Some((0, release.archive.as_ref().map(|archive| archive.size)));
+        self.task = Task::Downloading(0, release.archive.as_ref().map(|archive| archive.size));
         let sender = self.sender.clone();
         let repaint = Arc::clone(&self.repaint);
         self.spawn("update-download", move || {
@@ -1227,8 +1236,7 @@ impl Updater {
             .name(name.to_owned())
             .spawn(work)
         {
-            self.checking = false;
-            self.progress = None;
+            self.task = Task::Idle;
             self.error = Some(format!("Could not start the update thread: {error}"));
         }
     }

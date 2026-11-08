@@ -9,121 +9,16 @@ on:
     # Weekly, so a new RustSec advisory fails the audit without waiting for a push.
     - cron: "23 5 * * 1"
   workflow_dispatch:
-  # release.yml runs these same checks on the commit it releases.
-  workflow_call:
-    inputs:
-      ref:
-        description: Commit to check; empty means the triggering event's default
-        required: false
-        type: string
-        default: ""
 
 permissions: {}
 
-# A called workflow sees the caller's name here, so only a CI run cancels an older CI run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.workflow == 'CI' }}
-
-env:
-  CARGO_TERM_COLOR: always
-  # Nothing is cached between runs, so incremental artifacts would be written and never read.
-  CARGO_INCREMENTAL: 0
-  # Keeps file and line numbers in panic backtraces without the full debug info, which is
-  # slow to write and link on Windows.
-  CARGO_PROFILE_DEV_DEBUG: line-tables-only
-
-defaults:
-  run:
-    shell: bash
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  workflows:
-    name: Workflows
+  ci:
+    name: CI
     permissions:
       contents: read
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.ref }}
-      - name: Install actionlint and zizmor
-        run: scripts/install-ci-tool.sh actionlint zizmor
-      - name: Lint workflows
-        run: actionlint
-      - name: Lint scripts
-        run: shellcheck scripts/*.sh
-      # The pedantic persona is the one that reports unpinned container images.
-      - name: Audit workflows
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: zizmor --persona pedantic --format github .github/workflows .github/dependabot.yml
-
-  portable:
-    name: Portable
-    permissions:
-      contents: read
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.ref }}
-      - name: Install the pinned Rust toolchain
-        run: |
-          echo "ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
-          rustup toolchain install
-          rustc --version
-          cargo --version
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-      - name: Test complete workspace
-        run: cargo test --workspace --no-fail-fast --locked
-      - name: Lint complete workspace
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Install cargo-machete
-        run: scripts/install-ci-tool.sh cargo-machete
-      - name: Detect unused dependencies
-        run: cargo machete
-
-  windows:
-    name: Windows
-    permissions:
-      contents: read
-    runs-on: windows-2025
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.ref }}
-      - name: Install the pinned Rust toolchain
-        run: |
-          echo "ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
-          rustup toolchain install
-          rustc --version
-          cargo --version
-      # Test and Clippy share one job so Clippy reuses the dependencies the tests compiled.
-      - name: Test complete workspace
-        run: cargo test --workspace --no-fail-fast --locked
-      - name: Lint complete workspace
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-
-  audit:
-    name: Audit
-    permissions:
-      contents: read
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.ref }}
-      - name: Install cargo-audit
-        run: scripts/install-ci-tool.sh cargo-audit
-      - name: Audit committed lockfile
-        run: cargo-audit audit --file Cargo.lock
+    uses: handsomefox/app-workflows/.github/workflows/ci.yml@7cd7dff4f2a812b71798e642bf5a2a2100b635e6 # v0.1.1

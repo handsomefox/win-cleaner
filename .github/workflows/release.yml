@@ -14,176 +14,27 @@ on:
 permissions: {}
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ inputs.release_tag || github.ref }}
+  group: release-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
-env:
-  CARGO_TERM_COLOR: always
-  APP_PACKAGE: cleaner-app
-  BIN: win-cleaner
-
-defaults:
-  run:
-    shell: bash
-
 jobs:
-  meta:
-    name: Resolve version
-    permissions:
-      contents: read
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-      ref: ${{ steps.version.outputs.ref }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
-      - name: Install the pinned Rust toolchain
-        run: |
-          echo "ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
-          rustup toolchain install
-          rustc --version
-          cargo --version
-      # Every later job builds the commit resolved here, so a tag moved mid-run cannot mix
-      # sources. A dry run has no tag and publishes nothing.
-      - name: Resolve and check the version
-        id: version
-        env:
-          TAG: ${{ inputs.release_tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
-        run: |
-          version=$(cargo metadata --locked --no-deps --format-version 1 |
-            jq -er --arg package "$APP_PACKAGE" '[.packages[] | select(.name == $package)] |
-              if length == 1 then .[0].version else error("expected one \($package) package") end')
-          if [[ -n "$TAG" ]]; then
-            if [[ "$TAG" != "v$version" ]]; then
-              echo "error: tag $TAG does not match $APP_PACKAGE version v$version" >&2
-              exit 1
-            fi
-            scripts/changelog-notes.sh "$version" > /dev/null
-          fi
-          {
-            echo "version=$version"
-            echo "tag=$TAG"
-            echo "ref=$(git rev-parse HEAD)"
-          } >> "$GITHUB_OUTPUT"
-
   checks:
     name: Checks
-    needs: meta
     permissions:
       contents: read
-    # zizmor suggests the "$/" form, but actionlint rejects it and GitHub documents "./", which
-    # already resolves at this run's commit.
-    uses: ./.github/workflows/ci.yml # zizmor: ignore[self-repository]
+    uses: handsomefox/app-workflows/.github/workflows/ci.yml@7cd7dff4f2a812b71798e642bf5a2a2100b635e6 # v0.1.1
     with:
-      ref: ${{ needs.meta.outputs.ref }}
+      ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
 
-  build-windows:
-    name: Build Windows x86_64
-    needs: meta
-    permissions:
-      contents: read
-    runs-on: windows-2025
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ needs.meta.outputs.ref }}
-      - name: Install the pinned Rust toolchain
-        run: |
-          echo "ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
-          rustup toolchain install
-          rustc --version
-          cargo --version
-      - name: Build the release executable
-        run: cargo build --release --locked -p "$APP_PACKAGE"
-      - name: Upload the executable
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: bin-windows-x86_64
-          path: target/release/${{ env.BIN }}.exe
-          if-no-files-found: error
-
-  assemble:
-    name: Package and verify
-    needs: [meta, build-windows]
-    permissions:
-      contents: read
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      # The README and LICENSE packed into each archive come from the commit that was built.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ needs.meta.outputs.ref }}
-      - name: Download the Windows executable
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: bin-windows-x86_64
-          path: bin/windows-x86_64
-      - name: Package release archives
-        env:
-          VERSION: ${{ needs.meta.outputs.version }}
-        run: scripts/package-release.sh "$BIN" "$VERSION" "windows-x86_64=bin/windows-x86_64/$BIN.exe"
-      - name: Upload release assets
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-assets
-          path: dist/
-          if-no-files-found: error
-
-  publish:
-    name: Attest and publish
-    if: needs.meta.outputs.tag != ''
-    needs: [meta, checks, assemble]
+  release:
+    name: Release
+    needs: checks
     permissions:
       attestations: write # Publish provenance for each release asset.
       contents: write # Create the GitHub release and upload assets.
       id-token: write # Request the OIDC identity used for provenance.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      TAG: ${{ needs.meta.outputs.tag }}
-      VERSION: ${{ needs.meta.outputs.version }}
-      REF: ${{ needs.meta.outputs.ref }}
-    steps:
-      # Cone mode keeps the top-level files, which include CHANGELOG.md.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          ref: ${{ needs.meta.outputs.ref }}
-          sparse-checkout: scripts
-      - name: Download release assets
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: release-assets
-          path: dist
-      - name: Verify release assets independently
-        run: scripts/verify-release.sh dist "$BIN" "$VERSION" windows-x86_64
-      - name: Write release notes
-        run: scripts/changelog-notes.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
-      - name: Check the tag still names the built commit
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tagged=$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)
-          if [[ "$tagged" != "$REF" ]]; then
-            echo "error: $TAG names $tagged, but this run built $REF" >&2
-            exit 1
-          fi
-      - name: Attest release assets
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: dist/*
-      - name: Publish GitHub release
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$TAG" dist/* --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+    uses: handsomefox/app-workflows/.github/workflows/release.yml@7cd7dff4f2a812b71798e642bf5a2a2100b635e6 # v0.1.1
+    with:
+      package: cleaner-app
+      bin: win-cleaner
+      release-tag: ${{ inputs.release_tag }}

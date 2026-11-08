@@ -63,21 +63,13 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-CI runs those three commands on Ubuntu and the last two on Windows. It also runs `cargo audit` and `cargo machete`. Only the release workflow builds release binaries.
+CI runs those three commands on Ubuntu and the last two on Windows. It also runs `cargo audit` and `cargo machete`. Only the release workflow builds release binaries. Both workflows come from [handsomefox/app-workflows](https://github.com/handsomefox/app-workflows), which the other apps share.
 
 To cross-build the Windows 10/11 x86-64 app from Linux, use `cargo-xwin`:
 
 ```sh
 cargo xwin build --workspace --release --target x86_64-pc-windows-msvc
 ```
-
-To pack the same archive and `SHA256SUMS` a release publishes, under `dist/`:
-
-```sh
-bash scripts/package-windows.sh
-```
-
-The packaging script needs `cargo-xwin` 0.23.1, `jq`, `zip`, `unzip`, and GNU `sha256sum`. It checks the archive contents and the checksums before it reports success.
 
 The GUI runs on Linux for development work, but a release build disables scanning and cleaning there. A debug build scans the folder that `WIN_CLEANER_DEV_ROOT` names, laid out like a Windows user profile. Cleaning still needs the Windows Recycle Bin, so it fails on Linux.
 

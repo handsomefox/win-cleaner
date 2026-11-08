@@ -1170,13 +1170,30 @@ impl Updater {
         }
     }
 
-    fn client(&mut self) -> Result<Arc<Client>, String> {
-        if let Some(client) = &self.client {
-            return Ok(Arc::clone(client));
+    /// The client, built on first use. Records the error when it cannot be
+    /// built.
+    fn client(&mut self) -> Option<Arc<Client>> {
+        if self.client.is_none() {
+            match Client::new(self.app) {
+                Ok(client) => self.client = Some(Arc::new(client)),
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                    return None;
+                }
+            }
         }
-        let client = Arc::new(Client::new(self.app).map_err(|error| error.to_string())?);
-        self.client = Some(Arc::clone(&client));
-        Ok(client)
+        self.client.clone()
+    }
+
+    /// Sends a background result to [`Updater::poll`] and wakes the UI to
+    /// take it in.
+    fn reporter(&self) -> impl Fn(Message) + Send + 'static {
+        let sender = self.sender.clone();
+        let repaint = Arc::clone(&self.repaint);
+        move |message| {
+            let _ = sender.send(message);
+            repaint();
+        }
     }
 
     /// Checks for a newer release now, unless a check or download is running.
@@ -1185,16 +1202,11 @@ impl Updater {
             return;
         }
         self.attempted = Some(now());
-        let client = match self.client() {
-            Ok(client) => client,
-            Err(error) => {
-                self.error = Some(error);
-                return;
-            }
+        let Some(client) = self.client() else {
+            return;
         };
         self.task = Task::Checking;
-        let sender = self.sender.clone();
-        let repaint = Arc::clone(&self.repaint);
+        let report = self.reporter();
         self.spawn("update-check", move || {
             let result = client
                 .check()
@@ -1203,8 +1215,7 @@ impl Updater {
                     tracing::warn!(%error, "app update check failed");
                     error.to_string()
                 });
-            let _ = sender.send(Message::Checked(result));
-            repaint();
+            report(Message::Checked(result));
         });
     }
 
@@ -1218,17 +1229,12 @@ impl Updater {
         };
         let release = update.latest.clone();
         let executable = executable.clone();
-        let client = match self.client() {
-            Ok(client) => client,
-            Err(error) => {
-                self.error = Some(error);
-                return;
-            }
+        let Some(client) = self.client() else {
+            return;
         };
         self.error = None;
         self.task = Task::Downloading(0, release.archive.as_ref().map(|archive| archive.size));
-        let sender = self.sender.clone();
-        let repaint = Arc::clone(&self.repaint);
+        let report = self.reporter();
         self.spawn("update-download", move || {
             let mut last_report = 0;
             let result = client
@@ -1237,16 +1243,14 @@ impl Updater {
                     // waking the UI for every network read.
                     if received == 0 || received - last_report >= 256 * 1024 {
                         last_report = received;
-                        let _ = sender.send(Message::Progress(received, total));
-                        repaint();
+                        report(Message::Progress(received, total));
                     }
                 })
                 .map_err(|error| {
                     tracing::warn!(%error, "app update download failed");
                     error.to_string()
                 });
-            let _ = sender.send(Message::Downloaded(result));
-            repaint();
+            report(Message::Downloaded(result));
         });
     }
 

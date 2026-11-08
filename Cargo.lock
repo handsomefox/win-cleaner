@@ -68,16 +68,15 @@ checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
 
 [[package]]
 name = "app-update"
-version = "1.2.3"
+version = "0.1.0"
+source = "git+https://github.com/handsomefox/app-update?tag=v0.1.0#f79d656fca1a65dcabbd1675ad57d23e4c4c1439"
 dependencies = [
  "flate2",
  "reqwest",
  "rustls",
  "serde",
- "serde_json",
  "sha2",
  "tar",
- "tempfile",
  "thiserror 2.0.21",
  "tracing",
  "zip",

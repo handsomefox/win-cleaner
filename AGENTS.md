@@ -10,7 +10,7 @@ The workspace is layered so that everything portable stays testable on Linux:
 - `cleaner-catalog` holds the built-in catalog. `build_registry` derives every path from an injected `Roots`, so no username is hardcoded and tests can point everything at a temp directory.
 - `cleaner-platform` wraps the Windows APIs: known-folder resolution, root discovery, and the Recycle Bin in `recycle.rs`.
 - `cleaner-app` is the egui binary. `worker.rs` runs blocking work off the UI thread, `viewmodel.rs` shapes state for `ui/`, and `strings.rs` holds the user-facing text.
-- `app-update` updates the app itself from its GitHub releases. Its `lib.rs` is byte-for-byte the same in all five apps, so change it in every app at once. `cleaner-app/src/ui/update.rs` holds this app's chip and dialog around it.
+- `app-update` updates the app itself from its GitHub releases. It lives in its own repository, [handsomefox/app-update](https://github.com/handsomefox/app-update), and the workspace pins it to a tag. That repository's `AGENTS.md` covers changing and releasing it. `cleaner-app/src/ui/update.rs` holds this app's chip and dialog around it.
 
 One catalog entry is a `cleaner_core::Item` in code and a "cleanup target" in the UI and the README. Keep those two names attached to those two contexts.
 

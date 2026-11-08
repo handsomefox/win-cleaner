@@ -948,6 +948,43 @@ enum Task {
     Downloading(u64, Option<u64>),
 }
 
+/// What this session's checks found.
+enum Found {
+    /// No check has succeeded yet.
+    NotChecked,
+    /// The last successful check found nothing newer.
+    UpToDate,
+    /// The last successful check found newer releases. `staged` is the
+    /// latest one, once downloaded and verified.
+    Newer {
+        update: Box<Update>,
+        staged: Option<Staged>,
+    },
+}
+
+impl Found {
+    fn update(&self) -> Option<&Update> {
+        match self {
+            Self::Newer { update, .. } => Some(update.as_ref()),
+            Self::NotChecked | Self::UpToDate => None,
+        }
+    }
+
+    fn staged(&self) -> Option<&Staged> {
+        match self {
+            Self::Newer { staged, .. } => staged.as_ref(),
+            Self::NotChecked | Self::UpToDate => None,
+        }
+    }
+
+    fn take_staged(&mut self) -> Option<Staged> {
+        match self {
+            Self::Newer { staged, .. } => staged.take(),
+            Self::NotChecked | Self::UpToDate => None,
+        }
+    }
+}
+
 /// Runs checks and downloads off the UI thread and holds what they found.
 /// Call [`Updater::poll`] once per frame.
 pub struct Updater {
@@ -962,10 +999,8 @@ pub struct Updater {
     /// When this session last started a check.
     attempted: Option<u64>,
     task: Task,
-    checked: bool,
-    update: Option<Update>,
+    found: Found,
     error: Option<String>,
-    staged: Option<Staged>,
     dismissed: bool,
 }
 
@@ -991,10 +1026,8 @@ impl Updater {
             receiver,
             attempted: None,
             task: Task::Idle,
-            checked: false,
-            update: None,
+            found: Found::NotChecked,
             error: None,
-            staged: None,
             dismissed: false,
         }
     }
@@ -1018,12 +1051,12 @@ impl Updater {
     /// Whether a check finished this session and found nothing newer.
     #[must_use]
     pub fn is_up_to_date(&self) -> bool {
-        self.checked && self.update.is_none()
+        matches!(self.found, Found::UpToDate)
     }
 
     #[must_use]
     pub fn update(&self) -> Option<&Update> {
-        self.update.as_ref()
+        self.found.update()
     }
 
     /// The last check or download failure.
@@ -1044,7 +1077,7 @@ impl Updater {
     /// The version waiting for a restart, once downloaded and verified.
     #[must_use]
     pub fn staged(&self) -> Option<Version> {
-        self.staged.as_ref().map(|staged| staged.version)
+        self.found.staged().map(|staged| staged.version)
     }
 
     #[must_use]
@@ -1058,8 +1091,7 @@ impl Updater {
         self.executable.is_some()
             && platform().is_some()
             && self
-                .update
-                .as_ref()
+                .update()
                 .is_some_and(|update| update.latest.installable())
     }
 
@@ -1067,7 +1099,7 @@ impl Updater {
     /// for this session.
     #[must_use]
     pub fn notification(&self, settings: &Settings) -> Option<&Release> {
-        let latest = self.update.as_ref()?.latest();
+        let latest = self.update()?.latest();
         let skipped = settings.skipped.as_deref() == Some(latest.version.to_string().as_str());
         (!self.dismissed && !skipped).then_some(latest)
     }
@@ -1079,7 +1111,7 @@ impl Updater {
 
     /// Hides the notification for the latest release until a newer one.
     pub fn skip(&mut self, settings: &mut Settings) {
-        if let Some(update) = &self.update {
+        if let Some(update) = self.update() {
             settings.skipped = Some(update.latest.version.to_string());
         }
     }
@@ -1095,14 +1127,18 @@ impl Updater {
                         Ok(update) => {
                             settings.last_check = Some(now());
                             settings.update_found = update.is_some();
-                            self.checked = true;
                             self.error = None;
-                            if self.staged.as_ref().map(|staged| staged.version)
-                                != update.as_ref().map(|update| update.latest.version)
-                            {
-                                self.staged = None;
-                            }
-                            self.update = update.map(|update| *update);
+                            // A download stays staged only while it is still
+                            // the latest release.
+                            let staged = self.found.take_staged().filter(|staged| {
+                                update
+                                    .as_ref()
+                                    .is_some_and(|update| update.latest.version == staged.version)
+                            });
+                            self.found = match update {
+                                Some(update) => Found::Newer { update, staged },
+                                None => Found::UpToDate,
+                            };
                         }
                         Err(error) => self.error = Some(error),
                     }
@@ -1117,7 +1153,11 @@ impl Updater {
                     match result {
                         Ok(staged) => {
                             self.error = None;
-                            self.staged = Some(staged);
+                            // A download starts only from a found update, and
+                            // no check runs until it reports back.
+                            if let Found::Newer { staged: slot, .. } = &mut self.found {
+                                *slot = Some(staged);
+                            }
                         }
                         Err(error) => self.error = Some(error),
                     }
@@ -1173,7 +1213,7 @@ impl Updater {
         if self.is_busy() || !self.can_install() {
             return;
         }
-        let (Some(update), Some(executable)) = (&self.update, &self.executable) else {
+        let (Some(update), Some(executable)) = (self.update(), &self.executable) else {
             return;
         };
         let release = update.latest.clone();
@@ -1218,7 +1258,7 @@ impl Updater {
     /// # Errors
     /// Returns a message when nothing is staged or the swap fails.
     pub fn install_and_restart(&mut self) -> Result<(), String> {
-        let (Some(staged), Some(executable)) = (&self.staged, &self.executable) else {
+        let (Some(staged), Some(executable)) = (self.found.staged(), &self.executable) else {
             return Err("No downloaded update is waiting to be installed.".to_owned());
         };
         if let Err(error) = install(staged, executable) {
@@ -1227,7 +1267,7 @@ impl Updater {
             return Err(message);
         }
         request_restart(executable);
-        self.staged = None;
+        self.found.take_staged();
         Ok(())
     }
 
@@ -2007,6 +2047,47 @@ mod tests {
             updater.update().is_some()
         });
         assert_eq!(updater.notification(&settings).unwrap().tag, "v1.3.0");
+    }
+
+    #[test]
+    fn a_check_keeps_the_staged_download_only_while_it_is_the_latest() {
+        fn report(updater: &mut Updater, message: Message) {
+            updater.sender.send(message).unwrap();
+            updater.poll(&mut Settings {
+                period: CheckPeriod::Never,
+                ..Settings::default()
+            });
+        }
+        let mut updater = Updater::new(APP, || {});
+        let found = |tag: &str| {
+            let update = select_update(&APP, version("1.2.3"), None, vec![api_release(tag, &[])]);
+            Message::Checked(Ok(update.map(Box::new)))
+        };
+        let staged = || {
+            Message::Downloaded(Ok(Staged {
+                version: version("1.3.0"),
+                path: PathBuf::from("tool.new"),
+                sha256: [0; 32],
+            }))
+        };
+
+        report(&mut updater, found("v1.3.0"));
+        report(&mut updater, staged());
+        report(&mut updater, found("v1.3.0"));
+        report(&mut updater, Message::Checked(Err("offline".to_owned())));
+        assert_eq!(updater.staged(), Some(version("1.3.0")));
+        assert_eq!(updater.error(), Some("offline"));
+
+        report(&mut updater, found("v1.4.0"));
+        assert_eq!(updater.staged(), None);
+        assert_eq!(updater.update().unwrap().latest().version, version("1.4.0"));
+
+        report(&mut updater, found("v1.3.0"));
+        report(&mut updater, staged());
+        report(&mut updater, Message::Checked(Ok(None)));
+        assert_eq!(updater.staged(), None);
+        assert!(updater.is_up_to_date());
+        assert_eq!(updater.error(), None);
     }
 
     #[test]

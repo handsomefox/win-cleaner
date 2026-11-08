@@ -220,7 +220,8 @@ struct Nav {
     about: bool,
     settings: bool,
     updates: bool,
-    update_action: Option<ui::update::UpdateAction>,
+    check_updates: bool,
+    update_action: Option<app_update_ui::Action>,
     show_history: bool,
     refresh_history: bool,
     close_history: bool,
@@ -505,7 +506,7 @@ impl WinCleanerApp {
                             .family(theme::bold())
                             .size(theme::FONT_HEADING),
                     );
-                    if ui::update::chip(ui, texts, &self.updater, &self.prefs.app_updates) {
+                    if ui::update::chip(ui, &self.updater, &self.prefs.app_updates) {
                         nav.updates = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -662,19 +663,9 @@ impl WinCleanerApp {
         );
     }
 
-    fn apply_update_action(&mut self, ctx: &egui::Context, action: ui::update::UpdateAction) {
-        use ui::update::UpdateAction;
-        match action {
-            UpdateAction::CheckNow => self.updater.check_now(),
-            UpdateAction::Download => self.updater.download(),
-            UpdateAction::Restart => {
-                if self.updater.install_and_restart().is_ok() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            }
-            UpdateAction::Skip => self.updater.skip(&mut self.prefs.app_updates),
-            UpdateAction::Later => self.updater.dismiss(),
-            UpdateAction::Close => {}
+    fn apply_update_action(&mut self, ctx: &egui::Context, action: app_update_ui::Action) {
+        if app_update_ui::apply(action, ctx, &mut self.updater, &mut self.prefs.app_updates) {
+            self.update_open = false;
         }
     }
 
@@ -706,6 +697,12 @@ impl WinCleanerApp {
         }
         if nav.settings {
             self.settings_open = true;
+        }
+        if nav.check_updates {
+            // The About button promises a check, so start one as the modal
+            // opens. The updater leaves a running check or download alone.
+            self.updater.check_now();
+            self.update_open = true;
         }
         if nav.updates {
             self.update_open = true;
@@ -775,7 +772,7 @@ impl eframe::App for WinCleanerApp {
         }
         self.draw_central(root, &mut nav);
         if ui::about::show(&ctx, self.texts, &mut self.about_open) {
-            nav.updates = true;
+            nav.check_updates = true;
         }
         self.draw_settings(&ctx, &mut nav);
         self.draw_updates(&ctx, &mut nav);

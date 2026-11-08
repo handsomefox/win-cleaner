@@ -5,7 +5,6 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
-mod diagnostics;
 mod icons;
 mod presets;
 mod strings;
@@ -17,10 +16,16 @@ mod worker;
 use eframe::egui;
 
 fn main() -> eframe::Result {
-    let log_path = diagnostics::init();
+    // Every run appends to a dated log in `%LOCALAPPDATA%\win-cleaner\logs`
+    // that the user can share when something goes wrong.
+    let log_dir = app_diagnostics::init(
+        cleaner_platform::logs_dir().as_deref(),
+        "win-cleaner",
+        "info",
+    );
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "win-cleaner starting");
-    if let Some(path) = &log_path {
-        tracing::info!("logging to {}", path.display());
+    if let Some(dir) = &log_dir {
+        tracing::info!("logging to {}", dir.display());
     }
 
     let options = eframe::NativeOptions {
@@ -46,6 +51,7 @@ fn main() -> eframe::Result {
 
 /// Where this app's releases are published.
 const APP_INFO: app_update::AppInfo = app_update::AppInfo {
+    name: strings::ENGLISH.app_title,
     owner: "handsomefox",
     repo: "win-cleaner",
     bin: "win-cleaner",

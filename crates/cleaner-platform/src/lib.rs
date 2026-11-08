@@ -4,12 +4,8 @@
 //! platforms it compiles to stubs so the workspace builds and tests run on
 //! Linux; the stubs report `UnsupportedPlatform` errors at runtime.
 
-#[cfg(windows)]
-mod known_folders;
 pub mod recycle;
 pub mod roots;
-pub mod shell;
 
 pub use recycle::ShellRecycler;
-pub use roots::{app_data_dir, logs_dir, resolve_roots, stats_dir};
-pub use shell::open_folder;
+pub use roots::{logs_dir, resolve_roots, stats_dir};

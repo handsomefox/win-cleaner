@@ -8,9 +8,9 @@ The workspace is layered so that everything portable stays testable on Linux:
 
 - `cleaner-core` holds the model types, the safe-root guard in `safety.rs`, scanning, planning, execution, glob expansion, empty-folder handling, and statistics. No app-specific path knowledge lives here.
 - `cleaner-catalog` holds the built-in catalog. `build_registry` derives every path from an injected `Roots`, so no username is hardcoded and tests can point everything at a temp directory.
-- `cleaner-platform` wraps the Windows APIs: known-folder resolution, root discovery, and the Recycle Bin in `recycle.rs`.
+- `cleaner-platform` wraps the Windows APIs: root discovery and the Recycle Bin in `recycle.rs`.
 - `cleaner-app` is the egui binary. `worker.rs` runs blocking work off the UI thread, `viewmodel.rs` shapes state for `ui/`, and `strings.rs` holds the user-facing text.
-- `app-update` updates the app itself from its GitHub releases. It lives in its own repository, [handsomefox/app-update](https://github.com/handsomefox/app-update), and the workspace pins it to a tag. That repository's `AGENTS.md` covers changing and releasing it. `cleaner-app/src/ui/update.rs` holds this app's chip and dialog around it.
+- The shared crates come from [handsomefox/app-internals](https://github.com/handsomefox/app-internals), pinned to a tag: `app-update` updates the app from its GitHub releases, `app-update-ui` draws the update dialog's content, `app-diagnostics` writes the log files, and `app-folders` resolves the four user roots and opens folders. That repository's `AGENTS.md` covers changing them. `cleaner-app/src/ui/update.rs` holds this app's chip, its modal, and the `Look` that themes the dialog.
 
 One catalog entry is a `cleaner_core::Item` in code and a "cleanup target" in the UI and the README. Keep those two names attached to those two contexts.
 

@@ -72,11 +72,7 @@ fn open_log_folder() {
         tracing::warn!("failed to open log folder: no app data directory");
         return;
     };
-    if let Err(err) = std::fs::create_dir_all(&dir) {
-        tracing::warn!("failed to create log folder {}: {err}", dir.display());
-        return;
-    }
-    if let Err(err) = cleaner_platform::open_folder(&dir) {
-        tracing::warn!("failed to open log folder: {err}");
+    if let Err(err) = app_folders::reveal(&dir) {
+        tracing::warn!("failed to open log folder {}: {err}", dir.display());
     }
 }

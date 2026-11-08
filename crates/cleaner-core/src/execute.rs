@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::empty_folders::EMPTY_FOLDERS_APP;
 use crate::error::RecycleError;
-use crate::plan::{Options, Phase, Plan, ProgressUpdate};
+use crate::plan::{Options, Plan, ProgressUpdate};
 use crate::safety::{is_link, is_safe_path};
 use crate::stats::{ExecResult, GroupResult, PathError};
 
@@ -42,7 +42,6 @@ pub fn execute_with_result(
     let total = plan.groups.iter().filter(|group| group.on).count();
     for (index, group) in plan.groups.iter().filter(|group| group.on).enumerate() {
         progress(ProgressUpdate {
-            phase: Phase::Delete,
             current: index + 1,
             total,
             message: format!("{} - {}", group.app, group.label),
@@ -450,7 +449,6 @@ mod tests {
 
         assert_eq!(result.error_count, 1);
         assert_eq!(updates.len(), 3);
-        assert!(updates.iter().all(|u| u.phase == Phase::Delete));
     }
 
     #[cfg(unix)]

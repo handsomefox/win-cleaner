@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::catalog::Registry;
 use crate::empty_folders::build_empty_folder_groups;
 use crate::globs::expand;
-use crate::plan::{Group, Phase, Plan, ProgressUpdate};
+use crate::plan::{Group, Plan, ProgressUpdate};
 use crate::roots::Roots;
 use crate::safety::{is_link, is_reparse_point, is_safe_path, normalized_key};
 use crate::versions::superseded;
@@ -72,7 +72,6 @@ pub fn build_plan(
         });
 
         progress(ProgressUpdate {
-            phase: Phase::Scan,
             current: index + 1,
             total: total_items,
             message: format!("{} - {}", item.app, item.label),

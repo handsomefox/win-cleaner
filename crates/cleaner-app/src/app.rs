@@ -773,7 +773,7 @@ impl eframe::App for WinCleanerApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cleaner_core::{Group, Options, Phase, ProgressUpdate};
+    use cleaner_core::{Group, Options, ProgressUpdate};
 
     fn app() -> (
         WinCleanerApp,
@@ -815,9 +815,8 @@ mod tests {
         plan
     }
 
-    fn progress(phase: Phase, current: usize, total: usize, message: &str) -> ProgressUpdate {
+    fn progress(current: usize, total: usize, message: &str) -> ProgressUpdate {
         ProgressUpdate {
-            phase,
             current,
             total,
             message: message.to_owned(),
@@ -836,7 +835,7 @@ mod tests {
 
         app.apply_event(Event::ScanProgress {
             generation: 0,
-            update: progress(Phase::Scan, 1, 1, "stale"),
+            update: progress(1, 1, "stale"),
         });
         let Screen::Scanning {
             fraction, status, ..
@@ -849,7 +848,7 @@ mod tests {
 
         app.apply_event(Event::ScanProgress {
             generation: 1,
-            update: progress(Phase::Scan, 1, 2, "App - cache"),
+            update: progress(1, 2, "App - cache"),
         });
         let Screen::Scanning {
             fraction, status, ..
@@ -889,12 +888,7 @@ mod tests {
             task: String::new(),
             selected_bytes: 42,
         });
-        app.apply_event(Event::DeleteProgress(progress(
-            Phase::Delete,
-            1,
-            1,
-            "App - cache",
-        )));
+        app.apply_event(Event::DeleteProgress(progress(1, 1, "App - cache")));
         let Screen::Deleting(state) = &app.screen else {
             panic!("expected deleting state");
         };

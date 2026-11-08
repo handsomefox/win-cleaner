@@ -83,17 +83,9 @@ pub struct AppGroup {
     pub bytes: u64,
 }
 
-/// Phase reported by progress callbacks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
-    Scan,
-    Delete,
-}
-
 /// Progress reported while scanning or deleting.
 #[derive(Debug, Clone)]
 pub struct ProgressUpdate {
-    pub phase: Phase,
     pub message: String,
     pub current: usize,
     pub total: usize,

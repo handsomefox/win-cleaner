@@ -870,7 +870,7 @@ pub fn install(staged: &Staged, executable: &Path) -> Result<(), Error> {
     let backup = free_backup(executable)?;
     rename_with_retry(executable, &backup)?;
     if let Err(error) = rename_with_retry(&staged.path, executable) {
-        if let Err(restore) = fs::rename(&backup, executable) {
+        if let Err(restore) = rename_with_retry(&backup, executable) {
             tracing::error!(%restore, backup = %backup.display(), "could not put the replaced executable back");
         }
         return Err(error.into());

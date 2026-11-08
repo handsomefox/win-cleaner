@@ -2,6 +2,14 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.2.5
+
+- **Check for updates** in **About** checks GitHub right away as it opens the update window. It
+  only opened the window.
+- Cap each day's log file at 10 MiB, so a runaway log cannot fill the disk.
+- Get the self-updater, the update window, logging, and the folder lookups from [handsomefox/app-internals](https://github.com/handsomefox/app-internals),
+  which all five apps share, instead of a copy inside this app.
+
 ## 1.2.4
 
 - Get the self-updater from its own repository, [handsomefox/app-update](https://github.com/handsomefox/app-update), instead of a copy

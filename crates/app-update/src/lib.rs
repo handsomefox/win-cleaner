@@ -513,7 +513,7 @@ fn select_update(
 }
 
 fn parse_sha256(hex: &str) -> Option<[u8; 32]> {
-    if hex.len() != 64 || !hex.is_ascii() {
+    if hex.len() != 64 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
     let mut hash = [0_u8; 32];
@@ -1486,6 +1486,11 @@ mod tests {
         );
         assert_eq!(
             sums_entry(&format!("{}  tool.zip", "ab".repeat(31)), "tool.zip"),
+            None
+        );
+        // `from_str_radix` would read `+f` as a byte.
+        assert_eq!(
+            sums_entry(&format!("{}  tool.zip", "+f".repeat(32)), "tool.zip"),
             None
         );
         assert_eq!(sums_entry("", "tool.zip"), None);

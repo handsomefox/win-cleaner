@@ -19,7 +19,7 @@ One catalog entry is a `cleaner_core::Item` in code and a "cleanup target" in th
 This app deletes files. Five rules hold it up, and none of them is negotiable:
 
 - Every path must sit strictly inside a known safe root. The guard runs at scan time and again immediately before each delete. The roots themselves are always rejected.
-- Deletion goes to the Recycle Bin through `SHFileOperationW` with `FOF_ALLOWUNDO`. There is no permanent-deletion fallback. A failed move leaves the path alone.
+- Deletion goes to the Recycle Bin through `IFileOperation` with `FOFX_RECYCLEONDELETE | FOFX_ADDUNDORECORD`. The progress sink in `recycle.rs` aborts any delete that would not go to the Recycle Bin. There is no permanent-deletion fallback. A failed move leaves the path alone.
 - Symlinks and reparse points count as content. Never follow one, never add its target to a size estimate, never treat a folder holding one as empty.
 - Preview is the default.
 - Empty-folder removal stays opt-in, and uses a non-recursive removal that succeeds only while the folder is still empty.

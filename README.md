@@ -25,7 +25,7 @@ After a scan, each cleanup target that holds data shows its size.
 
 ## Safety model
 
-Cache cleanup moves each selected top-level path to the Recycle Bin, using `SHFileOperationW` with `FOF_ALLOWUNDO`. There is no fallback to permanent deletion: if the move fails, the path stays.
+Cache cleanup moves each selected top-level path to the Recycle Bin, using `IFileOperation` with `FOFX_RECYCLEONDELETE` and `FOFX_ADDUNDORECORD`. A progress sink aborts any delete that would not go to the Recycle Bin, and the app counts a path as moved only when the shell reports the item it placed there. There is no fallback to permanent deletion: if the move fails, the path stays.
 
 Empty-folder cleanup uses a non-recursive directory removal that succeeds only while the folder is still empty. Something can be written into a folder between the scan and the clean, and this closes that window without risking the new file.
 

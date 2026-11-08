@@ -465,24 +465,27 @@ fn select_update(
             (version > current).then_some((version, release))
         })
         .map(|(version, release)| {
-            let find = |name: &str| {
-                release
-                    .assets
-                    .iter()
-                    .find(|asset| asset.name == name)
-                    .map(|asset| Asset {
-                        name: asset.name.clone(),
-                        url: asset.browser_download_url.clone(),
-                        size: asset.size,
-                        digest: asset
-                            .digest
-                            .as_deref()
-                            .and_then(|digest| digest.strip_prefix("sha256:"))
-                            .and_then(parse_sha256),
-                    })
+            let find = |name: &str| release.assets.iter().find(|asset| asset.name == name);
+            let asset = |asset: &ApiAsset, digest| Asset {
+                name: asset.name.clone(),
+                url: asset.browser_download_url.clone(),
+                size: asset.size,
+                digest,
             };
-            let archive =
-                platform.and_then(|platform| find(&archive_name(app.bin, version, platform)));
+            // A digest GitHub records but this cannot read would otherwise
+            // skip the comparison with it, so the archive is not offered.
+            let archive = platform
+                .and_then(|platform| find(&archive_name(app.bin, version, platform)))
+                .and_then(|archive| {
+                    let digest = github_digest(archive).inspect_err(|()| {
+                        tracing::warn!(
+                            release = %release.tag_name,
+                            asset = %archive.name,
+                            "GitHub lists a malformed digest; the release cannot be installed"
+                        );
+                    });
+                    Some(asset(archive, digest.ok()?))
+                });
             Release {
                 version,
                 page_url: format!(
@@ -497,7 +500,7 @@ fn select_update(
                     .to_owned(),
                 notes: release.body.clone().unwrap_or_default(),
                 archive,
-                sums: find(SUMS_ASSET),
+                sums: find(SUMS_ASSET).map(|sums| asset(sums, github_digest(sums).ok().flatten())),
                 tag: release.tag_name,
             }
         })
@@ -510,6 +513,19 @@ fn select_update(
         latest,
         earlier: releases.collect(),
     })
+}
+
+/// The SHA-256 GitHub records for an asset, or `None` when it records none.
+/// Fails when GitHub records a digest that is not a SHA-256.
+fn github_digest(asset: &ApiAsset) -> Result<Option<[u8; 32]>, ()> {
+    match asset.digest.as_deref() {
+        None | Some("") => Ok(None),
+        Some(digest) => digest
+            .strip_prefix("sha256:")
+            .and_then(parse_sha256)
+            .map(Some)
+            .ok_or(()),
+    }
 }
 
 fn parse_sha256(hex: &str) -> Option<[u8; 32]> {
@@ -1520,6 +1536,42 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn a_malformed_github_digest_makes_the_release_uninstallable() {
+        let latest = |digest: Option<String>| {
+            let mut release =
+                api_release("v1.3.0", &["tool-1.3.0-windows-x86_64.zip", "SHA256SUMS"]);
+            release.assets[0].digest = digest;
+            select_update(
+                &APP,
+                version("1.2.3"),
+                Some("windows-x86_64"),
+                vec![release],
+            )
+            .unwrap()
+            .latest()
+            .clone()
+        };
+        // No digest, or an empty one, leaves only the SHA256SUMS check.
+        for digest in [None, Some(String::new())] {
+            let release = latest(digest);
+            assert!(release.installable());
+            assert_eq!(release.archive.unwrap().digest, None);
+        }
+        for digest in [
+            "ab".repeat(32),
+            format!("sha512:{}", "ab".repeat(32)),
+            format!("sha256:{}", "ab".repeat(31)),
+            format!("sha256:{}", "zz".repeat(32)),
+            // 64 bytes, but not 64 characters.
+            format!("sha256:é{}", "a".repeat(62)),
+        ] {
+            let release = latest(Some(digest.clone()));
+            assert!(!release.installable(), "{digest:?}");
+            assert_eq!(release.archive, None, "{digest:?}");
+        }
     }
 
     #[test]

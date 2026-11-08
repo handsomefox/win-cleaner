@@ -16,7 +16,7 @@ use crate::ui::results::ResultsAction;
 use crate::ui::select::SelectAction;
 use crate::ui::sidebar::SidebarAction;
 use crate::viewmodel::{self, Category, SortMode, TargetKey};
-use crate::worker::{self, Command, Event, Worker};
+use crate::worker::{self, Command, Event, Worker, WorkerStopped};
 
 /// What the app remembers between launches, held in eframe's storage.
 ///
@@ -312,8 +312,21 @@ impl WinCleanerApp {
     }
 
     fn drain_events(&mut self) {
-        while let Some(event) = self.worker.try_recv() {
-            self.apply_event(event);
+        loop {
+            match self.worker.try_recv() {
+                Ok(Some(event)) => self.apply_event(event),
+                Ok(None) => return,
+                Err(WorkerStopped) => {
+                    // Without this, a scan or cleanup in progress would wait
+                    // forever and keep the update restart locked.
+                    if !matches!(self.screen, Screen::Unsupported(_)) {
+                        tracing::error!("the background worker stopped");
+                        self.screen = Screen::Unsupported(self.texts.worker_stopped.to_owned());
+                    }
+                    self.history = None;
+                    return;
+                }
+            }
         }
     }
 
@@ -869,6 +882,30 @@ mod tests {
             outcome: Ok(plan()),
         });
         assert!(matches!(app.screen, Screen::Select(_)));
+    }
+
+    #[test]
+    fn a_stopped_worker_ends_the_scan_in_progress() {
+        let (mut app, _commands, events) = app();
+        app.start_scan();
+        app.history = Some(HistoryState::Loading);
+        // Events already sent still arrive before the disconnect shows.
+        events
+            .send(Event::ScanProgress {
+                generation: 1,
+                update: progress(1, 2, "App - cache"),
+            })
+            .unwrap();
+        drop(events);
+
+        app.drain_events();
+        assert!(
+            matches!(&app.screen, Screen::Unsupported(message) if message == ENGLISH.worker_stopped)
+        );
+        assert!(
+            app.history.is_none(),
+            "nothing will answer the history load"
+        );
     }
 
     #[test]

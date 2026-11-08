@@ -10,7 +10,7 @@ use cleaner_core::{
     execute_with_result,
 };
 use cleaner_platform::ShellRecycler;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use eframe::egui;
 
 pub(crate) enum Command {
@@ -51,6 +51,9 @@ pub(crate) enum Event {
     },
 }
 
+/// The worker thread has exited, which only happens when it panicked.
+pub(crate) struct WorkerStopped;
+
 pub(crate) struct Worker {
     commands: Sender<Command>,
     events: Receiver<Event>,
@@ -61,8 +64,14 @@ impl Worker {
         let _ = self.commands.send(command);
     }
 
-    pub(crate) fn try_recv(&self) -> Option<Event> {
-        self.events.try_recv().ok()
+    /// The next waiting event, if any. `Err` means the worker thread is gone,
+    /// so no event will ever arrive again.
+    pub(crate) fn try_recv(&self) -> Result<Option<Event>, WorkerStopped> {
+        match self.events.try_recv() {
+            Ok(event) => Ok(Some(event)),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => Err(WorkerStopped),
+        }
     }
 
     #[cfg(test)]

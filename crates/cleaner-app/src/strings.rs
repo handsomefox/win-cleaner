@@ -158,6 +158,7 @@ pub(crate) struct UiText {
     pub update_later_hint: &'static str,
 
     pub unsupported_platform: &'static str,
+    pub worker_stopped: &'static str,
 }
 
 pub(crate) const ENGLISH: UiText = UiText {
@@ -313,6 +314,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     update_later_hint: "Hide the reminder until Windows Cleaner starts again",
 
     unsupported_platform: "Windows Cleaner only supports Windows. Scanning and cleaning are disabled on this platform.",
+    worker_stopped: "Scanning and cleaning stopped after an internal error. Restart Windows Cleaner, and attach the newest log file to an issue if it happens again.",
 };
 
 pub(crate) fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {

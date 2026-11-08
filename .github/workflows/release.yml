@@ -18,22 +18,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  checks:
-    name: Checks
-    permissions:
-      contents: read
-    uses: handsomefox/app-workflows/.github/workflows/ci.yml@7cd7dff4f2a812b71798e642bf5a2a2100b635e6 # v0.1.1
-    with:
-      ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
-
   release:
     name: Release
-    needs: checks
     permissions:
       attestations: write # Publish provenance for each release asset.
       contents: write # Create the GitHub release and upload assets.
       id-token: write # Request the OIDC identity used for provenance.
-    uses: handsomefox/app-workflows/.github/workflows/release.yml@7cd7dff4f2a812b71798e642bf5a2a2100b635e6 # v0.1.1
+    uses: handsomefox/app-workflows/.github/workflows/release.yml@9a1d43d14b0f83c6988568432a81be7104fc976f # v0.2.0
     with:
       package: cleaner-app
       bin: win-cleaner

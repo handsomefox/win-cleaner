@@ -21,4 +21,4 @@ jobs:
     name: CI
     permissions:
       contents: read
-    uses: handsomefox/app-workflows/.github/workflows/ci.yml@7cd7dff4f2a812b71798e642bf5a2a2100b635e6 # v0.1.1
+    uses: handsomefox/app-workflows/.github/workflows/ci.yml@9a1d43d14b0f83c6988568432a81be7104fc976f # v0.2.0

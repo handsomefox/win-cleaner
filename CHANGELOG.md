@@ -2,6 +2,17 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.2.3
+
+- Keep presets whose names differ only in the case of a non-ASCII letter, such as "Über" and
+  "über". The second one was lost at the next start.
+- End the scan or cleanup with a message when the background worker stops unexpectedly. The
+  window waited forever.
+- Check empty folders against the safe locations during the scan, like every other item. They are
+  still checked again before removal.
+- Refuse an app update whose checksum on GitHub cannot be read, instead of skipping that check.
+- Retry putting the current version back when installing an app update fails.
+
 ## 1.2.2
 
 - New installs check for a new version each time the app starts. Existing installs keep their

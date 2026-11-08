@@ -2,6 +2,11 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.2.4
+
+- Get the self-updater from its own repository, [handsomefox/app-update](https://github.com/handsomefox/app-update), instead of a copy
+  inside this app. Checking for, downloading, and installing an update work as before.
+
 ## 1.2.3
 
 - Keep presets whose names differ only in the case of a non-ASCII letter, such as "Über" and

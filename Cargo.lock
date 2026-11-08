@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "cleaner-app"
-version = "1.2.3"
+version = "1.2.4"
 dependencies = [
  "app-update",
  "cleaner-catalog",
@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "cleaner-catalog"
-version = "1.2.3"
+version = "1.2.4"
 dependencies = [
  "cleaner-core",
  "tempfile",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "cleaner-core"
-version = "1.2.3"
+version = "1.2.4"
 dependencies = [
  "jiff",
  "serde",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "cleaner-platform"
-version = "1.2.3"
+version = "1.2.4"
 dependencies = [
  "cleaner-core",
  "tempfile",

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::plan::Group;
 use crate::roots::Roots;
-use crate::safety::is_reparse_point;
+use crate::safety::{is_reparse_point, is_safe_path};
 
 /// App name used for the empty-folder removal groups; the GUI keys its
 /// category mapping off this value.
@@ -36,8 +36,14 @@ fn empty_folder_roots(roots: &Roots) -> Vec<(String, PathBuf)> {
 /// `bytes: 0` and are never pre-selected (opt-in only).
 #[must_use]
 pub fn build_empty_folder_groups(roots: &Roots) -> Vec<Group> {
+    empty_folder_groups(empty_folder_roots(roots), &roots.guard_roots())
+}
+
+/// Builds the groups for `sweep_roots`, offering only candidates that pass the
+/// safe-root guard, the same check the catalog paths get at scan time.
+fn empty_folder_groups(sweep_roots: Vec<(String, PathBuf)>, guard_roots: &[&Path]) -> Vec<Group> {
     let mut groups = Vec::new();
-    for (label, root) in empty_folder_roots(roots) {
+    for (label, root) in sweep_roots {
         let Ok(entries) = fs::read_dir(&root) else {
             continue;
         };
@@ -48,7 +54,11 @@ pub fn build_empty_folder_groups(roots: &Roots) -> Vec<Group> {
             }
             let child = root.join(entry.file_name());
             if let Some(empty_tree) = empty_subtree(&child) {
-                candidates.extend(empty_tree);
+                candidates.extend(
+                    empty_tree
+                        .into_iter()
+                        .filter(|path| is_safe_path(path, guard_roots)),
+                );
             }
         }
         if candidates.is_empty() {
@@ -207,6 +217,25 @@ mod tests {
         let result = subtree_has_no_files(&locked);
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(!result);
+    }
+
+    #[test]
+    fn candidates_outside_the_safe_roots_are_not_offered() {
+        let dir = tempfile::tempdir().unwrap();
+        let safe = dir.path().join("Local");
+        let outside = dir.path().join("Elsewhere");
+        create_dir_all(safe.join("EmptyApp")).unwrap();
+        create_dir_all(outside.join("EmptyApp")).unwrap();
+
+        let groups = empty_folder_groups(
+            vec![
+                ("Local".to_owned(), safe.clone()),
+                ("Elsewhere".to_owned(), outside),
+            ],
+            &[&safe],
+        );
+        assert_eq!(groups.len(), 1, "the outside root offers nothing");
+        assert_eq!(groups[0].paths, vec![safe.join("EmptyApp")]);
     }
 
     #[test]

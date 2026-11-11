@@ -2,6 +2,17 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.3.1
+
+- A target that could not be read, such as `Prefetch` without administrator rights, stays listed
+  with its error even when empty targets are hidden. A select-all box leaves it unchecked, since
+  cleaning it would only fail again.
+- A target that Stop reached before anything in it moved reads **Stopped** in the results and in
+  **History**, and no longer counts as skipped.
+- With an age or size limit set, a target's file list says its files move one by one and its
+  folders stay.
+- The file list opens in the middle of the window, not where an earlier one was.
+
 ## 1.3.0
 
 - Add **Exclusions** to **Settings**. Pick a folder or a file, or press **Exclude** in a target's

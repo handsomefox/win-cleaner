@@ -36,6 +36,10 @@ pub(crate) struct Prefs {
     pub app_updates: app_update::Settings,
     /// Exclusions, age and size limits, and skipping running programs.
     pub rules: Rules,
+    /// The selection a window hands to the copy it starts with
+    /// administrator rights, which applies it once in place of everything
+    /// else. Only a copy started that way reads it.
+    pub handoff: Option<Vec<TargetKey>>,
 }
 
 impl Default for Prefs {
@@ -47,6 +51,7 @@ impl Default for Prefs {
             presets: Presets::default(),
             app_updates: app_update::Settings::default(),
             rules: Rules::default(),
+            handoff: None,
         }
     }
 }
@@ -57,6 +62,7 @@ const KEY_SELECTION: &str = "selection";
 const KEY_PRESETS: &str = "presets";
 const KEY_APP_UPDATES: &str = "app_updates";
 const KEY_RULES: &str = "rules";
+const KEY_HANDOFF: &str = "elevation_handoff";
 
 impl Prefs {
     fn load(storage: Option<&dyn eframe::Storage>) -> Self {
@@ -84,6 +90,7 @@ impl Prefs {
             app_updates: eframe::get_value(storage, KEY_APP_UPDATES)
                 .unwrap_or(fallback.app_updates),
             rules,
+            handoff: eframe::get_value(storage, KEY_HANDOFF).flatten(),
         }
     }
 
@@ -110,6 +117,7 @@ impl Prefs {
         eframe::set_value(storage, KEY_PRESETS, &self.presets);
         eframe::set_value(storage, KEY_APP_UPDATES, &self.app_updates);
         eframe::set_value(storage, KEY_RULES, &self.rules);
+        eframe::set_value(storage, KEY_HANDOFF, &self.handoff);
     }
 }
 
@@ -147,6 +155,9 @@ pub(crate) struct WinCleanerApp {
     file_request: u64,
     /// A message for the user, shown once: a title and a body.
     notice: Option<(String, String)>,
+    /// The selection handed over by the window that started this copy with
+    /// administrator rights, applied to the first scan.
+    handoff: Option<Vec<TargetKey>>,
 }
 
 pub(crate) enum Screen {
@@ -317,7 +328,15 @@ impl WinCleanerApp {
             files: None,
             file_request: 0,
             notice: None,
+            handoff: None,
         };
+        // Only a copy started by "Scan again as administrator" takes the
+        // selection its window handed over. Any other start drops one left
+        // behind, such as by a prompt that was answered No.
+        let handoff = app.prefs.handoff.take();
+        if cleaner_platform::elevation::after_pid(std::env::args()).is_some() {
+            app.handoff = handoff;
+        }
         // UAC can elevate as an administrator account other than the one
         // signed in. That copy would find the other account's folders, so it
         // cleans nothing at all.
@@ -432,7 +451,10 @@ impl WinCleanerApp {
                 generation,
                 outcome,
             } if generation == self.generation => match outcome {
-                Ok(plan) => self.screen = Screen::Select(self.restored_state(plan)),
+                Ok(plan) => {
+                    let state = self.restored_state(plan);
+                    self.screen = Screen::Select(state);
+                }
                 Err(message) => self.screen = Screen::Unsupported(message),
             },
             Event::DeleteProgress(update) => {
@@ -628,6 +650,11 @@ impl WinCleanerApp {
     /// Starts an elevated copy once this one's state is on disk, then
     /// closes. A declined prompt leaves this copy running.
     fn restart_elevated(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // The selection goes across as it stands, whether or not selections
+        // are remembered and whatever preset applies at start.
+        if let Screen::Select(state) = &self.screen {
+            self.prefs.handoff = Some(viewmodel::selected_keys(&state.plan));
+        }
         if let Some(storage) = frame.storage_mut() {
             eframe::App::save(self, storage);
             storage.flush();
@@ -635,6 +662,7 @@ impl WinCleanerApp {
         let executable = match std::env::current_exe() {
             Ok(path) => path,
             Err(error) => {
+                self.prefs.handoff = None;
                 self.notice = Some((
                     self.texts.elevate_title.to_owned(),
                     self.texts.elevate_failed(&error.to_string()),
@@ -650,12 +678,14 @@ impl WinCleanerApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             cleaner_platform::elevation::Elevation::Declined => {
+                self.prefs.handoff = None;
                 self.notice = Some((
                     self.texts.elevate_title.to_owned(),
                     self.texts.elevate_declined.to_owned(),
                 ));
             }
             cleaner_platform::elevation::Elevation::Failed(error) => {
+                self.prefs.handoff = None;
                 self.notice = Some((
                     self.texts.elevate_title.to_owned(),
                     self.texts.elevate_failed(&error),
@@ -664,12 +694,14 @@ impl WinCleanerApp {
         }
     }
 
-    fn restored_state(&self, plan: Plan) -> SelectState {
+    fn restored_state(&mut self, plan: Plan) -> SelectState {
         let mut state = SelectState::new(plan);
         state.elevated = self.elevated;
         state.show_empty = self.prefs.show_empty;
         state.presets = self.prefs.presets.clone();
-        if let Some(preset) = self.prefs.presets.on_start() {
+        if let Some(keys) = self.handoff.take() {
+            viewmodel::apply_saved_selection(&mut state.plan, &keys);
+        } else if let Some(preset) = self.prefs.presets.on_start() {
             viewmodel::apply_saved_selection(&mut state.plan, &preset.keys);
         } else if self.prefs.remember_selection && !self.prefs.selection.is_empty() {
             viewmodel::apply_saved_selection(&mut state.plan, &self.prefs.selection);
@@ -1157,6 +1189,7 @@ mod tests {
                 files: None,
                 file_request: 0,
                 notice: None,
+                handoff: None,
             },
             commands,
             events,
@@ -1479,6 +1512,7 @@ mod tests {
             presets: Presets::default(),
             app_updates: app_update::Settings::default(),
             rules: Rules::default(),
+            handoff: None,
         };
         remembered.generation = 1;
         remembered.apply_event(Event::ScanDone {
@@ -1565,6 +1599,49 @@ mod tests {
             "the screen carries the presets so the toolbar can edit them"
         );
         assert!(state.dry_run, "preview still stays on at every launch");
+    }
+
+    #[test]
+    fn a_handed_over_selection_wins_once_over_a_preset_and_forgetting() {
+        let (mut app, _, _) = app();
+        let mut presets = Presets::default();
+        presets
+            .save("Weekly", vec![("App".to_owned(), "cache".to_owned())])
+            .unwrap();
+        presets.set_on_start(0, true);
+        app.prefs = Prefs {
+            remember_selection: false,
+            presets,
+            ..Prefs::default()
+        };
+        app.handoff = Some(vec![("App".to_owned(), "logs".to_owned())]);
+        let two = || {
+            let mut plan = plan();
+            let mut logs = plan.groups[0].clone();
+            logs.label = "logs".into();
+            plan.groups.push(logs);
+            plan.recompute_totals();
+            plan
+        };
+        for generation in [1, 2] {
+            app.generation = generation;
+            app.apply_event(Event::ScanDone {
+                generation,
+                outcome: Ok(two()),
+            });
+            let Screen::Select(state) = &app.screen else {
+                panic!("expected the selection screen");
+            };
+            let on: Vec<&str> = state
+                .plan
+                .groups
+                .iter()
+                .filter(|group| group.on)
+                .map(|group| group.label.as_str())
+                .collect();
+            let expected = if generation == 1 { "logs" } else { "cache" };
+            assert_eq!(on, [expected], "scan {generation}");
+        }
     }
 
     #[test]

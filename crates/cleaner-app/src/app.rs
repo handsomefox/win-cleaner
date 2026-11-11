@@ -1116,7 +1116,7 @@ impl eframe::App for WinCleanerApp {
             }
         }
         if let Some((title, body)) = &self.notice
-            && !ui::components::text_modal(&ctx, "notice", title, body, self.texts.dialog_close)
+            && ui::components::text_modal(&ctx, "notice", title, body, self.texts.dialog_close)
         {
             self.notice = None;
         }

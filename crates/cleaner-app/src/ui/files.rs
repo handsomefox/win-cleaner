@@ -32,6 +32,9 @@ enum Contents {
 
 pub(crate) struct FilesView {
     title: String,
+    /// The old program versions in the list. Each is cleaned whole or not
+    /// at all, so an exclusion inside one keeps all of it.
+    versions: Vec<PathBuf>,
     contents: Contents,
     sort: SortBy,
     descending: bool,
@@ -44,9 +47,10 @@ pub(crate) enum FilesAction {
 }
 
 impl FilesView {
-    pub(crate) fn new(title: String) -> Self {
+    pub(crate) fn new(title: String, versions: Vec<PathBuf>) -> Self {
         Self {
             title,
+            versions,
             contents: Contents::Loading,
             sort: SortBy::Size,
             descending: true,
@@ -64,11 +68,21 @@ impl FilesView {
         self.apply_sort();
     }
 
-    /// Drops the excluded path, and everything inside it, from the list.
+    /// Drops the excluded path, and everything inside it, from the list,
+    /// along with the whole of an old program version that holds it.
     pub(crate) fn exclude(&mut self, path: &Path) {
         if let Contents::Loaded { files, bytes, .. } = &mut self.contents {
+            let holds_path = |version: &&PathBuf| {
+                Rules {
+                    exclusions: vec![(*version).clone()],
+                    ..Rules::default()
+                }
+                .is_excluded(path)
+            };
+            let mut exclusions = vec![path.to_path_buf()];
+            exclusions.extend(self.versions.iter().filter(holds_path).cloned());
             let rules = Rules {
-                exclusions: vec![path.to_path_buf()],
+                exclusions,
                 ..Rules::default()
             };
             files.retain(|file| !rules.is_excluded(&file.path));
@@ -252,7 +266,7 @@ mod tests {
 
     #[test]
     fn the_list_sorts_by_each_column_and_drops_excluded_paths() {
-        let mut view = FilesView::new("App - Cache".to_owned());
+        let mut view = FilesView::new("App - Cache".to_owned(), Vec::new());
         view.loaded(
             vec![entry("/c/b", 5), entry("/c/a", 50), entry("/c/keep/x", 7)],
             false,
@@ -277,9 +291,38 @@ mod tests {
     }
 
     #[test]
+    fn excluding_a_file_in_an_old_version_drops_the_whole_version() {
+        let mut view = FilesView::new(
+            "Battle.net - Old agent versions".to_owned(),
+            vec![
+                PathBuf::from("/agent/Agent.1"),
+                PathBuf::from("/agent/Agent.2"),
+            ],
+        );
+        view.loaded(
+            vec![
+                entry("/agent/Agent.1/a.exe", 5),
+                entry("/agent/Agent.1/b.dll", 7),
+                entry("/agent/Agent.2/a.exe", 11),
+            ],
+            false,
+        );
+        view.exclude(Path::new("/agent/Agent.1/a.exe"));
+        let Contents::Loaded { files, bytes, .. } = &view.contents else {
+            panic!("loaded");
+        };
+        assert_eq!(
+            files.len(),
+            1,
+            "Agent.1 stays whole, so none of it is listed"
+        );
+        assert_eq!(*bytes, 11);
+    }
+
+    #[test]
     #[ignore = "timing probe; run with --release --ignored"]
     fn a_million_rows_sort_quickly() {
-        let mut view = FilesView::new("Big".to_owned());
+        let mut view = FilesView::new("Big".to_owned(), Vec::new());
         let files = (0..1_000_000u64)
             .map(|index| entry(&format!("/cache/{:07}", (index * 7919) % 1_000_000), index))
             .collect();

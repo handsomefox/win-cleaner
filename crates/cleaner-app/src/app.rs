@@ -533,10 +533,16 @@ impl WinCleanerApp {
         if self.preview_baseline.is_none() {
             self.preview_baseline = Some(self.prefs.rules.clone());
         }
-        self.files = Some(ui::files::FilesView::new(format!(
-            "{} - {}",
-            group.app, group.label
-        )));
+        let versions = group
+            .targets
+            .iter()
+            .filter(|target| target.version_rule.is_some())
+            .map(|target| target.path.clone())
+            .collect();
+        self.files = Some(ui::files::FilesView::new(
+            format!("{} - {}", group.app, group.label),
+            versions,
+        ));
         self.worker.send(Command::ListFiles {
             request: self.file_request,
             targets: group.targets.clone(),

@@ -2,6 +2,42 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.3.0
+
+- Add **Exclusions** to **Settings**. Pick a folder or a file, or press **Exclude** in a target's
+  file list, and Windows Cleaner never moves it. A folder that holds an exclusion is cleaned around
+  it, never moved whole.
+- Add two limits under **What to leave** in **Settings**: leave files changed in the last so many
+  days, and leave files smaller than a size. With a limit set, targets are cleaned file by file and
+  their folders stay. Old program versions are always moved whole or not at all.
+- Add **Skip targets while their program is running** to **Settings**. A target whose program is
+  open carries a **Running** badge and is not selected after a scan. If the program starts before
+  the cleanup reaches the target, the target is skipped.
+- Every cleanup checks each target against your exclusions and limits as they are when it runs,
+  so an exclusion you add after a scan still protects its path.
+- Add **Stop** to a running cleanup. It finishes the item being moved, then stops, and **History**
+  records that the run was stopped. What already moved stays in the Recycle Bin.
+- Add **Show files** to each target's details. It lists every file cleaning the target would move,
+  sorted by path, size, or date, and stays smooth with hundreds of thousands of files.
+- Add **Export settings** and **Import settings** to **Settings**, to keep a copy of your
+  exclusions, limits, presets, and selection preferences or move them to another PC. An import
+  checks the whole file before it applies anything.
+- Mark targets under Program Files or Windows with a **Needs admin** badge, and add **Scan again as
+  administrator**, which restarts Windows Cleaner with administrator rights and keeps your
+  selection. **Always start with administrator rights** in **Settings** asks for them at every
+  start. A settings file never carries that setting.
+- If Windows gives Windows Cleaner administrator rights through a different account from the one
+  signed in, it cleans nothing and says why, because the folders it would find belong to that
+  other account. It also cleans nothing when it cannot confirm which account it runs as.
+- Report a folder that cannot be read, such as `Prefetch` without administrator rights, as a
+  failure instead of as empty.
+- Group **Chrome Beta**, **Chrome Dev**, and **Chrome Canary** under **Chrome**, with one
+  **Profile cache** target per channel, and add the same targets for Edge's Beta, Dev, and Canary
+  channels. Selections and presets that name the old entries carry over.
+- List the targets within each app in a fixed order instead of alphabetically.
+- Add **Battle.net - Old launcher versions**. Like the Agent's, it keeps the version Battle.net
+  records as installed.
+
 ## 1.2.6
 
 - Keep the `Temp`, `Prefetch`, and Windows Update download folders and clean only what they hold.

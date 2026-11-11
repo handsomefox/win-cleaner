@@ -25,7 +25,7 @@ pub use empty_folders::EMPTY_FOLDERS_APP;
 pub use error::{RecycleError, StatsError};
 pub use execute::{Recycler, execute_with_result};
 pub use format::human_bytes;
-pub use plan::{AppGroup, Group, Options, Plan, ProgressUpdate};
+pub use plan::{AppGroup, Group, Options, Plan, ProgressUpdate, Target};
 pub use roots::Roots;
 pub use safety::is_safe_path;
 pub use scan::build_plan;

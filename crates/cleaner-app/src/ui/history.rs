@@ -188,7 +188,7 @@ fn run_details(ui: &mut Ui, texts: &UiText, run: &StoredRun, action: &mut Option
             texts.run_label_items,
             &result.total_selected.to_string(),
         );
-        components::stat_chip(ui, texts.run_label_freed, &human_bytes(result.total_bytes));
+        components::stat_chip(ui, texts.run_label_freed, &human_bytes(result.freed()));
         components::stat_chip(
             ui,
             texts.run_label_duration,
@@ -285,7 +285,7 @@ fn run_row(ui: &mut Ui, texts: &UiText, run: &StoredRun) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.vertical(|ui| {
                 ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-                    ui.label(RichText::new(human_bytes(result.total_bytes)).family(theme::bold()));
+                    ui.label(RichText::new(human_bytes(result.freed())).family(theme::bold()));
                     if result.error_count > 0 {
                         ui.label(
                             RichText::new(icons::with_label(

@@ -7,7 +7,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::plan::Group;
+use crate::plan::{Group, Target};
 use crate::roots::Roots;
 use crate::safety::{is_reparse_point, is_safe_path};
 
@@ -69,7 +69,10 @@ fn empty_folder_groups(sweep_roots: Vec<(String, PathBuf)>, guard_roots: &[&Path
         groups.push(Group {
             app: EMPTY_FOLDERS_APP.to_owned(),
             label,
-            paths: candidates,
+            targets: candidates
+                .into_iter()
+                .map(|path| Target::whole(path, 0))
+                .collect(),
             errs: Vec::new(),
             bytes: 0,
             on: false,
@@ -120,6 +123,14 @@ fn empty_subtree(dir: &Path) -> Option<Vec<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn paths(group: &Group) -> Vec<PathBuf> {
+        group
+            .targets
+            .iter()
+            .map(|target| target.path.clone())
+            .collect()
+    }
     use std::fs::{File, create_dir_all};
 
     fn subtree_has_no_files(dir: &Path) -> bool {
@@ -235,7 +246,7 @@ mod tests {
             &[&safe],
         );
         assert_eq!(groups.len(), 1, "the outside root offers nothing");
-        assert_eq!(groups[0].paths, vec![safe.join("EmptyApp")]);
+        assert_eq!(paths(&groups[0]), vec![safe.join("EmptyApp")]);
     }
 
     #[test]
@@ -262,14 +273,14 @@ mod tests {
         let local_group = &groups[0];
         assert_eq!(local_group.app, EMPTY_FOLDERS_APP);
         assert_eq!(local_group.label, r"AppData\Local");
-        assert_eq!(local_group.paths, vec![local.join("EmptyApp")]);
+        assert_eq!(paths(local_group), vec![local.join("EmptyApp")]);
         assert_eq!(local_group.bytes, 0);
         assert!(!local_group.on);
 
         let roaming_group = &groups[1];
         assert_eq!(roaming_group.label, r"AppData\Roaming");
         assert_eq!(
-            roaming_group.paths,
+            paths(roaming_group),
             vec![roaming.join("OnlyNested/deep"), roaming.join("OnlyNested")]
         );
     }

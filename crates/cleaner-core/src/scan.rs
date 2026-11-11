@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::catalog::Registry;
 use crate::empty_folders::build_empty_folder_groups;
 use crate::globs::expand;
-use crate::plan::{Group, Plan, ProgressUpdate};
+use crate::plan::{Group, Plan, ProgressUpdate, Target};
 use crate::roots::Roots;
 use crate::safety::{is_link, is_reparse_point, is_safe_path, normalized_key};
 use crate::versions::superseded;
@@ -24,47 +24,66 @@ pub fn build_plan(
     let mut groups: Vec<Group> = Vec::with_capacity(total_items);
     for (index, item) in registry.items.iter().enumerate() {
         let mut errs = Vec::new();
-        let mut resolved: Vec<PathBuf> = item
+        let mut resolved: Vec<Target> = item
             .paths
             .iter()
             .filter(|path| !path.as_os_str().is_empty())
-            .cloned()
+            .map(|path| Target::whole(path.clone(), 0))
             .collect();
         for pattern in &item.globs {
             if is_safe_path(pattern, &guard_roots) {
-                resolved.extend(expand(pattern));
+                resolved.extend(
+                    expand(pattern)
+                        .into_iter()
+                        .map(|path| Target::whole(path, 0)),
+                );
             } else {
                 errs.push(format!("skipping unsafe glob: {}", pattern.display()));
             }
         }
-        for versioned in &item.versioned {
-            if is_safe_path(&versioned.pattern, &guard_roots) {
-                resolved.extend(superseded(&versioned.pattern, versioned.keep));
+        resolved.extend(
+            item.contents
+                .iter()
+                .filter(|path| !path.as_os_str().is_empty())
+                .map(|path| Target {
+                    keep_folder: true,
+                    ..Target::whole(path.clone(), 0)
+                }),
+        );
+        for rule in &item.versioned {
+            if is_safe_path(&rule.dir, &guard_roots) {
+                resolved.extend(superseded(rule).into_iter().map(|path| Target {
+                    version_rule: Some(rule.clone()),
+                    ..Target::whole(path, 0)
+                }));
             } else {
                 errs.push(format!(
-                    "skipping unsafe version pattern: {}",
-                    versioned.pattern.display()
+                    "skipping unsafe version folder: {}",
+                    rule.dir.display()
                 ));
             }
         }
-        let resolved = unique_paths(resolved);
+        let mut resolved = unique_targets(resolved);
 
         let mut bytes = 0u64;
-        for path in &resolved {
-            if !is_safe_path(path, &guard_roots) {
-                errs.push(format!("skipping unsafe path: {}", path.display()));
+        for target in &mut resolved {
+            if !is_safe_path(&target.path, &guard_roots) {
+                errs.push(format!("skipping unsafe path: {}", target.path.display()));
                 continue;
             }
-            match dir_size(path) {
-                Ok(size) => bytes += size,
-                Err(err) => errs.push(format!("{}: {err}", path.display())),
+            match dir_size(&target.path) {
+                Ok(size) => {
+                    target.bytes = size;
+                    bytes += size;
+                }
+                Err(err) => errs.push(format!("{}: {err}", target.path.display())),
             }
         }
 
         groups.push(Group {
             app: item.app.clone(),
             label: item.label.clone(),
-            paths: resolved,
+            targets: resolved,
             // Never pre-select items with nothing to clean.
             on: item.default_on && bytes > 0,
             bytes,
@@ -91,14 +110,14 @@ pub fn build_plan(
     plan
 }
 
-/// De-duplicates paths case-insensitively on the cleaned path key, keeping
+/// De-duplicates targets case-insensitively on the cleaned path key, keeping
 /// first occurrences in order.
-fn unique_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+fn unique_targets(targets: Vec<Target>) -> Vec<Target> {
     let mut seen = HashSet::new();
-    let mut out = Vec::with_capacity(paths.len());
-    for path in paths {
-        if seen.insert(normalized_key(&path)) {
-            out.push(path);
+    let mut out = Vec::with_capacity(targets.len());
+    for target in targets {
+        if seen.insert(normalized_key(&target.path)) {
+            out.push(target);
         }
     }
     out
@@ -106,7 +125,7 @@ fn unique_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 
 /// Total byte size of a path. Returns `Ok(0)` for non-existent paths to avoid
 /// noisy errors. Symlinks and reparse points are never followed or sized.
-fn dir_size(path: &Path) -> std::io::Result<u64> {
+pub(crate) fn dir_size(path: &Path) -> std::io::Result<u64> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
@@ -143,6 +162,7 @@ mod tests {
     use super::*;
     use crate::catalog::Item;
     use std::fs::{create_dir_all, write};
+    use std::path::PathBuf;
 
     fn write_file(path: &Path, len: usize) {
         create_dir_all(path.parent().unwrap()).unwrap();
@@ -160,13 +180,14 @@ mod tests {
     }
 
     #[test]
-    fn unique_paths_is_case_insensitive_keeping_first() {
-        let paths = vec![
-            PathBuf::from("/a/B/c"),
-            PathBuf::from("/a/b/C"),
-            PathBuf::from("/a/b/d"),
-        ];
-        let unique = unique_paths(paths);
+    fn unique_targets_is_case_insensitive_keeping_first() {
+        let targets = ["/a/B/c", "/a/b/C", "/a/b/d"]
+            .map(|path| Target::whole(PathBuf::from(path), 0))
+            .into();
+        let unique: Vec<_> = unique_targets(targets)
+            .into_iter()
+            .map(|target| target.path)
+            .collect();
         assert_eq!(
             unique,
             vec![PathBuf::from("/a/B/c"), PathBuf::from("/a/b/d")]
@@ -283,7 +304,11 @@ mod tests {
             .find(|group| group.app == "Browser")
             .unwrap();
         assert_eq!(
-            browser.paths,
+            browser
+                .targets
+                .iter()
+                .map(|t| t.path.clone())
+                .collect::<Vec<_>>(),
             vec![cache, local.join("Browser/Profile 1/Cache")],
             "duplicate static and glob matches are de-duplicated case-insensitively"
         );
@@ -295,7 +320,11 @@ mod tests {
             .find(|group| group.app == "Windows")
             .unwrap();
         assert_eq!(
-            thumbnails.paths,
+            thumbnails
+                .targets
+                .iter()
+                .map(|t| t.path.clone())
+                .collect::<Vec<_>>(),
             vec![local.join("Explorer/thumbcache_96.db")]
         );
         assert_eq!(thumbnails.bytes, 30);

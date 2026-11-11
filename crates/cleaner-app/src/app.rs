@@ -479,8 +479,8 @@ impl WinCleanerApp {
             Screen::Results(state) => HeaderInfo {
                 task: viewmodel::cleanup_result_headline(texts, &state.result).to_owned(),
                 selection: texts.items_count(state.result.total_selected),
-                savings: texts.freed_summary(state.result.total_bytes),
-                savings_bytes: state.result.total_bytes,
+                savings: texts.freed_summary(state.result.freed()),
+                savings_bytes: state.result.freed(),
                 action: Some(HeaderAction {
                     label: texts.action_clean_again,
                     enabled: true,
@@ -822,7 +822,7 @@ mod tests {
             groups: vec![Group {
                 app: "App".into(),
                 label: "cache".into(),
-                paths: Vec::new(),
+                targets: Vec::new(),
                 errs: Vec::new(),
                 bytes: 42,
                 on: true,
@@ -925,7 +925,10 @@ mod tests {
         let Screen::Select(state) = &app.screen else {
             panic!("expected the selection screen");
         };
-        assert!(!state.plan.groups[0].on, "the rescan restored a stale selection");
+        assert!(
+            !state.plan.groups[0].on,
+            "the rescan restored a stale selection"
+        );
         assert!(state.plan.groups[1].on);
     }
 

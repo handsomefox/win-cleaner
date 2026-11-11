@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::catalog::Versioned;
+
 /// Execution options.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Options {
@@ -64,14 +66,40 @@ impl Plan {
 pub struct Group {
     pub app: String,
     pub label: String,
-    /// Resolved paths (globs expanded).
-    pub paths: Vec<PathBuf>,
+    /// Resolved paths (globs expanded), each with how it is cleaned.
+    pub targets: Vec<Target>,
     /// Non-fatal problems encountered while scanning this group.
     pub errs: Vec<String>,
     /// Estimated reclaimable bytes.
     pub bytes: u64,
     /// Selected for deletion.
     pub on: bool,
+}
+
+/// One resolved path of a [`Group`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Target {
+    pub path: PathBuf,
+    /// Estimated size when scanned.
+    pub bytes: u64,
+    /// Recycle only what the folder holds and leave the folder itself.
+    pub keep_folder: bool,
+    /// The rule that found this path as a superseded program version. Cleanup
+    /// asks it again and leaves the path alone unless it still agrees.
+    pub version_rule: Option<Versioned>,
+}
+
+impl Target {
+    /// A path recycled as a whole, sized `bytes`.
+    #[must_use]
+    pub fn whole(path: PathBuf, bytes: u64) -> Self {
+        Self {
+            path,
+            bytes,
+            keep_folder: false,
+            version_rule: None,
+        }
+    }
 }
 
 /// All groups for one app, as indices into [`Plan::groups`].
@@ -99,7 +127,7 @@ mod tests {
         Group {
             app: app.to_owned(),
             label: label.to_owned(),
-            paths: Vec::new(),
+            targets: Vec::new(),
             errs: Vec::new(),
             bytes,
             on,

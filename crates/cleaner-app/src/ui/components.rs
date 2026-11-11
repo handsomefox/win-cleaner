@@ -162,10 +162,10 @@ pub(crate) fn size_text(bytes: u64) -> RichText {
 pub(crate) fn group_size_text(texts: &UiText, group: &Group) -> RichText {
     if group.bytes > 0 {
         size_text(group.bytes)
-    } else if group.paths.is_empty() {
+    } else if group.targets.is_empty() {
         RichText::new(texts.not_found).color(theme::MUTED).italics()
     } else {
-        RichText::new(texts.items_count(group.paths.len())).color(theme::MUTED)
+        RichText::new(texts.items_count(group.targets.len())).color(theme::MUTED)
     }
 }
 

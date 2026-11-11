@@ -265,11 +265,6 @@ pub fn build_registry(roots: &Roots) -> Registry {
         ]),
         item("Discord", "Cache", true).paths(chromium_set(&roaming.join("discord"))),
         item("Discord", "Logs", true).paths([roaming.join("discord").join("logs")]),
-        // Squirrel leaves the previous build beside the running one, and keeps
-        // the installer package it was built from.
-        item("Discord", "Old versions", false)
-            .versioned(local.join("Discord").join("app-*"), 1)
-            .versioned(local.join("Discord").join("packages").join("*.nupkg"), 1),
         item("Discord", "Update downloads", true).paths([local.join("Discord").join("download")]),
         item("Slack", "Cache", true).paths(electron_set(&roaming.join("Slack"))),
         item("Slack", "Logs", true).paths([roaming.join("Slack").join("logs")]),
@@ -325,13 +320,9 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .chain([local.join("Battle.net").join("Cache")]),
         ),
         item("Battle.net", "Logs", true).paths([local.join("Battle.net").join("Logs")]),
-        item("Battle.net", "Old agent versions", false).versioned(
-            program_data
-                .join("Battle.net")
-                .join("Agent")
-                .join("Agent.*"),
-            1,
-        ),
+        // `.product.db` names the installed Agent build; see `Versioned`.
+        item("Battle.net", "Old agent versions", false)
+            .versioned(program_data.join("Battle.net").join("Agent"), "Agent."),
         item("Epic Games Launcher", "Web cache", true)
             .paths([local
                 .join("EpicGamesLauncher")
@@ -379,9 +370,6 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .join("cache")]),
         item("osu! (lazer)", "Cache", true).paths([roaming.join("osu").join("cache")]),
         item("osu! (lazer)", "Logs", true).paths([roaming.join("osu").join("logs")]),
-        // Velopack keeps the package the current build was installed from.
-        item("osu! (lazer)", "Old versions", false)
-            .versioned(local.join("osulazer").join("packages").join("*.nupkg"), 1),
         item("VSCode", "Cache", true).paths(vscode_cache_set(&roaming.join("Code"))),
         item("VSCode", "Logs", true).paths([roaming.join("Code").join("logs")]),
         item("Cursor", "Cache", true).paths(vscode_cache_set(&roaming.join("Cursor"))),
@@ -578,7 +566,8 @@ pub fn build_registry(roots: &Roots) -> Registry {
             local.join("Roblox").join("Downloads"),
             program_data.join("Roblox").join("Downloads"),
         ]),
-        item("Windows", "Temp files", true).paths([local.join("Temp")]),
+        // Programs expect `Temp` to exist, so it stays and what it holds goes.
+        item("Windows", "Temp files", true).contents([local.join("Temp")]),
         item("Windows", "Internet cache", true)
             .paths([local.join("Microsoft").join("Windows").join("INetCache")]),
         item("Windows", "Delivery optimization cache", true).paths([program_data
@@ -639,11 +628,14 @@ pub fn build_registry(roots: &Roots) -> Registry {
         );
     }
     if let Some(system_root) = roots.system_root.as_deref() {
+        // Windows recreates neither folder on demand, so both stay and only
+        // what they hold goes.
         items.push(
             item("Windows", "Update downloads", true)
-                .paths([system_root.join("SoftwareDistribution").join("Download")]),
+                .contents([system_root.join("SoftwareDistribution").join("Download")]),
         );
-        items.push(item("Windows", "Prefetch data", false).paths([system_root.join("Prefetch")]));
+        items
+            .push(item("Windows", "Prefetch data", false).contents([system_root.join("Prefetch")]));
     }
 
     Registry { items }
@@ -692,7 +684,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.system_root = Some(PathBuf::from("/base/Windows"));
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 123);
+        assert_eq!(registry.items.len(), 121);
 
         let chrome = registry
             .items
@@ -742,7 +734,11 @@ mod tests {
             .find(|i| i.app == "Windows" && i.label == "Prefetch data")
             .unwrap();
         assert!(!prefetch.default_on);
-        assert_eq!(prefetch.paths.len(), 1);
+        assert_eq!(
+            prefetch.contents.len(),
+            1,
+            "the Prefetch folder itself stays"
+        );
 
         // Ubisoft keeps a cache under the profile and another in its install
         // folder, each with its own logs.
@@ -860,7 +856,10 @@ mod tests {
             assert!(!item.app.trim().is_empty());
             assert!(!item.label.trim().is_empty());
             assert!(
-                !item.paths.is_empty() || !item.globs.is_empty() || !item.versioned.is_empty(),
+                !item.paths.is_empty()
+                    || !item.globs.is_empty()
+                    || !item.contents.is_empty()
+                    || !item.versioned.is_empty(),
                 "{} - {} has no cleanup paths",
                 item.app,
                 item.label
@@ -875,7 +874,8 @@ mod tests {
                 .paths
                 .iter()
                 .chain(&item.globs)
-                .chain(item.versioned.iter().map(|versioned| &versioned.pattern))
+                .chain(&item.contents)
+                .chain(item.versioned.iter().map(|versioned| &versioned.dir))
             {
                 assert!(
                     is_safe_path(path, &guard_roots),
@@ -894,7 +894,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.program_files_x86 = None;
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 119);
+        assert_eq!(registry.items.len(), 117);
         // The profile cache stays; only the install-folder item is gated.
         assert!(
             !registry
@@ -910,38 +910,42 @@ mod tests {
         );
     }
 
-    /// Superseded versions are program files, so they stay opt-in and always
-    /// leave the live version in place.
+    /// Superseded versions are program files, so they stay opt-in. Only
+    /// Blizzard's layout, with a `.product.db` naming the installed build, is
+    /// cleaned: Squirrel and Velopack apps remove their own old versions.
     #[test]
-    fn version_items_keep_the_newest_and_never_preselect() {
+    fn version_items_are_opt_in_and_blizzard_only() {
         let registry = build_registry(&test_roots(Path::new("/base")));
         let versioned: Vec<&Item> = registry
             .items
             .iter()
             .filter(|item| !item.versioned.is_empty())
             .collect();
-        let apps: Vec<&str> = versioned.iter().map(|item| item.app.as_str()).collect();
-        assert_eq!(apps, vec!["Discord", "Battle.net", "osu! (lazer)"]);
+        let labels: Vec<(&str, &str)> = versioned
+            .iter()
+            .map(|item| (item.app.as_str(), item.label.as_str()))
+            .collect();
+        assert_eq!(labels, vec![("Battle.net", "Old agent versions")]);
+        assert!(versioned.iter().all(|item| !item.default_on));
+        assert_eq!(versioned[0].versioned[0].prefix, "Agent.");
+    }
 
-        for item in &versioned {
-            assert!(
-                !item.default_on,
-                "{} - {} must stay opt-in",
-                item.app, item.label
-            );
-            for pattern in &item.versioned {
-                assert_eq!(pattern.keep, 1, "{}", item.app);
-                assert!(
-                    pattern.pattern.to_string_lossy().contains('*'),
-                    "{} needs a pattern that can match several versions",
-                    item.app
-                );
-            }
+    /// Folders other programs expect to exist keep the folder and lose only
+    /// what it holds.
+    #[test]
+    fn temp_folders_are_emptied_not_removed() {
+        let mut roots = test_roots(Path::new("/base"));
+        roots.system_root = Some(PathBuf::from("/base/Windows"));
+        let registry = build_registry(&roots);
+        for label in ["Temp files", "Update downloads", "Prefetch data"] {
+            let item = registry
+                .items
+                .iter()
+                .find(|item| item.app == "Windows" && item.label == label)
+                .unwrap();
+            assert!(item.paths.is_empty() && item.globs.is_empty(), "{label}");
+            assert_eq!(item.contents.len(), 1, "{label}");
         }
-
-        // Discord leaves behind both the old build and the package it came from.
-        let discord = versioned.iter().find(|i| i.app == "Discord").unwrap();
-        assert_eq!(discord.versioned.len(), 2);
     }
 
     /// End-to-end: the built-in catalog scanned against a fake profile tree.

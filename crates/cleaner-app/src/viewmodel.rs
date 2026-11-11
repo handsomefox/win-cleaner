@@ -152,7 +152,7 @@ pub(crate) fn category_of(app_name: &str) -> Category {
 /// exception is empty-folder groups with matched paths — there the folders
 /// themselves are the deletable payload, so they stay visible.
 pub(crate) fn is_empty_target(group: &Group) -> bool {
-    group.bytes == 0 && (group.paths.is_empty() || group.app != EMPTY_FOLDERS_APP)
+    group.bytes == 0 && (group.targets.is_empty() || group.app != EMPTY_FOLDERS_APP)
 }
 
 /// Restricts and orders the cache targets shown on the selection screen.
@@ -481,13 +481,13 @@ pub(crate) fn stats_totals<'a>(
         last30: 0,
     };
     for result in runs {
-        totals.total += result.total_bytes;
+        totals.total += result.freed();
         let ts = result.run_timestamp();
         if ts > cutoff7 {
-            totals.last7 += result.total_bytes;
+            totals.last7 += result.freed();
         }
         if ts > cutoff30 {
-            totals.last30 += result.total_bytes;
+            totals.last30 += result.freed();
         }
     }
     totals
@@ -503,7 +503,7 @@ mod tests {
         Group {
             app: app.to_owned(),
             label: label.to_owned(),
-            paths: Vec::new(),
+            targets: Vec::new(),
             errs: Vec::new(),
             bytes,
             on,
@@ -514,7 +514,10 @@ mod tests {
     /// zero bytes (the empty-folders case).
     fn group_with_path(app: &str, label: &str, bytes: u64) -> Group {
         Group {
-            paths: vec![std::path::PathBuf::from(r"C:\some\path")],
+            targets: vec![cleaner_core::Target::whole(
+                std::path::PathBuf::from(r"C:\some\path"),
+                0,
+            )],
             ..group(app, label, bytes, true)
         }
     }
@@ -783,6 +786,7 @@ mod tests {
         let mut result = ExecResult::begin(&Plan::default(), Options::default());
         result.total_selected = 3;
         result.total_bytes = 1024;
+        result.freed_bytes = Some(1024);
         result.duration_ms = 2500;
         result.error_count = errors;
         result.groups = vec![
@@ -791,6 +795,7 @@ mod tests {
                 label: "cache".into(),
                 errors: Vec::new(),
                 bytes: 1024,
+                freed: Some(1024),
                 paths_attempted: 2,
                 paths_failed: 0,
             },
@@ -804,6 +809,7 @@ mod tests {
                     })
                     .collect(),
                 bytes: 0,
+                freed: Some(0),
                 paths_attempted: errors,
                 paths_failed: errors,
             },
@@ -831,13 +837,13 @@ mod tests {
 
         let mut recent = sample_result(0);
         recent.finished_at = now - day;
-        recent.total_bytes = 100;
+        recent.freed_bytes = Some(100);
         let mut old = sample_result(0);
         old.finished_at = now - day * 10;
-        old.total_bytes = 1000;
+        old.freed_bytes = Some(1000);
         let mut ancient = sample_result(0);
         ancient.finished_at = now - day * 40;
-        ancient.total_bytes = 10000;
+        ancient.freed_bytes = Some(10000);
 
         let totals = stats_totals([&recent, &old, &ancient], now);
         assert_eq!(totals.total, 11_100);

@@ -8,9 +8,11 @@ use std::path::Path;
 
 use crate::empty_folders::EMPTY_FOLDERS_APP;
 use crate::error::RecycleError;
-use crate::plan::{Options, Plan, ProgressUpdate};
-use crate::safety::{is_link, is_safe_path};
+use crate::plan::{Options, Plan, ProgressUpdate, Target};
+use crate::safety::{is_link, is_safe_path, normalized_key};
+use crate::scan::dir_size;
 use crate::stats::{ExecResult, GroupResult, PathError};
+use crate::versions::superseded;
 
 /// Moves paths to the Recycle Bin. The single production implementation wraps
 /// `IFileOperation` in `cleaner-platform`; tests use mocks.
@@ -52,10 +54,12 @@ pub fn execute_with_result(
             label: group.label.clone(),
             errors: Vec::new(),
             bytes: group.bytes,
+            freed: Some(0),
             paths_attempted: 0,
             paths_failed: 0,
         };
-        for path in &group.paths {
+        for target in &group.targets {
+            let path = target.path.as_path();
             if !is_safe_path(path, guard_roots) {
                 group_result.errors.push(PathError {
                     path: path.display().to_string(),
@@ -63,12 +67,14 @@ pub fn execute_with_result(
                 });
                 continue;
             }
-            if fs::symlink_metadata(path).is_err() {
+            if fs::symlink_metadata(path).is_err() || !still_superseded(target) {
                 continue;
             }
             group_result.paths_attempted += 1;
             let operation = if group.app == EMPTY_FOLDERS_APP {
                 remove_empty_directory(path).map_err(|err| err.to_string())
+            } else if target.keep_folder {
+                recycle_contents(path, guard_roots, recycler).map_err(|err| err.to_string())
             } else {
                 delete_path_smart(path, guard_roots, recycler).map_err(|err| err.to_string())
             };
@@ -79,12 +85,87 @@ pub fn execute_with_result(
                     error,
                 });
             }
+            group_result.freed = group_result.freed.map(|freed| freed + freed_from(target));
         }
         result.error_count += group_result.errors.len();
+        result.freed_bytes = result
+            .freed_bytes
+            .map(|freed| freed + group_result.freed.unwrap_or(0));
         result.groups.push(group_result);
     }
     result.finish();
     result
+}
+
+/// Whether a program version found at scan time is still superseded. An
+/// update in between can make it the installed one, so the rule is asked
+/// again; a path no version rule found always proceeds.
+fn still_superseded(target: &Target) -> bool {
+    let Some(rule) = &target.version_rule else {
+        return true;
+    };
+    let key = normalized_key(&target.path);
+    superseded(rule)
+        .iter()
+        .any(|path| normalized_key(path) == key)
+}
+
+/// The bytes a target's cleanup freed: its scanned size less whatever is still
+/// there. A path that is gone costs no walk; one that stayed, such as a
+/// folder holding a locked file, is measured again.
+fn freed_from(target: &Target) -> u64 {
+    let remaining = if path_missing(&target.path) {
+        0
+    } else {
+        dir_size(&target.path).unwrap_or(target.bytes)
+    };
+    target.bytes.saturating_sub(remaining)
+}
+
+/// Moves what the folder at `path` holds to the Recycle Bin and leaves the
+/// folder itself, for a folder that other programs expect to exist, such as
+/// the user's `Temp`. Each child is guarded and recycled on its own, so a
+/// locked one does not keep the others. Links inside are left alone.
+///
+/// # Errors
+///
+/// Returns an aggregate error when a child could not be recycled, or the path
+/// is unsafe or is not a real folder.
+pub fn recycle_contents(
+    path: &Path,
+    guard_roots: &[&Path],
+    recycler: &dyn Recycler,
+) -> Result<(), RecycleError> {
+    if !is_safe_path(path, guard_roots) {
+        return if path_missing(path) {
+            Ok(())
+        } else {
+            Err(RecycleError::UnsafePath(path.to_path_buf()))
+        };
+    }
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(RecycleError::Multiple(format!(
+                "could not inspect {}: {error}",
+                path.display()
+            )));
+        }
+        Ok(metadata) if !metadata.file_type().is_dir() || is_link(&metadata) => {
+            return Err(RecycleError::Multiple(format!(
+                "not a folder whose contents can be recycled: {}",
+                path.display()
+            )));
+        }
+        Ok(_) => {}
+    }
+    let mut failures = Vec::new();
+    recycle_children(path, guard_roots, recycler, &mut failures);
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(RecycleError::Multiple(failures.join("; ")))
+    }
 }
 
 /// First attempts to move exactly `path` to the Recycle Bin in one operation.
@@ -126,12 +207,46 @@ pub fn delete_path_smart(
     }
 
     let mut failures = vec![format!("{}: {initial_error}", path.display())];
+    if !recycle_children(path, guard_roots, recycler, &mut failures) {
+        return if path_missing(path) {
+            Ok(())
+        } else {
+            Err(RecycleError::Multiple(failures.join("; ")))
+        };
+    }
+
+    if !is_safe_path(path, guard_roots) {
+        if path_missing(path) {
+            return Ok(());
+        }
+        failures.push(format!("parent safety guard failed: {}", path.display()));
+    } else if let Err(error) = recycler.recycle(&[path])
+        && !path_missing(path)
+    {
+        failures.push(format!("{}: {error}", path.display()));
+    }
+    if path_missing(path) {
+        Ok(())
+    } else {
+        Err(RecycleError::Multiple(failures.join("; ")))
+    }
+}
+
+/// Recycles each immediate child of `path` on its own, re-running the safety
+/// guard for each and never submitting a link. Problems go to `failures`.
+/// Returns `false` when the folder could not be listed at all.
+fn recycle_children(
+    path: &Path,
+    guard_roots: &[&Path],
+    recycler: &dyn Recycler,
+    failures: &mut Vec<String>,
+) -> bool {
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
         Err(error) => {
             failures.push(format!("could not enumerate {}: {error}", path.display()));
-            return Err(RecycleError::Multiple(failures.join("; ")));
+            return false;
         }
     };
     for entry in entries {
@@ -160,22 +275,7 @@ pub fn delete_path_smart(
             failures.push(format!("{}: {error}", child.display()));
         }
     }
-
-    if !is_safe_path(path, guard_roots) {
-        if path_missing(path) {
-            return Ok(());
-        }
-        failures.push(format!("parent safety guard failed: {}", path.display()));
-    } else if let Err(error) = recycler.recycle(&[path])
-        && !path_missing(path)
-    {
-        failures.push(format!("{}: {error}", path.display()));
-    }
-    if path_missing(path) {
-        Ok(())
-    } else {
-        Err(RecycleError::Multiple(failures.join("; ")))
-    }
+    true
 }
 
 fn path_missing(path: &Path) -> bool {
@@ -395,11 +495,178 @@ mod tests {
         Group {
             app: app.to_owned(),
             label: "test".to_owned(),
-            paths,
+            targets: paths
+                .into_iter()
+                .map(|path| Target::whole(path, 5))
+                .collect(),
             errs: Vec::new(),
             bytes: 10,
             on: true,
         }
+    }
+
+    /// Refuses every move, the way a Recycle Bin that cannot take the files does.
+    struct RefusingRecycler;
+
+    impl Recycler for RefusingRecycler {
+        fn recycle(&self, _paths: &[&Path]) -> Result<(), RecycleError> {
+            Err(RecycleError::ShellOperation(5))
+        }
+    }
+
+    fn sized_group(app: &str, targets: Vec<Target>) -> Group {
+        Group {
+            app: app.to_owned(),
+            label: "test".to_owned(),
+            bytes: targets.iter().map(|target| target.bytes).sum(),
+            targets,
+            errs: Vec::new(),
+            on: true,
+        }
+    }
+
+    fn run(plan: &mut Plan, root: &Path, recycler: &dyn Recycler) -> ExecResult {
+        plan.recompute_totals();
+        execute_with_result(plan, Options { dry_run: false }, &[root], recycler, |_| {})
+    }
+
+    #[test]
+    fn a_failed_cleanup_records_nothing_freed() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        make_children(&cache, 2);
+        fs::write(cache.join("f0000"), [0; 700]).unwrap();
+        let mut plan = Plan {
+            groups: vec![sized_group("App", vec![Target::whole(cache.clone(), 700)])],
+            ..Plan::default()
+        };
+
+        let result = run(&mut plan, dir.path(), &RefusingRecycler);
+        assert_eq!(result.total_bytes, 700, "the selection is still recorded");
+        assert_eq!(result.freed_bytes, Some(0));
+        assert_eq!(result.freed(), 0);
+        assert_eq!(result.groups[0].freed, Some(0));
+        assert!(cache.exists());
+    }
+
+    #[test]
+    fn freed_bytes_count_what_left_and_not_what_stayed() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        create_dir_all(&cache).unwrap();
+        fs::write(cache.join("locked"), [0; 300]).unwrap();
+        fs::write(cache.join("free"), [0; 500]).unwrap();
+        let mut recycler = FailingRecycler::new();
+        recycler.fail_always.insert(cache.clone());
+        recycler.fail_always.insert(cache.join("locked"));
+        let mut plan = Plan {
+            groups: vec![sized_group("App", vec![Target::whole(cache.clone(), 800)])],
+            ..Plan::default()
+        };
+
+        let result = run(&mut plan, dir.path(), &recycler);
+        assert_eq!(result.groups[0].paths_failed, 1);
+        assert_eq!(result.freed_bytes, Some(500));
+    }
+
+    #[test]
+    fn a_kept_folder_loses_only_what_it_holds() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join("Temp");
+        make_children(&temp, 3);
+        create_dir_all(temp.join("installer")).unwrap();
+        let mut plan = Plan {
+            groups: vec![sized_group(
+                "Windows",
+                vec![Target {
+                    keep_folder: true,
+                    ..Target::whole(temp.clone(), 0)
+                }],
+            )],
+            ..Plan::default()
+        };
+
+        let mock = MockRecycler::new();
+        let result = run(&mut plan, dir.path(), &mock);
+        assert_eq!(result.error_count, 0);
+        assert!(temp.is_dir(), "the folder itself must stay");
+        assert_eq!(fs::read_dir(&temp).unwrap().count(), 0);
+        assert!(
+            mock.calls
+                .borrow()
+                .iter()
+                .flatten()
+                .all(|path| path != &temp),
+            "the folder was never submitted"
+        );
+    }
+
+    #[test]
+    fn a_locked_file_in_a_kept_folder_leaves_the_rest_recycled() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join("Temp");
+        make_children(&temp, 3);
+        let mut recycler = FailingRecycler::new();
+        recycler.fail_always.insert(temp.join("f0001"));
+
+        let error = recycle_contents(&temp, &[dir.path()], &recycler).unwrap_err();
+        assert!(error.to_string().contains("f0001"));
+        assert!(temp.join("f0001").exists());
+        assert!(!temp.join("f0000").exists() && !temp.join("f0002").exists());
+        assert!(!recycler.calls().contains(&temp));
+    }
+
+    #[test]
+    fn a_kept_folder_must_be_a_real_folder_inside_a_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("safe");
+        let outside = dir.path().join("outside");
+        make_children(&outside, 1);
+        make_children(&root, 0);
+        let file = root.join("file");
+        fs::write(&file, b"x").unwrap();
+        let mock = MockRecycler::new();
+        assert!(recycle_contents(&outside, &[&root], &mock).is_err());
+        assert!(
+            recycle_contents(&root, &[&root], &mock).is_err(),
+            "a root itself"
+        );
+        assert!(recycle_contents(&file, &[&root], &mock).is_err());
+        assert!(mock.calls.borrow().is_empty());
+        assert!(outside.join("f0000").exists() && file.exists());
+    }
+
+    #[test]
+    fn a_version_installed_since_the_scan_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = dir.path().join("Agent");
+        for name in ["Agent.9700", "Agent.9852"] {
+            make_children(&agent.join(name), 1);
+        }
+        fs::write(agent.join(crate::versions::PRODUCT_DB), b"x2.41.2.9852R").unwrap();
+        let rule = crate::catalog::Versioned {
+            dir: agent.clone(),
+            prefix: "Agent.".to_owned(),
+        };
+        let old = agent.join("Agent.9700");
+        let mut plan = Plan {
+            groups: vec![sized_group(
+                "Battle.net",
+                vec![Target {
+                    version_rule: Some(rule),
+                    ..Target::whole(old.clone(), 1)
+                }],
+            )],
+            ..Plan::default()
+        };
+        // After the scan, the updater rolled back to the older build.
+        fs::write(agent.join(crate::versions::PRODUCT_DB), b"x2.41.1.9700R").unwrap();
+
+        let mock = MockRecycler::new();
+        let result = run(&mut plan, dir.path(), &mock);
+        assert!(old.exists(), "the build now installed must survive");
+        assert_eq!(result.groups[0].paths_attempted, 0);
+        assert!(mock.calls.borrow().is_empty());
     }
 
     #[test]

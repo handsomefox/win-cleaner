@@ -414,7 +414,7 @@ mod tests {
             groups: vec![Group {
                 app: "App".into(),
                 label: "cache".into(),
-                paths: vec![cache.clone()],
+                targets: vec![cleaner_core::Target::whole(cache.clone(), 3)],
                 errs: Vec::new(),
                 bytes: 3,
                 on: true,

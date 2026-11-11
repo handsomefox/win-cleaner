@@ -21,7 +21,13 @@ pub struct ExecResult {
     pub schema_version: u32,
     pub duration_ms: i64,
     pub total_selected: usize,
+    /// The estimated size of everything selected, whether or not it could be
+    /// moved.
     pub total_bytes: u64,
+    /// The estimated size of what actually left. Absent from files written
+    /// before 1.2.6, which recorded only `total_bytes`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freed_bytes: Option<u64>,
     pub error_count: usize,
     pub dry_run: bool,
 }
@@ -33,7 +39,11 @@ pub struct GroupResult {
     pub label: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<PathError>,
+    /// The group's estimated size when scanned.
     pub bytes: u64,
+    /// The estimated size of what actually left. Absent from older files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freed: Option<u64>,
     pub paths_attempted: usize,
     pub paths_failed: usize,
 }
@@ -57,9 +67,17 @@ impl ExecResult {
             duration_ms: 0,
             total_selected: plan.selected,
             total_bytes: plan.total_bytes,
+            freed_bytes: (!opts.dry_run).then_some(0),
             error_count: 0,
             dry_run: opts.dry_run,
         }
+    }
+
+    /// What the run freed: the measured total, or the selected total for a
+    /// file written before freed bytes were recorded.
+    #[must_use]
+    pub fn freed(&self) -> u64 {
+        self.freed_bytes.unwrap_or(self.total_bytes)
     }
 
     /// Stamps the finish time and duration.
@@ -227,6 +245,22 @@ mod tests {
         assert_eq!(result.duration_ms, 2864);
         assert_eq!(result.total_bytes, 124_245);
         assert!(!result.dry_run);
+        // Written before freed bytes were recorded: the selection stands in.
+        assert_eq!(result.freed_bytes, None);
+        assert_eq!(result.freed(), 124_245);
+        assert_eq!(result.groups[0].freed, None);
+    }
+
+    #[test]
+    fn freed_bytes_round_trip() {
+        let mut result: ExecResult = serde_json::from_str(FIXTURE).unwrap();
+        result.freed_bytes = Some(10);
+        result.groups[0].freed = Some(10);
+        let json = serde_json::to_string(&result).unwrap();
+        let back: ExecResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.freed(), 10);
+        assert_eq!(back.groups[0].freed, Some(10));
+        assert_eq!(back.groups[1].freed, None);
     }
 
     #[test]

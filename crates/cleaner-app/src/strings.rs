@@ -71,6 +71,7 @@ pub(crate) struct UiText {
     pub result_status_ok: &'static str,
     pub result_status_skipped: &'static str,
     pub result_no_matching_paths: &'static str,
+    pub result_contents_only: &'static str,
     pub result_scan_issues: &'static str,
     pub result_cleanup_complete: &'static str,
     pub result_cleanup_with_errors: &'static str,
@@ -204,6 +205,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     result_status_ok: "OK",
     result_status_skipped: "Skipped",
     result_no_matching_paths: "No matching paths",
+    result_contents_only: "(what it holds; the folder stays)",
     result_scan_issues: "Scan issues:",
     result_cleanup_complete: "Cleanup complete",
     result_cleanup_with_errors: "Cleanup finished with errors",
@@ -401,11 +403,20 @@ impl UiText {
             group.label,
             human_bytes(group.bytes)
         );
-        if group.paths.is_empty() {
+        if group.targets.is_empty() {
             let _ = writeln!(out, "- {}", self.result_no_matching_paths);
         }
-        for path in &group.paths {
-            let _ = writeln!(out, "- {}", path.display());
+        for target in &group.targets {
+            if target.keep_folder {
+                let _ = writeln!(
+                    out,
+                    "- {} {}",
+                    target.path.display(),
+                    self.result_contents_only
+                );
+            } else {
+                let _ = writeln!(out, "- {}", target.path.display());
+            }
         }
         if !group.errs.is_empty() {
             let _ = writeln!(out, "\n{}", self.result_scan_issues);
@@ -452,7 +463,7 @@ impl UiText {
     pub(crate) fn cache_result_summary(&self, result: &ExecResult) -> String {
         crate::viewmodel::summary_line(&[
             &format!("{} cleaned", self.items_count(result.total_selected)),
-            &format!("est. {} freed", human_bytes(result.total_bytes)),
+            &format!("est. {} freed", human_bytes(result.freed())),
             &format_duration(result.duration_ms),
             &self.errors_count(result.error_count),
         ])

@@ -10,14 +10,15 @@ pub struct Registry {
     pub items: Vec<Item>,
 }
 
-/// A pattern whose matches are the versions of a self-updating app, keeping
-/// the newest `keep` of them. Resolved by [`crate::versions::superseded`],
-/// which never returns the newest match or a name without a version.
-#[derive(Debug, Clone)]
+/// A folder of `<prefix><build>` version folders beside the `.product.db`
+/// that names the installed build, as Blizzard's updater lays them out.
+/// Resolved by [`crate::versions::superseded`], which never returns the
+/// installed or the newest build.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Versioned {
-    pub pattern: PathBuf,
-    /// How many of the newest versions to keep. Treated as at least one.
-    pub keep: usize,
+    pub dir: PathBuf,
+    /// The folder name before the build number, such as `Agent.`.
+    pub prefix: String,
 }
 
 /// A single cleanup target under an app name. Each item is individually
@@ -31,8 +32,11 @@ pub struct Item {
     pub paths: Vec<PathBuf>,
     /// Glob patterns expanded at scan time.
     pub globs: Vec<PathBuf>,
-    /// Patterns holding the versions of a self-updating app, resolved at scan
-    /// time to the superseded ones.
+    /// Folders that stay in place while what they hold is recycled, for a
+    /// folder Windows or other programs expect to exist, such as `Temp`.
+    pub contents: Vec<PathBuf>,
+    /// Folders of program versions, resolved at scan time to the superseded
+    /// ones and checked again before cleanup.
     pub versioned: Vec<Versioned>,
     /// Pre-selected in the GUI (when non-empty).
     pub default_on: bool,
@@ -63,11 +67,22 @@ impl Item {
         self
     }
 
-    /// Builder shorthand: appends a pattern matching the versions of a
-    /// self-updating app, of which the newest `keep` are left alone.
+    /// Builder shorthand: appends folders whose contents are recycled while
+    /// the folders themselves stay.
     #[must_use]
-    pub fn versioned(mut self, pattern: PathBuf, keep: usize) -> Self {
-        self.versioned.push(Versioned { pattern, keep });
+    pub fn contents(mut self, folders: impl IntoIterator<Item = PathBuf>) -> Self {
+        self.contents.extend(folders);
+        self
+    }
+
+    /// Builder shorthand: appends a folder of `<prefix><build>` program
+    /// versions; see [`Versioned`].
+    #[must_use]
+    pub fn versioned(mut self, dir: PathBuf, prefix: &str) -> Self {
+        self.versioned.push(Versioned {
+            dir,
+            prefix: prefix.to_owned(),
+        });
         self
     }
 }

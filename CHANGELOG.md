@@ -34,7 +34,8 @@ Releases before 1.0.9 are listed on the [releases page](https://github.com/hands
 - Group **Chrome Beta**, **Chrome Dev**, and **Chrome Canary** under **Chrome**, with one
   **Profile cache** target per channel, and add the same targets for Edge's Beta, Dev, and Canary
   channels. Selections and presets that name the old entries carry over.
-- List the targets within each app in a fixed order instead of alphabetically.
+- List the targets within each app in a fixed order, such as Stable, Beta, Dev, Canary, instead
+  of largest first.
 - Add **Battle.net - Old launcher versions**. Like the Agent's, it keeps the version Battle.net
   records as installed.
 

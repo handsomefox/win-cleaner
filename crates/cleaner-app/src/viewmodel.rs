@@ -165,8 +165,9 @@ pub(crate) struct ViewFilter<'a> {
     pub show_empty: bool,
 }
 
-/// Applies the search and empty-target filters and the sort mode, returning
-/// app groups whose visible items are sorted largest-first.
+/// Applies the search and empty-target filters and the sort mode to the
+/// apps. Targets within an app keep the catalog's order, such as Stable,
+/// Beta, Dev, Canary, whatever their sizes.
 fn filtered_app_groups(plan: &Plan, filter: &ViewFilter) -> Vec<AppView> {
     let search = filter.search.trim().to_lowercase();
     let mut apps: Vec<AppView> = plan
@@ -192,7 +193,6 @@ fn filtered_app_groups(plan: &Plan, filter: &ViewFilter) -> Vec<AppView> {
             if visible.is_empty() {
                 return None;
             }
-            visible.sort_by(|&a, &b| plan.groups[b].bytes.cmp(&plan.groups[a].bytes));
             let bytes = visible.iter().map(|&index| plan.groups[index].bytes).sum();
             Some(AppView {
                 app: group.app,
@@ -1011,6 +1011,22 @@ mod tests {
         apply_saved_selection(&mut third, &stored);
         assert!(third.groups[0].on);
         assert_eq!(third.selected, 1);
+    }
+
+    #[test]
+    fn targets_keep_the_catalog_order_within_an_app() {
+        let plan = Plan {
+            groups: vec![
+                group("Chrome", "Profile cache", 10, false),
+                group("Chrome", "Profile cache (Beta)", 500, false),
+                group("Chrome", "Profile cache (Dev)", 50, false),
+            ],
+            ..Plan::default()
+        };
+        for sort in [SortMode::Name, SortMode::SizeDesc, SortMode::SizeAsc] {
+            let categories = all_categories(&plan, "", sort);
+            assert_eq!(categories[0].apps[0].indices, [0, 1, 2]);
+        }
     }
 
     #[test]

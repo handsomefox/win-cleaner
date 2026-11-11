@@ -7,7 +7,7 @@
 //! exclusion added after the scan still protects its path.
 
 use std::fs;
-use std::path::{MAIN_SEPARATOR, Path, PathBuf};
+use std::path::{Component, MAIN_SEPARATOR, Path, PathBuf, Prefix};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -73,11 +73,39 @@ impl Rules {
         }
     }
 
-    /// Drops exclusions that are not absolute paths, and repeats.
+    /// Drops exclusions that are not plain absolute paths, and repeats.
+    ///
+    /// Cleanup targets are plain drive paths, and exclusions are matched to
+    /// them by text, so `\\?\C:\cache` is rewritten as `C:\cache`. Any other
+    /// prefix, such as a network share or a device, is dropped: no target
+    /// sits under one, so it could never protect anything.
     pub fn sanitize(&mut self) {
         let mut seen = std::collections::HashSet::new();
-        self.exclusions
-            .retain(|path| path.is_absolute() && seen.insert(normalized_key(path)));
+        self.exclusions = std::mem::take(&mut self.exclusions)
+            .into_iter()
+            .filter_map(plain_absolute)
+            .filter(|path| seen.insert(normalized_key(path)))
+            .collect();
+    }
+}
+
+/// `path` as a plain absolute path, or `None` when it has no such form.
+fn plain_absolute(path: PathBuf) -> Option<PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return Some(path);
+    };
+    match prefix.kind() {
+        Prefix::Disk(_) => Some(path),
+        Prefix::VerbatimDisk(letter) => {
+            let mut plain = PathBuf::from(format!("{}:{MAIN_SEPARATOR}", char::from(letter)));
+            plain.extend(components.filter(|part| !matches!(part, Component::RootDir)));
+            Some(plain)
+        }
+        _ => None,
     }
 }
 
@@ -514,17 +542,40 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
-    fn sanitize_drops_relative_and_repeated_exclusions() {
+    fn sanitize_rewrites_verbatim_drive_paths_and_drops_other_prefixes() {
         let mut rules = Rules {
             exclusions: vec![
-                PathBuf::from("relative/path"),
-                PathBuf::from("/abs/Keep"),
-                PathBuf::from("/abs/keep"),
+                PathBuf::from(r"\\?\C:\Users\Ed\AppData\Local\cache\keep.bin"),
+                PathBuf::from(r"\\server\share\keep"),
+                PathBuf::from(r"\\?\UNC\server\share\keep"),
+                PathBuf::from(r"\\.\C:\keep"),
             ],
             ..Rules::default()
         };
         rules.sanitize();
-        assert_eq!(rules.exclusions, vec![PathBuf::from("/abs/Keep")]);
+        assert_eq!(
+            rules.exclusions,
+            vec![PathBuf::from(r"C:\Users\Ed\AppData\Local\cache\keep.bin")]
+        );
+        let cache = Path::new(r"C:\Users\Ed\AppData\Local\cache");
+        assert!(rules.has_exclusion_inside(cache));
+        assert!(rules.is_excluded(&cache.join("keep.bin")));
+    }
+
+    #[test]
+    fn sanitize_drops_relative_and_repeated_exclusions() {
+        let base = std::env::temp_dir();
+        let mut rules = Rules {
+            exclusions: vec![
+                PathBuf::from("relative/path"),
+                base.join("Keep"),
+                base.join("keep"),
+            ],
+            ..Rules::default()
+        };
+        rules.sanitize();
+        assert_eq!(rules.exclusions, vec![base.join("Keep")]);
     }
 }

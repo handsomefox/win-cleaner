@@ -810,6 +810,7 @@ mod tests {
                 skipped: None,
                 paths_attempted: 2,
                 paths_failed: 0,
+                stopped: false,
             },
             GroupResult {
                 app: "npm".into(),
@@ -825,6 +826,7 @@ mod tests {
                 skipped: None,
                 paths_attempted: errors + 1,
                 paths_failed: errors,
+                stopped: false,
             },
         ];
         result
@@ -849,6 +851,20 @@ mod tests {
         assert!(
             summary.starts_with("2 items cleaned  |"),
             "a stopped run counts the targets it reached, not all it was given: {summary}"
+        );
+    }
+
+    #[test]
+    fn a_target_stop_reached_first_is_neither_cleaned_nor_skipped() {
+        let mut result = sample_result(0);
+        result.total_selected = 2;
+        result.stopped = true;
+        result.groups[1].paths_attempted = 0;
+        result.groups[1].stopped = true;
+        let (_, summary) = cleanup_result_summary(&ENGLISH, &result);
+        assert_eq!(
+            summary,
+            "1 item cleaned  |  est. 1.00 KB freed  |  3s  |  0 errors"
         );
     }
 

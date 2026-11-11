@@ -52,15 +52,25 @@ pub struct GroupResult {
     pub skipped: Option<String>,
     pub paths_attempted: usize,
     pub paths_failed: usize,
+    /// Stop was pressed before cleanup finished this target.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
 }
 
 impl GroupResult {
     /// Whether the run left this target alone: a reason was given, such as
     /// its program running, or nothing in it was left to try, such as when
-    /// everything in it was excluded.
+    /// everything in it was excluded. A target Stop reached before anything
+    /// moved was not skipped; it was stopped.
     #[must_use]
     pub fn was_skipped(&self) -> bool {
-        self.skipped.is_some() || self.paths_attempted == 0
+        self.skipped.is_some() || (self.paths_attempted == 0 && !self.stopped)
+    }
+
+    /// Whether Stop came before anything in this target was tried.
+    #[must_use]
+    pub fn stopped_untouched(&self) -> bool {
+        self.stopped && self.paths_attempted == 0 && self.skipped.is_none()
     }
 }
 
@@ -116,7 +126,12 @@ impl ExecResult {
         } else {
             self.total_selected
         };
-        reached.saturating_sub(self.skipped_count())
+        let untouched = self
+            .groups
+            .iter()
+            .filter(|group| group.stopped_untouched())
+            .count();
+        reached.saturating_sub(self.skipped_count() + untouched)
     }
 
     /// Stamps the finish time and duration.

@@ -82,13 +82,14 @@ pub fn execute_with_result(
             skipped: None,
             paths_attempted: 0,
             paths_failed: 0,
+            stopped: false,
         };
         if run.rules.skip_running_apps
             && let Some(name) = group.processes.iter().find(|name| (run.is_running)(name))
         {
             group_result.skipped = Some(format!("{name} is running"));
         } else {
-            clean_group(group, run, recycler, &mut group_result);
+            group_result.stopped = !clean_group(group, run, recycler, &mut group_result);
         }
         if run.stop.load(Ordering::Relaxed) {
             result.stopped = true;
@@ -103,11 +104,17 @@ pub fn execute_with_result(
     result
 }
 
-fn clean_group(group: &Group, run: &Run<'_>, recycler: &dyn Recycler, out: &mut GroupResult) {
+/// Cleans one target. Returns `false` when Stop cut it short.
+fn clean_group(
+    group: &Group,
+    run: &Run<'_>,
+    recycler: &dyn Recycler,
+    out: &mut GroupResult,
+) -> bool {
     let now = SystemTime::now();
     for target in &group.targets {
         if run.stop.load(Ordering::Relaxed) {
-            return;
+            return false;
         }
         let path = target.path.as_path();
         if !is_safe_path(path, run.guard_roots) {
@@ -170,7 +177,7 @@ fn clean_group(group: &Group, run: &Run<'_>, recycler: &dyn Recycler, out: &mut 
             },
         );
         if run.stop.load(Ordering::Relaxed) {
-            return;
+            return false;
         }
         // A folder that could not be listed, such as one that needs
         // administrator rights, is a failure, not "nothing to clean".
@@ -184,7 +191,7 @@ fn clean_group(group: &Group, run: &Run<'_>, recycler: &dyn Recycler, out: &mut 
         }
         for (child, size) in planned {
             if run.stop.load(Ordering::Relaxed) {
-                return;
+                return false;
             }
             if run.rules.filters_files() && !still_passes(&child, run.rules, now) {
                 continue;
@@ -192,6 +199,7 @@ fn clean_group(group: &Group, run: &Run<'_>, recycler: &dyn Recycler, out: &mut 
             clean_path(&child, size, run, recycler, out, Salvage::Children);
         }
     }
+    true
 }
 
 /// Whether a file planned under an age or size limit may still go. Other
@@ -1060,6 +1068,7 @@ mod tests {
         assert!(temp.join("b").exists() && temp.join("c").exists());
         assert!(later.join("x").exists());
         assert_eq!(result.groups.len(), 1, "the second group never started");
+        assert!(result.groups[0].stopped, "Stop cut the first group short");
         assert_eq!(result.freed_bytes, Some(1));
     }
 

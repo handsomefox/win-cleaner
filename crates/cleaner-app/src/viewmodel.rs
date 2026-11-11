@@ -304,10 +304,11 @@ pub(crate) fn selected_keys(plan: &Plan) -> Vec<TargetKey> {
 }
 
 /// Whether this run could offer the target at all. An empty target is hidden
-/// by default and worth nothing, so its checkbox is not an answer the user
-/// gave. Anything else is: they saw it and left it on or off.
+/// by default and worth nothing, and a target whose program is running would
+/// be skipped, so neither checkbox is an answer the user gave. Anything else
+/// is: they saw it and left it on or off.
 fn answerable(group: &Group) -> bool {
-    !is_empty_target(group)
+    !is_empty_target(group) && group.running.is_none()
 }
 
 /// What to remember after this run: every selected target, plus the keys in
@@ -345,11 +346,12 @@ pub(crate) fn remembered_keys(plan: &Plan, previous: &[TargetKey]) -> Vec<Target
 
 /// Selects exactly the targets named by `keys` and clears the rest.
 ///
-/// Two kinds stay unselected. An empty target, because this run has nothing to
-/// offer for it and selecting it would only queue a folder that frees no
-/// space; its key is still remembered, so it comes back the run it has data
-/// again. And an empty-folder group, because removing empty folders stays
-/// opt-in for each run.
+/// Three kinds stay unselected. An empty target, because this run has nothing
+/// to offer for it and selecting it would only queue a folder that frees no
+/// space. A target whose program is running, because cleanup would skip it.
+/// The keys of both are still remembered, so each comes back the run it can
+/// be cleaned again. And an empty-folder group, because removing empty folders
+/// stays opt-in for each run.
 pub(crate) fn apply_saved_selection(plan: &mut Plan, keys: &[TargetKey]) {
     let saved: std::collections::HashSet<(&str, &str)> = keys
         .iter()
@@ -993,6 +995,37 @@ mod tests {
         apply_saved_selection(&mut third, &stored);
         assert!(third.groups[0].on);
         assert_eq!(third.selected, 1);
+    }
+
+    #[test]
+    fn a_running_target_stays_unselected_but_stays_remembered() {
+        let mut plan = Plan {
+            groups: vec![
+                group("Chrome", "cache", 500, false),
+                Group {
+                    running: Some("Discord.exe".to_owned()),
+                    ..group("Discord", "Cache", 500, false)
+                },
+            ],
+            ..Plan::default()
+        };
+        let keys = vec![
+            ("Chrome".to_owned(), "cache".to_owned()),
+            ("Discord".to_owned(), "Cache".to_owned()),
+        ];
+
+        apply_saved_selection(&mut plan, &keys);
+        assert!(plan.groups[0].on);
+        assert!(
+            !plan.groups[1].on,
+            "a target whose program is open is not selected for you"
+        );
+        assert_eq!(plan.selected, 1);
+        assert_eq!(
+            remembered_keys(&plan, &keys),
+            keys,
+            "the key comes back the run the program is closed"
+        );
     }
 
     #[test]

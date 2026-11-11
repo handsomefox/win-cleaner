@@ -119,6 +119,8 @@ pub(crate) fn show(
         .collapsible(false)
         .resizable(true)
         .default_size([960.0, 600.0])
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .open(&mut open)
         .show(ctx, |ui| match &view.contents {
             Contents::Loading => {

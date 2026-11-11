@@ -321,10 +321,17 @@ impl WinCleanerApp {
         // UAC can elevate as an administrator account other than the one
         // signed in. That copy would find the other account's folders, so it
         // cleans nothing at all.
-        if let Some((process, session)) = cleaner_platform::elevation::elevated_as_someone_else() {
-            tracing::warn!(%process, %session, "running as another account");
-            app.screen = Screen::Unsupported(app.texts.other_account(&process, &session));
-            return app;
+        match cleaner_platform::elevation::account_check() {
+            cleaner_platform::elevation::Account::Same => {}
+            cleaner_platform::elevation::Account::Different { process, session } => {
+                tracing::warn!(%process, %session, "running as another account");
+                app.screen = Screen::Unsupported(app.texts.other_account(&process, &session));
+                return app;
+            }
+            cleaner_platform::elevation::Account::Unknown => {
+                app.screen = Screen::Unsupported(app.texts.unknown_account.to_owned());
+                return app;
+            }
         }
         app.start_scan();
         app

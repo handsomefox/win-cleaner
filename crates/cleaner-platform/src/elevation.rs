@@ -4,8 +4,7 @@
 //! Windows need administrator rights, so the user can start a second copy
 //! elevated. UAC can elevate as a different account when the signed-in one
 //! is not an administrator, and that copy would resolve another account's
-//! user folders, so [`elevated_as_someone_else`] lets the app refuse to
-//! clean there.
+//! user folders, so [`account_check`] lets the app refuse to clean there.
 
 use std::path::Path;
 
@@ -26,37 +25,50 @@ pub fn is_elevated() -> bool {
     }
 }
 
-/// When this elevated process runs as a different account than the one
-/// signed in to the session, both names as `DOMAIN\user`: this process's
-/// first, the session's second.
+/// Which account this process runs as, next to the one signed in.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Account {
+    /// Not elevated, or elevated as the signed-in account.
+    Same,
+    /// Elevated as another account: this process's name, then the
+    /// session's, both as `DOMAIN\user`.
+    Different { process: String, session: String },
+    /// Elevated, and the two accounts could not be compared.
+    Unknown,
+}
+
+/// Compares the account this process runs as with the one signed in to the
+/// session, by SID, since two APIs can spell one account's name differently.
 ///
-/// The accounts are compared by SID, since two APIs can spell one account's
-/// name differently. `None` when the process is not elevated, the accounts
-/// match, or anything cannot be read: an uncertain answer never blocks the
-/// app.
+/// An unelevated process is always [`Account::Same`]: it runs as whoever
+/// started it. An elevated one is [`Account::Same`] only when the SIDs are
+/// read and match, so an answer that cannot be established blocks cleaning.
 #[must_use]
-pub fn elevated_as_someone_else() -> Option<(String, String)> {
+pub fn account_check() -> Account {
     #[cfg(windows)]
     {
         if !is_elevated() {
-            return None;
+            return Account::Same;
         }
         let process = imp::process_account();
         let session = imp::session_account();
         tracing::info!(?process, ?session, "elevated; checking the account");
-        let (process, session) = (process?, session?);
+        let (Some(process), Some(session)) = (process, session) else {
+            tracing::warn!("could not read both account names");
+            return Account::Unknown;
+        };
         match imp::same_account(&session) {
-            Some(false) => Some((process, session)),
-            Some(true) => None,
+            Some(true) => Account::Same,
+            Some(false) => Account::Different { process, session },
             None => {
-                tracing::warn!("could not compare the accounts; allowing the scan");
-                None
+                tracing::warn!("could not compare the accounts");
+                Account::Unknown
             }
         }
     }
     #[cfg(not(windows))]
     {
-        None
+        Account::Same
     }
 }
 
@@ -353,6 +365,6 @@ mod tests {
     #[test]
     fn the_checks_answer_without_panicking() {
         let _: bool = is_elevated();
-        let _ = elevated_as_someone_else();
+        let _ = account_check();
     }
 }

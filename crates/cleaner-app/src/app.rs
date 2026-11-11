@@ -331,6 +331,9 @@ impl WinCleanerApp {
     }
 
     fn start_scan(&mut self) {
+        // The scan replaces the plan the file preview was listing, and uses
+        // the rules as they are now, so the preview has nothing left to do.
+        self.close_preview();
         self.generation += 1;
         self.screen = Screen::Scanning {
             fraction: 0.0,
@@ -357,6 +360,10 @@ impl WinCleanerApp {
                 // stores whatever was loaded at startup and loses the
                 // selection the cleanup just ran with.
                 self.prefs.remember(&state);
+                // The cleanup plans each target against the rules as they are
+                // now. An Exclude pressed after this point would not reach
+                // it, so the preview closes.
+                self.close_preview();
                 self.screen = Screen::Deleting(DeletingState {
                     current: 0,
                     total: state.plan.selected,
@@ -492,7 +499,11 @@ impl WinCleanerApp {
             return;
         };
         self.file_request += 1;
-        self.preview_baseline = Some(self.prefs.rules.clone());
+        // Opening a second preview over the first keeps the first one's
+        // baseline, so its exclusions still rescan when the last one closes.
+        if self.preview_baseline.is_none() {
+            self.preview_baseline = Some(self.prefs.rules.clone());
+        }
         self.files = Some(ui::files::FilesView::new(format!(
             "{} - {}",
             group.app, group.label
@@ -502,6 +513,12 @@ impl WinCleanerApp {
             targets: group.targets.clone(),
             rules: self.prefs.rules.clone(),
         });
+    }
+
+    /// Drops the file preview and the rules it started from.
+    fn close_preview(&mut self) {
+        self.files = None;
+        self.preview_baseline = None;
     }
 
     /// Adds `path` to the exclusions, and drops it from the open preview.
@@ -1078,7 +1095,11 @@ impl eframe::App for WinCleanerApp {
         }
         self.draw_settings(&ctx, &mut nav);
         self.draw_updates(&ctx, &mut nav);
-        if let Some(view) = &mut self.files {
+        // The preview belongs to the selection screen: an exclusion made
+        // during a scan or a cleanup would not reach either.
+        if matches!(self.screen, Screen::Select(_))
+            && let Some(view) = &mut self.files
+        {
             match ui::files::show(&ctx, self.texts, view) {
                 Some(ui::files::FilesAction::Exclude(path)) => nav.exclude = Some(path),
                 Some(ui::files::FilesAction::Close) => nav.close_files = true,
@@ -1299,6 +1320,57 @@ mod tests {
             "the preview's rescan lost an edit"
         );
         assert!(state.plan.groups[1].on);
+    }
+
+    #[test]
+    fn a_second_preview_keeps_the_first_ones_exclusions_pending() {
+        let (mut app, commands, _) = app();
+        app.start_scan();
+        let _ = commands.recv().unwrap();
+        app.apply_event(Event::ScanDone {
+            generation: 1,
+            outcome: Ok(plan()),
+        });
+        app.list_files(0);
+        let _ = commands.recv().unwrap();
+        let ctx = egui::Context::default();
+        app.handle_nav(
+            &ctx,
+            Nav {
+                exclude: Some(PathBuf::from("/some/file")),
+                ..Nav::default()
+            },
+        );
+        app.list_files(0);
+        let _ = commands.recv().unwrap();
+        app.handle_nav(
+            &ctx,
+            Nav {
+                close_files: true,
+                ..Nav::default()
+            },
+        );
+        assert!(matches!(
+            commands.recv().unwrap(),
+            Command::Scan { generation: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn a_cleanup_closes_the_preview() {
+        let (mut app, commands, _) = app();
+        app.start_scan();
+        let _ = commands.recv().unwrap();
+        app.apply_event(Event::ScanDone {
+            generation: 1,
+            outcome: Ok(plan()),
+        });
+        app.list_files(0);
+        let _ = commands.recv().unwrap();
+        app.begin_execute();
+        assert!(app.files.is_none());
+        assert!(app.preview_baseline.is_none());
+        assert!(matches!(commands.recv().unwrap(), Command::Execute { .. }));
     }
 
     #[test]

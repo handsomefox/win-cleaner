@@ -276,8 +276,10 @@ fn dev_root() -> Option<PathBuf> {
 
 fn dev_roots(root: &std::path::Path) -> Roots {
     Roots {
-        local_app_data: Some(root.join("AppData/Local")),
-        roaming_app_data: Some(root.join("AppData/Roaming")),
+        // One component per `join`: the Windows shell rejects a path that
+        // mixes `/` into its `\` separators.
+        local_app_data: Some(root.join("AppData").join("Local")),
+        roaming_app_data: Some(root.join("AppData").join("Roaming")),
         program_data: Some(root.join("ProgramData")),
         user_profile: Some(root.to_path_buf()),
         ..Roots::default()

@@ -174,7 +174,7 @@ fn filtered_app_groups(plan: &Plan, filter: &ViewFilter) -> Vec<AppView> {
         .by_app()
         .into_iter()
         .filter_map(|group| {
-            let mut visible: Vec<usize> = group
+            let visible: Vec<usize> = group
                 .indices
                 .into_iter()
                 .filter(|&index| {

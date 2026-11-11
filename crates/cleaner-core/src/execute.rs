@@ -720,7 +720,7 @@ mod tests {
     fn filtered_cache(dir: &Path) -> (Plan, PathBuf, PathBuf) {
         let cache = dir.join("cache");
         create_dir_all(&cache).unwrap();
-        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 24 * 60 * 60);
+        let old = SystemTime::now() - std::time::Duration::from_hours(10 * 24);
         for name in ["a", "b"] {
             let file = File::create(cache.join(name)).unwrap();
             file.set_len(5).unwrap();
@@ -746,7 +746,7 @@ mod tests {
                     .write(true)
                     .open(&second)
                     .unwrap()
-                    .set_modified(std::time::SystemTime::now())
+                    .set_modified(SystemTime::now())
                     .unwrap();
             },
         };

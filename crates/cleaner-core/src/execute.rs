@@ -12,7 +12,7 @@ use crate::empty_folders::EMPTY_FOLDERS_APP;
 use crate::error::RecycleError;
 use crate::plan::{Group, Options, Plan, ProgressUpdate, Target};
 use crate::rules::{Rules, Walk, plan_paths};
-use crate::safety::{is_link, is_safe_path, normalized_key};
+use crate::safety::{is_link, is_reparse_point, is_safe_path, normalized_key};
 use crate::scan::dir_size;
 use crate::stats::{ExecResult, GroupResult, PathError};
 use crate::versions::superseded;
@@ -183,9 +183,26 @@ fn clean_group(group: &Group, run: &Run<'_>, recycler: &dyn Recycler, out: &mut 
             if run.stop.load(Ordering::Relaxed) {
                 return;
             }
+            if run.rules.filters_files() && !still_passes(&child, run.rules, now) {
+                continue;
+            }
             clean_path(&child, size, run, recycler, out, Salvage::Children);
         }
     }
+}
+
+/// Whether a file planned under an age or size limit may still go. Other
+/// programs keep writing while a cleanup runs: a file rewritten since it was
+/// planned is new again, and one replaced by a folder or a link would move
+/// everything in it.
+fn still_passes(path: &Path, rules: &Rules, now: SystemTime) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| {
+        metadata.is_file()
+            && !is_link(&metadata)
+            && !is_reparse_point(&metadata)
+            && !rules.is_excluded(path)
+            && rules.file_passes(&metadata, now)
+    })
 }
 
 /// What to do when a folder cannot be moved whole.
@@ -625,6 +642,108 @@ mod tests {
         );
         assert_eq!(fs::read_dir(&target).unwrap().count(), 3);
         assert!(error.to_string().contains("stopped before everything"));
+    }
+
+    /// Moves like [`MockRecycler`], and after the first move runs `change`,
+    /// the way another program writes while a cleanup runs.
+    struct ChangingRecycler<F: Fn()> {
+        inner: MockRecycler,
+        change: F,
+    }
+
+    impl<F: Fn()> Recycler for ChangingRecycler<F> {
+        fn recycle(&self, paths: &[&Path]) -> Result<(), RecycleError> {
+            let first = self.inner.calls.borrow().is_empty();
+            let result = self.inner.recycle(paths);
+            if first {
+                (self.change)();
+            }
+            result
+        }
+    }
+
+    fn filtered_cache(dir: &Path) -> (Plan, PathBuf, PathBuf) {
+        let cache = dir.join("cache");
+        create_dir_all(&cache).unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 24 * 60 * 60);
+        for name in ["a", "b"] {
+            let file = File::create(cache.join(name)).unwrap();
+            file.set_len(5).unwrap();
+            file.set_modified(old).unwrap();
+        }
+        let mut target = Target::whole(cache.clone(), 10);
+        target.keep_folder = true;
+        let plan = Plan {
+            groups: vec![sized_group("App", vec![target])],
+            ..Plan::default()
+        };
+        (plan, cache.join("a"), cache.join("b"))
+    }
+
+    #[test]
+    fn a_file_rewritten_during_a_filtered_cleanup_stays() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut plan, first, second) = filtered_cache(dir.path());
+        let recycler = ChangingRecycler {
+            inner: MockRecycler::new(),
+            change: || {
+                File::options()
+                    .write(true)
+                    .open(&second)
+                    .unwrap()
+                    .set_modified(std::time::SystemTime::now())
+                    .unwrap();
+            },
+        };
+        let rules = Rules {
+            min_age_days: 1,
+            ..Rules::default()
+        };
+
+        run_with(
+            &mut plan,
+            dir.path(),
+            &recycler,
+            &rules,
+            &AtomicBool::new(false),
+        );
+
+        assert!(!first.exists());
+        assert!(
+            second.exists(),
+            "a file changed since it was planned is new"
+        );
+        assert_eq!(recycler.inner.call_sizes(), [1]);
+    }
+
+    #[test]
+    fn a_file_replaced_by_a_folder_during_a_filtered_cleanup_stays() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut plan, first, second) = filtered_cache(dir.path());
+        let recycler = ChangingRecycler {
+            inner: MockRecycler::new(),
+            change: || {
+                fs::remove_file(&second).unwrap();
+                create_dir_all(&second).unwrap();
+                fs::write(second.join("new"), b"x").unwrap();
+            },
+        };
+        let rules = Rules {
+            min_size_bytes: 1,
+            ..Rules::default()
+        };
+
+        run_with(
+            &mut plan,
+            dir.path(),
+            &recycler,
+            &rules,
+            &AtomicBool::new(false),
+        );
+
+        assert!(!first.exists());
+        assert!(second.join("new").exists(), "the folder is not moved whole");
+        assert_eq!(recycler.inner.call_sizes(), [1]);
     }
 
     fn selected_group(app: &str, paths: Vec<PathBuf>) -> Group {

@@ -508,16 +508,6 @@ impl WinCleanerApp {
         }
     }
 
-    /// The selection screen for a fresh scan, with the remembered view and
-    /// selection applied.
-    ///
-    /// A preset marked to apply at launch wins, because the user asked for
-    /// that selection by name. Otherwise the last selection comes back.
-    ///
-    /// An empty stored selection means nothing is remembered, so the catalog
-    /// defaults the scan computed stand. That makes a first launch and a reset
-    /// behave alike, at the price of one case: someone who clears every
-    /// checkbox and quits gets the defaults back rather than an empty list.
     /// Opens the file preview for one target and asks the worker for its
     /// files under the current rules.
     fn list_files(&mut self, index: usize) {
@@ -701,6 +691,18 @@ impl WinCleanerApp {
         }
     }
 
+    /// The selection screen for a fresh scan, with the remembered view and
+    /// selection applied.
+    ///
+    /// A selection handed over by the window that started this copy with
+    /// administrator rights wins, once. Next comes a preset marked to apply
+    /// at launch, because the user asked for that selection by name.
+    /// Otherwise the last selection comes back.
+    ///
+    /// An empty stored selection means nothing is remembered, so the catalog
+    /// defaults the scan computed stand. That makes a first launch and a reset
+    /// behave alike, at the price of one case: someone who clears every
+    /// checkbox and quits gets the defaults back rather than an empty list.
     fn restored_state(&mut self, plan: Plan) -> SelectState {
         let mut state = SelectState::new(plan);
         state.elevated = self.elevated;

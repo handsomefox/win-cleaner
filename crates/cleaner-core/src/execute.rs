@@ -166,9 +166,12 @@ fn clean_group(group: &Group, run: &Run<'_>, recycler: &dyn Recycler, out: &mut 
             &mut walk,
             &mut |child, size| {
                 planned.push((child.to_path_buf(), size));
-                true
+                !run.stop.load(Ordering::Relaxed)
             },
         );
+        if run.stop.load(Ordering::Relaxed) {
+            return;
+        }
         // A folder that could not be listed, such as one that needs
         // administrator rights, is a failure, not "nothing to clean".
         if !walk.errors.is_empty() {
@@ -399,6 +402,14 @@ fn recycle_children(
         {
             failures.push(format!("{}: {error}", child.display()));
         }
+    }
+    // Stop pressed while the last child moved still means no parent retry.
+    if stop.load(Ordering::Relaxed) {
+        failures.push(format!(
+            "stopped before everything in {} was moved",
+            path.display()
+        ));
+        return false;
     }
     true
 }
@@ -641,6 +652,50 @@ mod tests {
             "no child is tried"
         );
         assert_eq!(fs::read_dir(&target).unwrap().count(), 3);
+        assert!(error.to_string().contains("stopped before everything"));
+    }
+
+    /// Refuses `parent` and moves anything else, setting `stop` as it does,
+    /// the way a Stop click lands while the last child of a locked folder
+    /// moves.
+    struct StopOnChild<'a> {
+        parent: PathBuf,
+        stop: &'a AtomicBool,
+        calls: RefCell<Vec<PathBuf>>,
+    }
+
+    impl Recycler for StopOnChild<'_> {
+        fn recycle(&self, paths: &[&Path]) -> Result<(), RecycleError> {
+            self.calls.borrow_mut().push(paths[0].to_path_buf());
+            if paths[0] == self.parent {
+                return Err(RecycleError::ShellOperation(32));
+            }
+            fs::remove_file(paths[0]).ok();
+            self.stop.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn stop_during_the_last_salvaged_child_leaves_the_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("cache");
+        make_children(&target, 1);
+        let stop = AtomicBool::new(false);
+        let recycler = StopOnChild {
+            parent: target.clone(),
+            stop: &stop,
+            calls: RefCell::new(Vec::new()),
+        };
+
+        let error = delete_path_smart(&target, &[dir.path()], &recycler, &stop).unwrap_err();
+
+        assert_eq!(
+            *recycler.calls.borrow(),
+            [target.clone(), target.join("f0000")],
+            "the parent is not tried again after Stop"
+        );
+        assert!(target.is_dir());
         assert!(error.to_string().contains("stopped before everything"));
     }
 

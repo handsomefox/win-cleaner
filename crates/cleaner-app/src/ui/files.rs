@@ -40,6 +40,10 @@ pub(crate) struct FilesView {
     /// Whether an age or size limit was set when the list was asked for,
     /// so files go one by one rather than in whole folders.
     filtered: bool,
+    /// Whether the window has been placed. It opens in the middle of the
+    /// app, not wherever egui remembers an earlier list, and moves freely
+    /// after that.
+    placed: bool,
     /// Tells the worker to stop listing once this view is gone.
     cancel: Arc<AtomicBool>,
     contents: Contents,
@@ -65,6 +69,7 @@ impl FilesView {
             title,
             versions,
             filtered,
+            placed: false,
             cancel: Arc::new(AtomicBool::new(false)),
             contents: Contents::Loading,
             sort: SortBy::Size,
@@ -148,114 +153,122 @@ pub(crate) fn show(
     let mut open = true;
     let mut action = None;
     let mut sort = None;
-    egui::Window::new(&view.title)
-        .id(egui::Id::unique("file-preview"))
+    let id = egui::Id::unique("file-preview");
+    let center = ctx.content_rect().center();
+    // egui remembers where an earlier list was, and a window dragged by its
+    // title bar ignores a position set through the builder, so the
+    // remembered position is moved instead.
+    if !view.placed {
+        view.placed = true;
+        if let Some(mut state) = egui::AreaState::load(ctx, id) {
+            state.pivot_pos = Some(center);
+            ctx.memory_mut(|memory| {
+                memory
+                    .areas_mut()
+                    .set_state(egui::LayerId::new(egui::Order::Middle, id), state);
+            });
+        }
+    }
+    let window = egui::Window::new(&view.title)
+        .id(id)
         .collapsible(false)
         .resizable(true)
         .default_size([960.0, 600.0])
         .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .open(&mut open)
-        .show(ctx, |ui| match &view.contents {
-            Contents::Loading => {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(RichText::new(texts.files_loading).color(theme::MUTED));
-                });
+        .default_pos(center);
+    window.open(&mut open).show(ctx, |ui| match &view.contents {
+        Contents::Loading => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(texts.files_loading).color(theme::MUTED));
+            });
+        }
+        Contents::Loaded {
+            files,
+            truncated,
+            bytes,
+        } => {
+            ui.label(texts.files_summary(files.len(), *bytes));
+            if *truncated {
+                ui.label(RichText::new(texts.files_truncated(FILE_LIST_LIMIT)).color(theme::MUTED));
             }
-            Contents::Loaded {
-                files,
-                truncated,
-                bytes,
-            } => {
-                ui.label(texts.files_summary(files.len(), *bytes));
-                if *truncated {
-                    ui.label(
-                        RichText::new(texts.files_truncated(FILE_LIST_LIMIT)).color(theme::MUTED),
-                    );
-                }
-                let hint = if view.filtered {
-                    texts.files_hint_filtered
+            let hint = if view.filtered {
+                texts.files_hint_filtered
+            } else {
+                texts.files_hint
+            };
+            ui.label(
+                RichText::new(hint)
+                    .size(theme::FONT_SMALL)
+                    .color(theme::MUTED),
+            );
+            ui.add_space(theme::SPACE_XS);
+            if files.is_empty() {
+                ui.label(RichText::new(texts.files_none).color(theme::MUTED));
+                return;
+            }
+            let arrow = |column: SortBy| {
+                if view.sort != column {
+                    ""
+                } else if view.descending {
+                    " \u{2193}"
                 } else {
-                    texts.files_hint
-                };
-                ui.label(
-                    RichText::new(hint)
-                        .size(theme::FONT_SMALL)
-                        .color(theme::MUTED),
-                );
-                ui.add_space(theme::SPACE_XS);
-                if files.is_empty() {
-                    ui.label(RichText::new(texts.files_none).color(theme::MUTED));
-                    return;
+                    " \u{2191}"
                 }
-                let arrow = |column: SortBy| {
-                    if view.sort != column {
-                        ""
-                    } else if view.descending {
-                        " \u{2193}"
-                    } else {
-                        " \u{2191}"
+            };
+            let row_height = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+            TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(Column::remainder().at_least(240.0).clip(true))
+                .column(Column::initial(90.0).at_least(70.0))
+                .column(Column::initial(140.0).at_least(110.0))
+                .column(Column::auto())
+                .header(row_height, |mut header| {
+                    for (column, label) in [
+                        (SortBy::Path, texts.files_column_path),
+                        (SortBy::Size, texts.files_column_size),
+                        (SortBy::Modified, texts.files_column_modified),
+                    ] {
+                        header.col(|ui| {
+                            let text = format!("{label}{}", arrow(column));
+                            if ui
+                                .add(egui::Button::new(RichText::new(text).strong()).frame(false))
+                                .clicked()
+                            {
+                                sort = Some(column);
+                            }
+                        });
                     }
-                };
-                let row_height = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
-                TableBuilder::new(ui)
-                    .striped(true)
-                    .resizable(true)
-                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                    .column(Column::remainder().at_least(240.0).clip(true))
-                    .column(Column::initial(90.0).at_least(70.0))
-                    .column(Column::initial(140.0).at_least(110.0))
-                    .column(Column::auto())
-                    .header(row_height, |mut header| {
-                        for (column, label) in [
-                            (SortBy::Path, texts.files_column_path),
-                            (SortBy::Size, texts.files_column_size),
-                            (SortBy::Modified, texts.files_column_modified),
-                        ] {
-                            header.col(|ui| {
-                                let text = format!("{label}{}", arrow(column));
-                                if ui
-                                    .add(
-                                        egui::Button::new(RichText::new(text).strong())
-                                            .frame(false),
-                                    )
-                                    .clicked()
-                                {
-                                    sort = Some(column);
-                                }
-                            });
-                        }
-                        header.col(|_| {});
-                    })
-                    .body(|body| {
-                        body.rows(row_height, files.len(), |mut row| {
-                            let file = &files[row.index()];
-                            row.col(|ui| {
-                                ui.add(
-                                    egui::Label::new(file.path.display().to_string()).truncate(),
-                                )
+                    header.col(|_| {});
+                })
+                .body(|body| {
+                    body.rows(row_height, files.len(), |mut row| {
+                        let file = &files[row.index()];
+                        row.col(|ui| {
+                            ui.add(egui::Label::new(file.path.display().to_string()).truncate())
                                 .on_hover_text(file.path.display().to_string());
-                            });
-                            row.col(|ui| {
-                                ui.label(human_bytes(file.bytes));
-                            });
-                            row.col(|ui| {
-                                ui.label(format_modified(file.modified));
-                            });
-                            row.col(|ui| {
-                                if ui
-                                    .small_button(texts.files_exclude)
-                                    .on_hover_text(texts.files_exclude_hint)
-                                    .clicked()
-                                {
-                                    action = Some(FilesAction::Exclude(file.path.clone()));
-                                }
-                            });
+                        });
+                        row.col(|ui| {
+                            ui.label(human_bytes(file.bytes));
+                        });
+                        row.col(|ui| {
+                            ui.label(format_modified(file.modified));
+                        });
+                        row.col(|ui| {
+                            if ui
+                                .small_button(texts.files_exclude)
+                                .on_hover_text(texts.files_exclude_hint)
+                                .clicked()
+                            {
+                                action = Some(FilesAction::Exclude(file.path.clone()));
+                            }
                         });
                     });
-            }
-        });
+                });
+        }
+    });
     if let Some(column) = sort {
         view.sort_by(column);
     }

@@ -254,7 +254,8 @@ fn process_command<R: Recycler>(
             targets,
             rules,
         } => {
-            let (files, truncated) = list_target_files(&targets, &rules);
+            let guard_roots = roots.guard_roots();
+            let (files, truncated) = list_target_files(&targets, &rules, &guard_roots);
             emit(Event::FilesListed {
                 request,
                 files,
@@ -284,7 +285,13 @@ pub(crate) const FILE_LIST_LIMIT: usize = 1_000_000;
 
 /// The files cleaning `targets` would move under `rules`, as cleanup plans
 /// them. A program version is listed whole, since it is never cleaned in part.
-fn list_target_files(targets: &[Target], rules: &Rules) -> (Vec<FileEntry>, bool) {
+/// A target outside the safe roots, such as one reached through a junction,
+/// is never walked, just as cleanup never moves it.
+fn list_target_files(
+    targets: &[Target],
+    rules: &Rules,
+    guard_roots: &[&std::path::Path],
+) -> (Vec<FileEntry>, bool) {
     let now = std::time::SystemTime::now();
     let whole = Rules::default();
     let mut files = Vec::new();
@@ -292,6 +299,9 @@ fn list_target_files(targets: &[Target], rules: &Rules) -> (Vec<FileEntry>, bool
         let remaining = FILE_LIST_LIMIT.saturating_sub(files.len());
         if remaining == 0 {
             return (files, true);
+        }
+        if !cleaner_core::is_safe_path(&target.path, guard_roots) {
+            continue;
         }
         if target.version_rule.is_some() {
             if !rules.is_excluded(&target.path) && !rules.has_exclusion_inside(&target.path) {
@@ -621,5 +631,35 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         drop(tx);
         run_commands(&rx, &mut runtime, |_| panic!("no events expected"));
+    }
+
+    #[test]
+    fn the_file_list_walks_only_targets_inside_the_safe_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut runtime = runtime(dir.path());
+        let inside = dir.path().join("Local/App/Cache");
+        let outside = dir.path().join("Elsewhere/Cache");
+        for folder in [&inside, &outside] {
+            fs::create_dir_all(folder).unwrap();
+            fs::write(folder.join("file"), b"data").unwrap();
+        }
+        let mut events = Vec::new();
+        process_command(
+            &mut runtime,
+            Command::ListFiles {
+                request: 1,
+                targets: vec![
+                    Target::whole(inside.clone(), 4),
+                    Target::whole(outside.clone(), 4),
+                ],
+                rules: Rules::default(),
+            },
+            |event| events.push(event),
+        );
+        let Some(Event::FilesListed { files, .. }) = events.pop() else {
+            panic!("expected the file list");
+        };
+        assert_eq!(files.len(), 1);
+        assert!(files[0].path.starts_with(&inside));
     }
 }

@@ -108,6 +108,13 @@ impl Presets {
         }
     }
 
+    /// Rewrites keys of targets that were renamed; see [`crate::migrate`].
+    pub(crate) fn migrate_keys(&mut self) {
+        for preset in &mut self.0 {
+            crate::migrate::target_keys(&mut preset.keys);
+        }
+    }
+
     /// Marks one preset as the startup selection, clearing the others so the
     /// launch path never has to choose between two.
     pub(crate) fn set_on_start(&mut self, index: usize, on: bool) {

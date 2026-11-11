@@ -6,6 +6,7 @@
 
 mod app;
 mod icons;
+mod migrate;
 mod presets;
 mod strings;
 mod theme;

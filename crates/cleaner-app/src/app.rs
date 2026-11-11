@@ -63,11 +63,15 @@ impl Prefs {
         // Storage is a file the user can edit, and an older build may have
         // written a shape this one no longer allows.
         presets.sanitize();
+        presets.migrate_keys();
+        let mut selection: Vec<TargetKey> =
+            eframe::get_value(storage, KEY_SELECTION).unwrap_or(fallback.selection);
+        crate::migrate::target_keys(&mut selection);
         Self {
             remember_selection: eframe::get_value(storage, KEY_REMEMBER)
                 .unwrap_or(fallback.remember_selection),
             show_empty: eframe::get_value(storage, KEY_SHOW_EMPTY).unwrap_or(fallback.show_empty),
-            selection: eframe::get_value(storage, KEY_SELECTION).unwrap_or(fallback.selection),
+            selection,
             presets,
             app_updates: eframe::get_value(storage, KEY_APP_UPDATES)
                 .unwrap_or(fallback.app_updates),

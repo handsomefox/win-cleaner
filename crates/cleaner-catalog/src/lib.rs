@@ -50,7 +50,13 @@ fn chromium_profile_globs(user_data: &Path) -> Vec<PathBuf> {
 
 /// A Chromium-family browser with shared user-data caches and per-profile caches.
 fn chromium_browser(app: &str, user_data: &Path) -> Item {
-    item(app, "Profile cache", true)
+    chromium_channel(app, "Profile cache", user_data)
+}
+
+/// One release channel of a Chromium-family browser. Each channel keeps its
+/// own `User Data`, so each is its own target under the browser's entry.
+fn chromium_channel(app: &str, label: &str, user_data: &Path) -> Item {
+    item(app, label, true)
         .paths([
             user_data.join("extensions_crx_cache"),
             user_data.join("component_crx_cache"),
@@ -129,20 +135,25 @@ pub fn build_registry(roots: &Roots) -> Registry {
     // "Crash reports". It never repeats the app name and never lists the
     // paths, which the details button in the UI shows.
     let mut items = vec![
+        // One entry per browser, with a target per release channel in the
+        // order Stable, Beta, Dev, Canary. Canary installs as "SxS".
         chromium_browser(
             "Chrome",
             &local.join("Google").join("Chrome").join("User Data"),
         ),
-        chromium_browser(
-            "Chrome Beta",
+        chromium_channel(
+            "Chrome",
+            "Profile cache (Beta)",
             &local.join("Google").join("Chrome Beta").join("User Data"),
         ),
-        chromium_browser(
-            "Chrome Dev",
+        chromium_channel(
+            "Chrome",
+            "Profile cache (Dev)",
             &local.join("Google").join("Chrome Dev").join("User Data"),
         ),
-        chromium_browser(
-            "Chrome Canary",
+        chromium_channel(
+            "Chrome",
+            "Profile cache (Canary)",
             &local.join("Google").join("Chrome SxS").join("User Data"),
         ),
         chromium_browser(
@@ -155,6 +166,21 @@ pub fn build_registry(roots: &Roots) -> Registry {
         chromium_browser(
             "Edge",
             &local.join("Microsoft").join("Edge").join("User Data"),
+        ),
+        chromium_channel(
+            "Edge",
+            "Profile cache (Beta)",
+            &local.join("Microsoft").join("Edge Beta").join("User Data"),
+        ),
+        chromium_channel(
+            "Edge",
+            "Profile cache (Dev)",
+            &local.join("Microsoft").join("Edge Dev").join("User Data"),
+        ),
+        chromium_channel(
+            "Edge",
+            "Profile cache (Canary)",
+            &local.join("Microsoft").join("Edge SxS").join("User Data"),
         ),
         item("Firefox", "Crash reports", true).paths([roaming
             .join("Mozilla")
@@ -657,6 +683,12 @@ pub fn build_registry(roots: &Roots) -> Registry {
     ];
 
     if let Some(x86) = roots.program_files_x86.as_deref() {
+        // The launcher's own builds, beside the `.product.db` naming the
+        // installed one; see `Versioned`.
+        items.push(
+            item("Battle.net", "Old launcher versions", false)
+                .versioned(x86.join("Battle.net"), "Battle.net."),
+        );
         items.push(
             item("Ubisoft Connect", "Install folder cache", true).paths([x86
                 .join("Ubisoft")
@@ -727,7 +759,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.system_root = Some(PathBuf::from("/base/Windows"));
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 119);
+        assert_eq!(registry.items.len(), 123);
 
         let chrome = registry
             .items
@@ -801,19 +833,53 @@ mod tests {
             ]
         );
 
-        for (app, root) in [
-            ("Chrome", "/base/Local/Google/Chrome/User Data"),
-            ("Chrome Beta", "/base/Local/Google/Chrome Beta/User Data"),
-            ("Chrome Dev", "/base/Local/Google/Chrome Dev/User Data"),
-            ("Chrome Canary", "/base/Local/Google/Chrome SxS/User Data"),
+        for (app, label, root) in [
+            (
+                "Chrome",
+                "Profile cache",
+                "/base/Local/Google/Chrome/User Data",
+            ),
+            (
+                "Chrome",
+                "Profile cache (Beta)",
+                "/base/Local/Google/Chrome Beta/User Data",
+            ),
+            (
+                "Chrome",
+                "Profile cache (Dev)",
+                "/base/Local/Google/Chrome Dev/User Data",
+            ),
+            (
+                "Chrome",
+                "Profile cache (Canary)",
+                "/base/Local/Google/Chrome SxS/User Data",
+            ),
             (
                 "Chrome for Testing",
+                "Profile cache",
                 "/base/Local/Google/Chrome for Testing/User Data",
             ),
-            ("Edge", "/base/Local/Microsoft/Edge/User Data"),
-            ("Chromium", "/base/Local/Chromium/User Data"),
+            (
+                "Edge",
+                "Profile cache",
+                "/base/Local/Microsoft/Edge/User Data",
+            ),
+            (
+                "Edge",
+                "Profile cache (Canary)",
+                "/base/Local/Microsoft/Edge SxS/User Data",
+            ),
+            (
+                "Chromium",
+                "Profile cache",
+                "/base/Local/Chromium/User Data",
+            ),
         ] {
-            let browser = registry.items.iter().find(|item| item.app == app).unwrap();
+            let browser = registry
+                .items
+                .iter()
+                .find(|item| item.app == app && item.label == label)
+                .unwrap();
             assert!(browser.default_on, "{app}");
             assert_eq!(browser.paths.len(), 4, "{app}");
             assert_eq!(browser.globs.len(), 7, "{app}");
@@ -937,7 +1003,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.program_files_x86 = None;
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 115);
+        assert_eq!(registry.items.len(), 118);
         // The profile cache stays; only the install-folder item is gated.
         assert!(
             !registry
@@ -968,9 +1034,53 @@ mod tests {
             .iter()
             .map(|item| (item.app.as_str(), item.label.as_str()))
             .collect();
-        assert_eq!(labels, vec![("Battle.net", "Old agent versions")]);
+        assert_eq!(
+            labels,
+            vec![
+                ("Battle.net", "Old agent versions"),
+                ("Battle.net", "Old launcher versions")
+            ]
+        );
         assert!(versioned.iter().all(|item| !item.default_on));
         assert_eq!(versioned[0].versioned[0].prefix, "Agent.");
+        assert_eq!(versioned[1].versioned[0].prefix, "Battle.net.");
+    }
+
+    #[test]
+    fn browser_channels_share_one_entry_in_release_order() {
+        let registry = build_registry(&test_roots(Path::new("/base")));
+        for (app, folders) in [
+            (
+                "Chrome",
+                ["Chrome", "Chrome Beta", "Chrome Dev", "Chrome SxS"],
+            ),
+            ("Edge", ["Edge", "Edge Beta", "Edge Dev", "Edge SxS"]),
+        ] {
+            let items: Vec<&Item> = registry.items.iter().filter(|i| i.app == app).collect();
+            let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+            assert_eq!(
+                labels,
+                [
+                    "Profile cache",
+                    "Profile cache (Beta)",
+                    "Profile cache (Dev)",
+                    "Profile cache (Canary)"
+                ],
+                "{app}"
+            );
+            for (item, folder) in items.iter().zip(folders) {
+                assert!(
+                    item.paths[0]
+                        .to_string_lossy()
+                        .contains(&format!("/{folder}/User Data")),
+                    "{app} {} reads {folder}",
+                    item.label
+                );
+            }
+        }
+        for gone in ["Chrome Beta", "Chrome Dev", "Chrome Canary"] {
+            assert!(registry.items.iter().all(|item| item.app != gone));
+        }
     }
 
     /// Folders other programs expect to exist keep the folder and lose only
@@ -1117,18 +1227,18 @@ mod tests {
         assert_eq!(npm.bytes, 500);
         assert!(npm.on);
 
-        for (app, bytes) in [
-            ("Chrome Beta", 110),
-            ("Firefox", 250),
-            ("Opera GX", 200),
-            ("Thunderbird", 610),
-            ("PowerToys", 50),
-            ("Roblox", 60),
+        for (app, label, bytes) in [
+            ("Chrome", "Profile cache (Beta)", 110),
+            ("Firefox", "Cache", 250),
+            ("Opera GX", "Cache", 200),
+            ("Thunderbird", "Cache", 610),
+            ("PowerToys", "Logs", 50),
+            ("Roblox", "Logs", 60),
         ] {
             let group = plan
                 .groups
                 .iter()
-                .find(|group| group.app == app && (app != "Roblox" || group.label == "Logs"))
+                .find(|group| group.app == app && group.label == label)
                 .unwrap();
             assert_eq!(group.bytes, bytes, "{app}");
             assert!(group.on, "{app}");

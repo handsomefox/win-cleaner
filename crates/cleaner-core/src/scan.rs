@@ -100,7 +100,9 @@ pub fn build_plan(
     // Opt-in empty-folder removal groups (one per scanned root).
     groups.extend(build_empty_folder_groups(roots));
 
-    groups.sort_by(|a, b| a.app.cmp(&b.app).then_with(|| a.label.cmp(&b.label)));
+    // Apps sort by name; within one, targets keep the catalog's order, which
+    // puts a browser's channels as Stable, Beta, Dev, Canary.
+    groups.sort_by(|a, b| a.app.cmp(&b.app));
 
     let mut plan = Plan {
         groups,

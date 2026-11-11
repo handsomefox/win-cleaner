@@ -197,7 +197,7 @@ fn clean_path(
     out: &mut GroupResult,
 ) {
     out.paths_attempted += 1;
-    if let Err(error) = delete_path_smart(path, run.guard_roots, recycler) {
+    if let Err(error) = delete_path_smart(path, run.guard_roots, recycler, run.stop) {
         out.paths_failed += 1;
         out.errors.push(PathError {
             path: path.display().to_string(),
@@ -247,6 +247,7 @@ pub fn delete_path_smart(
     path: &Path,
     guard_roots: &[&Path],
     recycler: &dyn Recycler,
+    stop: &AtomicBool,
 ) -> Result<(), RecycleError> {
     if !is_safe_path(path, guard_roots) {
         return if path_missing(path) {
@@ -271,7 +272,7 @@ pub fn delete_path_smart(
     }
 
     let mut failures = vec![format!("{}: {initial_error}", path.display())];
-    if !recycle_children(path, guard_roots, recycler, &mut failures) {
+    if !recycle_children(path, guard_roots, recycler, stop, &mut failures) {
         return if path_missing(path) {
             Ok(())
         } else {
@@ -303,6 +304,7 @@ fn recycle_children(
     path: &Path,
     guard_roots: &[&Path],
     recycler: &dyn Recycler,
+    stop: &AtomicBool,
     failures: &mut Vec<String>,
 ) -> bool {
     let entries = match fs::read_dir(path) {
@@ -314,6 +316,13 @@ fn recycle_children(
         }
     };
     for entry in entries {
+        if stop.load(Ordering::Relaxed) {
+            failures.push(format!(
+                "stopped before everything in {} was moved",
+                path.display()
+            ));
+            return false;
+        }
         let child = match entry {
             Ok(entry) => entry.path(),
             Err(error) => {
@@ -459,7 +468,7 @@ mod tests {
         let file = dir.path().join("a.txt");
         File::create(&file).unwrap();
         let mock = MockRecycler::new();
-        delete_path_smart(&file, &[dir.path()], &mock).unwrap();
+        delete_path_smart(&file, &[dir.path()], &mock, &AtomicBool::new(false)).unwrap();
         assert_eq!(mock.call_sizes(), vec![1]);
         assert!(!file.exists());
     }
@@ -468,7 +477,13 @@ mod tests {
     fn missing_path_is_ok_without_calls() {
         let dir = tempfile::tempdir().unwrap();
         let mock = MockRecycler::new();
-        delete_path_smart(&dir.path().join("missing"), &[dir.path()], &mock).unwrap();
+        delete_path_smart(
+            &dir.path().join("missing"),
+            &[dir.path()],
+            &mock,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
         assert!(mock.call_sizes().is_empty());
     }
 
@@ -478,7 +493,7 @@ mod tests {
         let target = dir.path().join("cache");
         make_children(&target, 100);
         let mock = MockRecycler::new();
-        delete_path_smart(&target, &[dir.path()], &mock).unwrap();
+        delete_path_smart(&target, &[dir.path()], &mock, &AtomicBool::new(false)).unwrap();
         assert_eq!(mock.call_sizes(), vec![1]);
         assert!(!target.exists());
     }
@@ -491,7 +506,7 @@ mod tests {
         let mut recycler = FailingRecycler::new();
         recycler.fail_once.get_mut().insert(target.clone());
 
-        delete_path_smart(&target, &[dir.path()], &recycler).unwrap();
+        delete_path_smart(&target, &[dir.path()], &recycler, &AtomicBool::new(false)).unwrap();
 
         let calls = recycler.calls();
         assert_eq!(calls.first(), Some(&target));
@@ -511,7 +526,8 @@ mod tests {
         recycler.fail_always.insert(target.clone());
         recycler.fail_always.insert(locked.clone());
 
-        let error = delete_path_smart(&target, &[dir.path()], &recycler).unwrap_err();
+        let error = delete_path_smart(&target, &[dir.path()], &recycler, &AtomicBool::new(false))
+            .unwrap_err();
 
         assert!(locked.exists());
         assert!(removable.iter().all(|path| !path.exists()));
@@ -533,7 +549,8 @@ mod tests {
         let mut recycler = FailingRecycler::new();
         recycler.fail_always.insert(target.clone());
 
-        let error = delete_path_smart(&target, &[dir.path()], &recycler).unwrap_err();
+        let error = delete_path_smart(&target, &[dir.path()], &recycler, &AtomicBool::new(false))
+            .unwrap_err();
 
         assert!(!target.join("f0000").exists());
         assert!(outside.join("f0000").exists());
@@ -551,8 +568,28 @@ mod tests {
         recycler.fail_once.get_mut().insert(target.clone());
         recycler.disappear_on_failure = Some(target.clone());
 
-        delete_path_smart(&target, &[dir.path()], &recycler).unwrap();
+        delete_path_smart(&target, &[dir.path()], &recycler, &AtomicBool::new(false)).unwrap();
         assert_eq!(recycler.calls(), [target]);
+    }
+
+    #[test]
+    fn stop_ends_the_salvage_of_a_locked_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("cache");
+        make_children(&target, 3);
+        let mut recycler = FailingRecycler::new();
+        recycler.fail_always.insert(target.clone());
+
+        let error = delete_path_smart(&target, &[dir.path()], &recycler, &AtomicBool::new(true))
+            .unwrap_err();
+
+        assert_eq!(
+            recycler.calls(),
+            std::slice::from_ref(&target),
+            "no child is tried"
+        );
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 3);
+        assert!(error.to_string().contains("stopped before everything"));
     }
 
     fn selected_group(app: &str, paths: Vec<PathBuf>) -> Group {

@@ -155,13 +155,20 @@ pub(crate) fn is_empty_target(group: &Group) -> bool {
     group.bytes == 0 && (group.targets.is_empty() || group.app != EMPTY_FOLDERS_APP)
 }
 
+/// Whether "Show empty" hides this target: an empty target the scan had no
+/// trouble reading. One that could not be read, such as Prefetch without
+/// administrator rights, stays in view with its error.
+pub(crate) fn is_hidden_when_empty(group: &Group) -> bool {
+    is_empty_target(group) && group.errs.is_empty()
+}
+
 /// Restricts and orders the cache targets shown on the selection screen.
 pub(crate) struct ViewFilter<'a> {
     /// When set, only this category's apps are returned.
     pub category: Option<Category>,
     pub search: &'a str,
     pub sort: SortMode,
-    /// When false, empty targets ([`is_empty_target`]) are hidden.
+    /// When false, empty targets ([`is_hidden_when_empty`]) are hidden.
     pub show_empty: bool,
 }
 
@@ -179,7 +186,7 @@ fn filtered_app_groups(plan: &Plan, filter: &ViewFilter) -> Vec<AppView> {
                 .into_iter()
                 .filter(|&index| {
                     let g = &plan.groups[index];
-                    if !filter.show_empty && is_empty_target(g) {
+                    if !filter.show_empty && is_hidden_when_empty(g) {
                         return false;
                     }
                     if search.is_empty() {
@@ -365,9 +372,12 @@ pub(crate) fn apply_saved_selection(plan: &mut Plan, keys: &[TargetKey]) {
     plan.recompute_totals();
 }
 
-/// Total number of empty targets ([`is_empty_target`]) in the plan.
+/// How many targets "Show empty" hides ([`is_hidden_when_empty`]).
 pub(crate) fn empty_target_count(plan: &Plan) -> usize {
-    plan.groups.iter().filter(|g| is_empty_target(g)).count()
+    plan.groups
+        .iter()
+        .filter(|g| is_hidden_when_empty(g))
+        .count()
 }
 
 /// Whole-plan totals for the status bar: distinct apps, target count, and the
@@ -1011,6 +1021,25 @@ mod tests {
         apply_saved_selection(&mut third, &stored);
         assert!(third.groups[0].on);
         assert_eq!(third.selected, 1);
+    }
+
+    #[test]
+    fn an_empty_target_that_could_not_be_read_stays_in_view() {
+        let mut unreadable = group("Windows", "Prefetch data", 0, false);
+        unreadable.errs.push("could not read Prefetch".to_owned());
+        let plan = Plan {
+            groups: vec![group("Windows", "Temp files", 0, false), unreadable],
+            ..Plan::default()
+        };
+        assert_eq!(empty_target_count(&plan), 1);
+        let filter = ViewFilter {
+            category: None,
+            search: "",
+            sort: SortMode::Name,
+            show_empty: false,
+        };
+        let categories = visible_categories(&ENGLISH, &plan, &filter);
+        assert_eq!(categories[0].apps[0].indices, [1]);
     }
 
     #[test]

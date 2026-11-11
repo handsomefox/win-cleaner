@@ -7,7 +7,6 @@
 //! user folders, so [`account_check`] lets the app refuse to clean there.
 
 use std::path::Path;
-use std::time::Duration;
 
 /// The argument an elevated copy is started with, so it never asks for
 /// elevation again even when the setting to always start elevated is on.
@@ -77,19 +76,21 @@ pub fn account_check() -> Account {
     }
 }
 
-/// Waits up to `timeout` for the process with id `pid` to exit. Returns at
-/// once when it has already exited or cannot be opened.
+/// Waits for the process with id `pid` to exit, however long that takes,
+/// when it runs `executable`. Returns at once when it has already exited,
+/// cannot be opened, or runs another program, which happens when Windows
+/// has given the id to a new process.
 ///
 /// An elevated copy calls this before it loads its settings, because the
-/// window that started it writes them as it closes.
-pub fn wait_for_exit(pid: u32, timeout: Duration) {
+/// window that started it finishes writing them only as it exits.
+pub fn wait_for_exit(pid: u32, executable: &Path) {
     #[cfg(windows)]
     {
-        imp::wait_for_exit(pid, timeout);
+        imp::wait_for_exit(pid, executable);
     }
     #[cfg(not(windows))]
     {
-        let _ = (pid, timeout);
+        let _ = (pid, executable);
     }
 }
 
@@ -174,6 +175,7 @@ mod imp {
     use std::os::windows::ffi::OsStrExt as _;
     use std::path::Path;
 
+    use windows::Win32::Foundation::WAIT_TIMEOUT;
     use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED, HANDLE};
     use windows::Win32::Security::{
         EqualSid, GetTokenInformation, LookupAccountNameW, LookupAccountSidW, PSID, SID_NAME_USE,
@@ -187,7 +189,9 @@ mod imp {
         WTSFreeMemory, WTSQuerySessionInformationW, WTSUserName,
     };
     use windows::Win32::System::Threading::{
-        GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+        GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, QueryFullProcessImageNameW,
+        WaitForSingleObject,
     };
     use windows::Win32::UI::Shell::{SHELLEXECUTEINFOW, ShellExecuteExW};
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -359,16 +363,49 @@ mod imp {
         text
     }
 
-    pub(super) fn wait_for_exit(pid: u32, timeout: std::time::Duration) {
+    pub(super) fn wait_for_exit(pid: u32, executable: &Path) {
         // SAFETY: plain call; a failure means there is nothing to wait for.
-        let Ok(process) = (unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }) else {
+        let Ok(process) = (unsafe {
+            OpenProcess(
+                PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                false,
+                pid,
+            )
+        }) else {
             return;
         };
-        let millis = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
-        // SAFETY: `process` is a valid handle with SYNCHRONIZE access.
-        let _ = unsafe { WaitForSingleObject(process, millis) };
+        if runs(process, executable) {
+            loop {
+                // SAFETY: `process` is a valid handle with SYNCHRONIZE access.
+                let waited = unsafe { WaitForSingleObject(process, 15_000) };
+                if waited != WAIT_TIMEOUT {
+                    break;
+                }
+                tracing::info!(pid, "still waiting for the window that started this copy");
+            }
+        }
         // SAFETY: the handle came from OpenProcess and is closed once.
         let _ = unsafe { CloseHandle(process) };
+    }
+
+    /// Whether `process` runs the program at `executable`.
+    fn runs(process: HANDLE, executable: &Path) -> bool {
+        let mut buffer = [0u16; 1024];
+        let mut length = u32::try_from(buffer.len()).unwrap_or_default();
+        // SAFETY: `buffer` holds `length` writable characters.
+        let named = unsafe {
+            QueryFullProcessImageNameW(
+                process,
+                PROCESS_NAME_WIN32,
+                PWSTR(buffer.as_mut_ptr()),
+                &raw mut length,
+            )
+        };
+        if named.is_err() {
+            return false;
+        }
+        let image = String::from_utf16_lossy(&buffer[..length as usize]);
+        image.eq_ignore_ascii_case(&executable.to_string_lossy())
     }
 
     pub(super) fn start_elevated(executable: &Path, parameters: &str) -> Elevation {

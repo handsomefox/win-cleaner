@@ -37,12 +37,14 @@ fn main() -> eframe::Result {
     // A copy started by "Scan again as administrator" waits for the window
     // that started it to close, because that window writes the settings
     // this copy is about to read.
-    if let Some(pid) = cleaner_platform::elevation::after_pid(std::env::args()) {
+    if let Some(pid) = cleaner_platform::elevation::after_pid(std::env::args())
+        && let Ok(executable) = std::env::current_exe()
+    {
         tracing::info!(
             pid,
             "waiting for the window that started this copy to close"
         );
-        cleaner_platform::elevation::wait_for_exit(pid, std::time::Duration::from_secs(15));
+        cleaner_platform::elevation::wait_for_exit(pid, &executable);
     }
 
     let options = eframe::NativeOptions {

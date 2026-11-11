@@ -539,14 +539,15 @@ impl WinCleanerApp {
             .filter(|target| target.version_rule.is_some())
             .map(|target| target.path.clone())
             .collect();
-        self.files = Some(ui::files::FilesView::new(
-            format!("{} - {}", group.app, group.label),
-            versions,
-        ));
+        let view = ui::files::FilesView::new(format!("{} - {}", group.app, group.label), versions);
+        let cancel = view.cancel_flag();
+        // Replacing an open list drops it, which stops its walk.
+        self.files = Some(view);
         self.worker.send(Command::ListFiles {
             request: self.file_request,
             targets: group.targets.clone(),
             rules: self.prefs.rules.clone(),
+            cancel,
         });
     }
 

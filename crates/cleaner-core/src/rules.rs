@@ -8,6 +8,7 @@
 
 use std::fs;
 use std::path::{Component, MAIN_SEPARATOR, Path, PathBuf, Prefix};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -289,7 +290,8 @@ fn walk_files(
 
 /// Every file cleaning `root` under `rules` would move, with its size and
 /// modification time, for showing before a cleanup. A whole folder in the
-/// plan is listed file by file. Stops after `limit` files.
+/// plan is listed file by file. Stops after `limit` files, or as soon as
+/// `cancel` is set, such as when the list is closed.
 #[must_use]
 pub fn list_files(
     root: &Path,
@@ -297,6 +299,7 @@ pub fn list_files(
     rules: &Rules,
     now: SystemTime,
     limit: usize,
+    cancel: &AtomicBool,
 ) -> Vec<FileEntry> {
     let mut files = Vec::new();
     plan_paths(
@@ -306,15 +309,15 @@ pub fn list_files(
         now,
         &mut Walk::default(),
         &mut |path, _| {
-            collect_files(path, &mut files, limit);
-            files.len() < limit
+            collect_files(path, &mut files, limit, cancel);
+            files.len() < limit && !cancel.load(Ordering::Relaxed)
         },
     );
     files
 }
 
-fn collect_files(path: &Path, files: &mut Vec<FileEntry>, limit: usize) {
-    if files.len() >= limit {
+fn collect_files(path: &Path, files: &mut Vec<FileEntry>, limit: usize, cancel: &AtomicBool) {
+    if files.len() >= limit || cancel.load(Ordering::Relaxed) {
         return;
     }
     let Ok(metadata) = fs::symlink_metadata(path) else {
@@ -333,8 +336,8 @@ fn collect_files(path: &Path, files: &mut Vec<FileEntry>, limit: usize) {
         && let Ok(entries) = fs::read_dir(path)
     {
         for entry in entries.flatten() {
-            collect_files(&entry.path(), files, limit);
-            if files.len() >= limit {
+            collect_files(&entry.path(), files, limit, cancel);
+            if files.len() >= limit || cancel.load(Ordering::Relaxed) {
                 return;
             }
         }
@@ -493,9 +496,16 @@ mod tests {
             vec![(cache.join("ok"), 1)]
         );
         assert!(
-            list_files(&cache, false, &limited, SystemTime::now(), 10)
-                .iter()
-                .all(|file| !file.path.starts_with(&outside))
+            list_files(
+                &cache,
+                false,
+                &limited,
+                SystemTime::now(),
+                10,
+                &AtomicBool::new(false)
+            )
+            .iter()
+            .all(|file| !file.path.starts_with(&outside))
         );
     }
 
@@ -533,7 +543,24 @@ mod tests {
         for index in 0..5 {
             write(cache.join(format!("a/b/f{index}")), [0; 3]).unwrap();
         }
-        let files = list_files(&cache, false, &Rules::default(), SystemTime::now(), 3);
+        let files = list_files(
+            &cache,
+            false,
+            &Rules::default(),
+            SystemTime::now(),
+            3,
+            &AtomicBool::new(false),
+        );
+        assert_eq!(files.len(), 3);
+        let cancelled = list_files(
+            &cache,
+            false,
+            &Rules::default(),
+            SystemTime::now(),
+            3,
+            &AtomicBool::new(true),
+        );
+        assert!(cancelled.is_empty(), "a closed list stops walking");
         assert_eq!(files.len(), 3);
         assert!(
             files

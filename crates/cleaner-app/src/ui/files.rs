@@ -4,6 +4,8 @@
 
 use std::cmp::Reverse;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use cleaner_core::{FileEntry, Rules, human_bytes};
 use eframe::egui::{self, RichText};
@@ -35,9 +37,17 @@ pub(crate) struct FilesView {
     /// The old program versions in the list. Each is cleaned whole or not
     /// at all, so an exclusion inside one keeps all of it.
     versions: Vec<PathBuf>,
+    /// Tells the worker to stop listing once this view is gone.
+    cancel: Arc<AtomicBool>,
     contents: Contents,
     sort: SortBy,
     descending: bool,
+}
+
+impl Drop for FilesView {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
 }
 
 pub(crate) enum FilesAction {
@@ -51,10 +61,16 @@ impl FilesView {
         Self {
             title,
             versions,
+            cancel: Arc::new(AtomicBool::new(false)),
             contents: Contents::Loading,
             sort: SortBy::Size,
             descending: true,
         }
+    }
+
+    /// The flag to send with the request for this view's list.
+    pub(crate) fn cancel_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancel)
     }
 
     /// Takes the worker's list, largest file first.
@@ -288,6 +304,15 @@ mod tests {
         };
         assert_eq!(files.len(), 2);
         assert_eq!(*bytes, 55);
+    }
+
+    #[test]
+    fn closing_the_list_stops_its_walk() {
+        let view = FilesView::new("App - Cache".to_owned(), Vec::new());
+        let cancel = view.cancel_flag();
+        assert!(!cancel.load(Ordering::Relaxed));
+        drop(view);
+        assert!(cancel.load(Ordering::Relaxed));
     }
 
     #[test]

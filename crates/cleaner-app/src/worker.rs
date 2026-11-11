@@ -35,6 +35,8 @@ pub(crate) enum Command {
         request: u64,
         targets: Vec<Target>,
         rules: Rules,
+        /// Set when the list is closed or replaced, so the walk stops.
+        cancel: Arc<AtomicBool>,
     },
     LoadHistory,
     /// Delete one run's stats file, then reload history.
@@ -253,9 +255,10 @@ fn process_command<R: Recycler>(
             request,
             targets,
             rules,
+            cancel,
         } => {
             let guard_roots = roots.guard_roots();
-            let (files, truncated) = list_target_files(&targets, &rules, &guard_roots);
+            let (files, truncated) = list_target_files(&targets, &rules, &guard_roots, &cancel);
             emit(Event::FilesListed {
                 request,
                 files,
@@ -291,6 +294,7 @@ fn list_target_files(
     targets: &[Target],
     rules: &Rules,
     guard_roots: &[&std::path::Path],
+    cancel: &AtomicBool,
 ) -> (Vec<FileEntry>, bool) {
     let now = std::time::SystemTime::now();
     let whole = Rules::default();
@@ -305,7 +309,14 @@ fn list_target_files(
         }
         if target.version_rule.is_some() {
             if !rules.is_excluded(&target.path) && !rules.has_exclusion_inside(&target.path) {
-                files.extend(list_files(&target.path, false, &whole, now, remaining));
+                files.extend(list_files(
+                    &target.path,
+                    false,
+                    &whole,
+                    now,
+                    remaining,
+                    cancel,
+                ));
             }
         } else {
             files.extend(list_files(
@@ -314,6 +325,7 @@ fn list_target_files(
                 rules,
                 now,
                 remaining,
+                cancel,
             ));
         }
     }
@@ -653,6 +665,7 @@ mod tests {
                     Target::whole(outside.clone(), 4),
                 ],
                 rules: Rules::default(),
+                cancel: Arc::new(AtomicBool::new(false)),
             },
             |event| events.push(event),
         );

@@ -7,7 +7,7 @@ A Windows desktop app that scans known cache locations, shows how much space eac
 
 ## Features
 
-- A built-in catalog of 123 cleanup targets covering browsers, chat apps, game launchers, developer tools, GPU shader caches, and Windows system caches. To regenerate that count, run `cargo test -p cleaner-catalog full_registry_shape`, which asserts it.
+- A built-in catalog of 119 cleanup targets covering browsers, chat apps, game launchers, developer tools, GPU shader caches, and Windows system caches. To regenerate that count, run `cargo test -p cleaner-catalog full_registry_shape`, which asserts it.
 - A selection list that groups cleanup targets by category and app, with a size estimate on each target, search, sorting, and collapsible sections.
 - Presets: save the targets you have checked under a name and check them again in one click. Mark one preset to apply at every launch, in place of your last selection.
 - Preview mode by default. Nothing is deleted until you start a clean.
@@ -25,7 +25,7 @@ After a scan, each cleanup target that holds data shows its size.
 
 ## Safety model
 
-Cache cleanup moves each selected top-level path to the Recycle Bin, using `IFileOperation` with `FOFX_RECYCLEONDELETE` and `FOFX_ADDUNDORECORD`. A progress sink aborts any delete that would not go to the Recycle Bin, and the app counts a path as moved only when the shell reports the item it placed there. There is no fallback to permanent deletion: if the move fails, the path stays.
+Cache cleanup moves each selected top-level path to the Recycle Bin, using `IFileOperation` with `FOFX_RECYCLEONDELETE` and `FOFX_ADDUNDORECORD`. A few folders that Windows and other programs expect to exist, such as `Temp`, `Prefetch`, and the Windows Update download folder, stay in place, and the app moves what they hold instead. A progress sink aborts any delete that would not go to the Recycle Bin, and the app counts a path as moved only when the shell reports the item it placed there. There is no fallback to permanent deletion: if the move fails, the path stays.
 
 Empty-folder cleanup uses a non-recursive directory removal that succeeds only while the folder is still empty. Something can be written into a folder between the scan and the clean, and this closes that window without risking the new file.
 

@@ -101,6 +101,27 @@ pub fn build_registry(roots: &Roots) -> Registry {
     let Some(local_low) = roots.local_low() else {
         return Registry::default();
     };
+    // Slack from the Microsoft Store keeps the same files inside its package.
+    let slack_store = local
+        .join("Packages")
+        .join("com.tinyspeck.slackdesktop_8yrtsj140pw4g")
+        .join("LocalCache")
+        .join("Roaming")
+        .join("Slack");
+    // Newer Opera builds keep the profile's caches one level down, in
+    // `Default`, in both the local and the roaming folder.
+    let opera = |name: &str| -> Vec<PathBuf> {
+        let local_root = local.join("Opera Software").join(name);
+        let roaming_root = roaming.join("Opera Software").join(name);
+        [
+            local_root.clone(),
+            local_root.join("Default"),
+            roaming_root.join("Default"),
+        ]
+        .iter()
+        .flat_map(|base| chromium_set(base))
+        .collect()
+    };
 
     // One item holds one kind of data, so cache, logs, crash reports, and
     // downloaded updates are separate and separately selectable. A label is
@@ -198,21 +219,15 @@ pub fn build_registry(roots: &Roots) -> Registry {
                     .join("Brave-Browser")
                     .join("User Data"),
             )),
-        item("Opera", "Cache", true).paths(chromium_set(
-            &local.join("Opera Software").join("Opera Stable"),
-        )),
+        item("Opera", "Cache", true).paths(opera("Opera Stable")),
         item("Vivaldi", "Profile cache", true).globs(chromium_profile_globs(
             &local.join("Vivaldi").join("User Data"),
         )),
         chromium_browser("Chromium", &local.join("Chromium").join("User Data")),
         item("Opera GX", "Cache", true)
-            .paths(
-                chromium_set(&local.join("Opera Software").join("Opera GX Stable"))
-                    .into_iter()
-                    .chain(chromium_set(
-                        &roaming.join("Opera Software").join("Opera GX Stable"),
-                    )),
-            )
+            .paths(opera("Opera GX Stable").into_iter().chain(chromium_set(
+                &roaming.join("Opera Software").join("Opera GX Stable"),
+            )))
             .globs(
                 chromium_set(Path::new("*"))
                     .into_iter()
@@ -266,8 +281,13 @@ pub fn build_registry(roots: &Roots) -> Registry {
         item("Discord", "Cache", true).paths(chromium_set(&roaming.join("discord"))),
         item("Discord", "Logs", true).paths([roaming.join("discord").join("logs")]),
         item("Discord", "Update downloads", true).paths([local.join("Discord").join("download")]),
-        item("Slack", "Cache", true).paths(electron_set(&roaming.join("Slack"))),
-        item("Slack", "Logs", true).paths([roaming.join("Slack").join("logs")]),
+        item("Slack", "Cache", true).paths(
+            [roaming.join("Slack"), slack_store.clone()]
+                .iter()
+                .flat_map(|base| electron_set(base)),
+        ),
+        item("Slack", "Logs", true)
+            .paths([roaming.join("Slack").join("logs"), slack_store.join("logs")]),
         item("Teams (classic)", "Cache", true).paths([
             roaming.join("Microsoft").join("Teams").join("Cache"),
             roaming.join("Microsoft").join("Teams").join("Code Cache"),
@@ -304,11 +324,18 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("user_data*")
                 .join("media_cache"),
         ]),
-        item("WhatsApp", "Cache", true).paths([local.join("WhatsApp").join("Cache")]),
+        // The Electron desktop app. The Store app that replaced it keeps its
+        // data in a package folder this does not touch.
+        item("WhatsApp", "Cache", true).paths(electron_set(&roaming.join("WhatsApp"))),
         item("Signal", "Cache", true).paths(electron_set(&roaming.join("Signal"))),
         item("Signal", "Logs", true).paths([roaming.join("Signal").join("logs")]),
-        item("Steam", "HTML cache", true)
-            .paths(chromium_set(&local.join("Steam").join("htmlcache"))),
+        item("Steam", "HTML cache", true).paths(
+            chromium_set(&local.join("Steam").join("htmlcache"))
+                .into_iter()
+                .chain(chromium_set(
+                    &local.join("Steam").join("htmlcache").join("Default"),
+                )),
+        ),
         item("Battle.net", "Browser cache", true).paths(
             chromium_set(
                 &local
@@ -332,8 +359,19 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("EpicGamesLauncher")
                 .join("Saved")
                 .join("webcache_*")]),
-        item("GOG Galaxy", "Web cache", true)
-            .paths([program_data.join("GOG.com").join("Galaxy").join("webcache")]),
+        // `webcache` is a whole browser profile with cookies and local
+        // storage, so only its cache folders are cleaned.
+        item("GOG Galaxy", "Web cache", true).paths(
+            chromium_set(&program_data.join("GOG.com").join("Galaxy").join("webcache"))
+                .into_iter()
+                .chain(chromium_set(
+                    &program_data
+                        .join("GOG.com")
+                        .join("Galaxy")
+                        .join("webcache")
+                        .join("Default"),
+                )),
+        ),
         item("EA/Origin", "Cache", true).paths(
             chromium_set(
                 &local
@@ -341,8 +379,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
                     .join("EA Desktop")
                     .join("CEF")
                     .join("BrowserCache")
-                    .join("EADesktop")
-                    .join("Cache"),
+                    .join("EADesktop"),
             )
             .into_iter()
             .chain([
@@ -363,8 +400,12 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("Launcher")
                 .join("webcache"),
         ]),
-        item("Rockstar Games Launcher", "Logs", true)
-            .paths([local.join("Rockstar Games").join("Launcher").join("Logs")]),
+        // Rockstar's support pages place the launcher's logs in Documents.
+        item("Rockstar Games Launcher", "Logs", true).globs([profile
+            .join("Documents")
+            .join("Rockstar Games")
+            .join("Launcher")
+            .join("*.log")]),
         item("Battlefield 2042", "Cache", true).paths([local
             .join("BattlefieldGameData.kin-release.Win32")
             .join("cache")]),
@@ -413,25 +454,30 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .paths([profile.join(".cargo").join("registry").join("cache")]),
         item("Cargo", "Git cache", false).paths([profile.join(".cargo").join("git").join("db")]),
         item("Gradle", "Build cache", false).paths([profile.join(".gradle").join("caches")]),
-        item("Maven", "Local repository", false).paths([profile.join(".m2").join("repository")]),
         item("NuGet", "Package cache", true).paths([profile.join(".nuget").join("packages")]),
         item("pip", "Download cache", false).paths([local.join("pip").join("Cache")]),
         item("pnpm", "Store cache", false).paths([local.join("pnpm-cache")]),
-        item("uv", "Package cache", false).paths([local.join("uv").join("cache")]),
-        item("Bun", "Install cache", false)
-            .paths([profile.join(".bun").join("install").join("cache")]),
         item("Cypress", "Downloaded browsers", false).paths([local.join("Cypress").join("Cache")]),
-        item("Playwright", "Downloaded browsers", false).paths([local.join("ms-playwright")]),
+        // The browser builds only. `daemon` holds saved browser profiles.
+        item("Playwright", "Downloaded browsers", false).globs(
+            [
+                "chromium-*",
+                "chromium_headless_shell-*",
+                "chromium_tip_of_tree-*",
+                "firefox-*",
+                "webkit-*",
+                "ffmpeg-*",
+                "winldd-*",
+            ]
+            .map(|name| local.join("ms-playwright").join(name)),
+        ),
         item("Visual Studio", "Component model cache", false).globs([local
             .join("Microsoft")
             .join("VisualStudio")
             .join("*")
             .join("ComponentModelCache")]),
-        item("Unity", "GI cache", false).paths([profile
-            .join("AppData")
-            .join("LocalLow")
-            .join("Unity")
-            .join("Caches")]),
+        item("Unity", "GI cache", false)
+            .paths([local_low.join("Unity").join("Caches").join("GiCache")]),
         item("NVIDIA", "App cache", true).paths(chromium_set(
             &local
                 .join("NVIDIA Corporation")
@@ -476,26 +522,16 @@ pub fn build_registry(roots: &Roots) -> Registry {
                 .join("User Data")
                 .join("Default"),
         )),
+        // `Storage` is the default location for downloaded songs, so it stays.
         item("Spotify", "Streaming cache", true)
-            .paths([
-                local.join("Spotify").join("Storage"),
-                local.join("Spotify").join("Data"),
-            ])
+            .paths([local.join("Spotify").join("Data")])
             .globs(
-                [
-                    local
-                        .join("Packages")
-                        .join("SpotifyAB.SpotifyMusic_*")
-                        .join("LocalCache")
-                        .join("Spotify")
-                        .join("Data"),
-                    local
-                        .join("Packages")
-                        .join("SpotifyAB.SpotifyMusic_*")
-                        .join("LocalCache")
-                        .join("Spotify")
-                        .join("Storage"),
-                ]
+                [local
+                    .join("Packages")
+                    .join("SpotifyAB.SpotifyMusic_*")
+                    .join("LocalCache")
+                    .join("Spotify")
+                    .join("Data")]
                 .into_iter()
                 .chain(chromium_set(
                     &local
@@ -520,11 +556,10 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .join("Adobe")
             .join("Common")
             .join("Media Cache Files")]),
-        item("Blender", "Cache", true).globs([roaming
+        item("Blender", "Cache", true).paths([local
             .join("Blender Foundation")
             .join("Blender")
-            .join("*")
-            .join("cache")]),
+            .join("Cache")]),
         item("Figma", "Desktop cache", true).paths([roaming.join("Figma").join("Desktop")]),
         item("Notion", "Cache", true).paths(electron_set(&roaming.join("Notion"))),
         item("Vortex", "Cache", true).paths(chromium_set(&roaming.join("Vortex"))),
@@ -539,6 +574,14 @@ pub fn build_registry(roots: &Roots) -> Registry {
             local
                 .join("Microsoft")
                 .join("PowerToys")
+                .join("*")
+                .join("Logs"),
+            // Modules with their own tools nest deeper, as
+            // `FancyZones\Editor\Logs`.
+            local
+                .join("Microsoft")
+                .join("PowerToys")
+                .join("*")
                 .join("*")
                 .join("Logs"),
         ]),
@@ -570,11 +613,6 @@ pub fn build_registry(roots: &Roots) -> Registry {
         item("Windows", "Temp files", true).contents([local.join("Temp")]),
         item("Windows", "Internet cache", true)
             .paths([local.join("Microsoft").join("Windows").join("INetCache")]),
-        item("Windows", "Delivery optimization cache", true).paths([program_data
-            .join("Microsoft")
-            .join("Windows")
-            .join("DeliveryOptimization")
-            .join("Cache")]),
         item("Windows", "Thumbnail cache", true).globs([local
             .join("Microsoft")
             .join("Windows")
@@ -608,7 +646,6 @@ pub fn build_registry(roots: &Roots) -> Registry {
             local.join("cache"),
             local.join("D3DSCache"),
             local.join("vlc").join("cache"),
-            profile.join(".cache"),
             profile.join("ansel"),
         ]),
     ];
@@ -684,7 +721,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.system_root = Some(PathBuf::from("/base/Windows"));
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 121);
+        assert_eq!(registry.items.len(), 117);
 
         let chrome = registry
             .items
@@ -833,7 +870,7 @@ mod tests {
             );
         }
 
-        for app in ["Android Studio", "uv", "Bun", "Cypress", "Playwright"] {
+        for app in ["Android Studio", "Cypress", "Playwright"] {
             let opt_in = registry
                 .items
                 .iter()
@@ -894,7 +931,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.program_files_x86 = None;
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 117);
+        assert_eq!(registry.items.len(), 113);
         // The profile cache stays; only the install-folder item is gated.
         assert!(
             !registry
@@ -945,6 +982,37 @@ mod tests {
                 .unwrap();
             assert!(item.paths.is_empty() && item.globs.is_empty(), "{label}");
             assert_eq!(item.contents.len(), 1, "{label}");
+        }
+    }
+
+    /// Targets the path audit found holding data that is not a cache, or that
+    /// other programs rely on, are gone and stay gone.
+    #[test]
+    fn data_that_is_not_disposable_is_not_listed() {
+        let mut roots = test_roots(Path::new("/base"));
+        roots.system_root = Some(PathBuf::from("/base/Windows"));
+        let registry = build_registry(&roots);
+        let every_path: Vec<&PathBuf> = registry
+            .items
+            .iter()
+            .flat_map(|item| item.paths.iter().chain(&item.globs).chain(&item.contents))
+            .collect();
+        for gone in [
+            "/base/Profile/.cache",
+            "/base/Profile/.m2/repository",
+            "/base/Local/uv/cache",
+            "/base/Profile/.bun/install/cache",
+            "/base/Local/ms-playwright",
+            "/base/Local/Spotify/Storage",
+            "/base/ProgramData/GOG.com/Galaxy/webcache",
+            "/base/ProgramData/Microsoft/Windows/DeliveryOptimization/Cache",
+            "/base/Local/Discord/app-*",
+            "/base/Local/osulazer/packages/*.nupkg",
+        ] {
+            assert!(
+                !every_path.contains(&&PathBuf::from(gone)),
+                "{gone} must not be a cleanup path"
+            );
         }
     }
 
@@ -1053,9 +1121,10 @@ mod tests {
             assert!(group.on, "{app}");
         }
 
-        let uv = plan.groups.iter().find(|group| group.app == "uv").unwrap();
-        assert_eq!(uv.bytes, 400);
-        assert!(!uv.on);
+        assert!(
+            plan.groups.iter().all(|group| group.app != "uv"),
+            "uv's cache backs symlinked environments and is not listed"
+        );
 
         let cypress = plan
             .groups

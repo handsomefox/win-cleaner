@@ -619,7 +619,11 @@ impl UiText {
 
     pub(crate) fn cache_result_summary(&self, result: &ExecResult) -> String {
         crate::viewmodel::summary_line(&[
-            &format!("{} cleaned", self.items_count(result.total_selected)),
+            &format!("{} cleaned", self.items_count(result.cleaned_count())),
+            &match result.skipped_count() {
+                0 => String::new(),
+                skipped => format!("{skipped} skipped"),
+            },
             &format!("est. {} freed", human_bytes(result.freed())),
             &format_duration(result.duration_ms),
             &self.errors_count(result.error_count),

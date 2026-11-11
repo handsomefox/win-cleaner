@@ -737,7 +737,7 @@ impl WinCleanerApp {
             Screen::Deleting(state) => empty(state.task.clone(), None),
             Screen::Results(state) => HeaderInfo {
                 task: viewmodel::cleanup_result_headline(texts, &state.result).to_owned(),
-                selection: texts.items_count(state.result.total_selected),
+                selection: texts.items_count(state.result.cleaned_count()),
                 savings: texts.freed_summary(state.result.freed()),
                 savings_bytes: state.result.freed(),
                 action: Some(HeaderAction {

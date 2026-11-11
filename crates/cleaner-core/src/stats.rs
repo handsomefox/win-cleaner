@@ -87,6 +87,28 @@ impl ExecResult {
         self.freed_bytes.unwrap_or(self.total_bytes)
     }
 
+    /// How many targets the run left alone, such as one whose program was
+    /// running.
+    #[must_use]
+    pub fn skipped_count(&self) -> usize {
+        self.groups
+            .iter()
+            .filter(|group| group.skipped.is_some())
+            .count()
+    }
+
+    /// How many targets the run cleaned or tried to clean. A skipped target
+    /// does not count, and neither does one a stopped run never reached.
+    #[must_use]
+    pub fn cleaned_count(&self) -> usize {
+        let reached = if self.stopped {
+            self.groups.len()
+        } else {
+            self.total_selected
+        };
+        reached.saturating_sub(self.skipped_count())
+    }
+
     /// Stamps the finish time and duration.
     pub fn finish(&mut self) {
         self.finished_at = Timestamp::now();

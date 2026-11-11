@@ -834,8 +834,24 @@ mod tests {
 
         let mut stopped = sample_result(2);
         stopped.stopped = true;
-        let (headline, _) = cleanup_result_summary(&ENGLISH, &stopped);
+        let (headline, summary) = cleanup_result_summary(&ENGLISH, &stopped);
         assert_eq!(headline, "Cleanup stopped");
+        assert!(
+            summary.starts_with("2 items cleaned  |"),
+            "a stopped run counts the targets it reached, not all it was given: {summary}"
+        );
+    }
+
+    #[test]
+    fn result_summary_leaves_skipped_targets_out_of_the_cleaned_count() {
+        let mut result = sample_result(0);
+        result.total_selected = 2;
+        result.groups[1].skipped = Some("Discord.exe is running".into());
+        let (_, summary) = cleanup_result_summary(&ENGLISH, &result);
+        assert_eq!(
+            summary,
+            "1 item cleaned  |  1 skipped  |  est. 1.00 KB freed  |  3s  |  0 errors"
+        );
     }
 
     #[test]

@@ -186,7 +186,7 @@ fn run_details(ui: &mut Ui, texts: &UiText, run: &StoredRun, action: &mut Option
         components::stat_chip(
             ui,
             texts.run_label_items,
-            &result.total_selected.to_string(),
+            &result.cleaned_count().to_string(),
         );
         components::stat_chip(ui, texts.run_label_freed, &human_bytes(result.freed()));
         components::stat_chip(
@@ -275,7 +275,7 @@ fn run_row(ui: &mut Ui, texts: &UiText, run: &StoredRun) {
             ui.label(RichText::new(format_timestamp(result.run_timestamp())).family(theme::bold()));
             ui.label(
                 RichText::new(summary_line(&[
-                    &texts.items_count(result.total_selected),
+                    &texts.items_count(result.cleaned_count()),
                     &format_duration(result.duration_ms),
                 ]))
                 .color(theme::MUTED)

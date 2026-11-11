@@ -454,10 +454,15 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .paths([profile.join(".cargo").join("registry").join("cache")]),
         item("Cargo", "Git cache", false).paths([profile.join(".cargo").join("git").join("db")]),
         item("Gradle", "Build cache", false).paths([profile.join(".gradle").join("caches")]),
-        item("NuGet", "Package cache", true).paths([profile.join(".nuget").join("packages")]),
+        // Projects build from these packages directly; clearing it means a
+        // restore, and sometimes reloading an open solution.
+        item("NuGet", "Package cache", false).paths([profile.join(".nuget").join("packages")]),
+        item("NuGet", "HTTP cache", false).paths([local.join("NuGet").join("v3-cache")]),
         item("pip", "Download cache", false).paths([local.join("pip").join("Cache")]),
-        item("pnpm", "Store cache", false).paths([local.join("pnpm-cache")]),
-        item("Cypress", "Downloaded browsers", false).paths([local.join("Cypress").join("Cache")]),
+        // Package metadata and dlx downloads. The package store is elsewhere.
+        item("pnpm", "Metadata cache", false).paths([local.join("pnpm-cache")]),
+        item("Cypress", "Downloaded Cypress versions", false)
+            .paths([local.join("Cypress").join("Cache")]),
         // The browser builds only. `daemon` holds saved browser profiles.
         item("Playwright", "Downloaded browsers", false).globs(
             [
@@ -512,6 +517,7 @@ pub fn build_registry(roots: &Roots) -> Registry {
         item("DLSS Updater", "Logs", true).paths([local.join("DLSS Updater").join("logs")]),
         item("AMD", "Shader cache", false).paths([
             local.join("AMD").join("DxCache"),
+            local.join("AMD").join("DxcCache"),
             local.join("AMD").join("VkCache"),
             local.join("AMD").join("OglCache"),
         ]),
@@ -642,9 +648,9 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .paths([local.join("Ubisoft Game Launcher").join("cache")]),
         item("Ubisoft Connect", "Logs", true)
             .paths([local.join("Ubisoft Game Launcher").join("logs")]),
+        item("Windows", "Direct3D shader cache", false).paths([local.join("D3DSCache")]),
         item("Misc", "Leftover caches", true).paths([
             local.join("cache"),
-            local.join("D3DSCache"),
             local.join("vlc").join("cache"),
             profile.join("ansel"),
         ]),
@@ -721,7 +727,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.system_root = Some(PathBuf::from("/base/Windows"));
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 117);
+        assert_eq!(registry.items.len(), 119);
 
         let chrome = registry
             .items
@@ -931,7 +937,7 @@ mod tests {
         let mut roots = test_roots(Path::new("/base"));
         roots.program_files_x86 = None;
         let registry = build_registry(&roots);
-        assert_eq!(registry.items.len(), 113);
+        assert_eq!(registry.items.len(), 115);
         // The profile cache stays; only the install-folder item is gated.
         assert!(
             !registry
@@ -1014,6 +1020,13 @@ mod tests {
                 "{gone} must not be a cleanup path"
             );
         }
+        let d3d = registry
+            .items
+            .iter()
+            .find(|item| item.label == "Direct3D shader cache")
+            .unwrap();
+        assert_eq!(d3d.app, "Windows");
+        assert!(!d3d.default_on);
     }
 
     /// End-to-end: the built-in catalog scanned against a fake profile tree.

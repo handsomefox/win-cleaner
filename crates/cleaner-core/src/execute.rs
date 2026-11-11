@@ -137,14 +137,14 @@ fn clean_group(group: &Group, run: &Run<'_>, recycler: &dyn Recycler, out: &mut 
             if run.rules.has_exclusion_inside(path) || !still_superseded(target) {
                 continue;
             }
-            clean_path(path, target.bytes, run, recycler, out);
+            clean_path(path, target.bytes, run, recycler, out, Salvage::Never);
             continue;
         }
         let whole = !target.keep_folder
             && !run.rules.filters_files()
             && !run.rules.has_exclusion_inside(path);
         if whole {
-            clean_path(path, target.bytes, run, recycler, out);
+            clean_path(path, target.bytes, run, recycler, out, Salvage::Children);
             continue;
         }
         if target.keep_folder && !is_real_folder(path) {
@@ -183,9 +183,18 @@ fn clean_group(group: &Group, run: &Run<'_>, recycler: &dyn Recycler, out: &mut 
             if run.stop.load(Ordering::Relaxed) {
                 return;
             }
-            clean_path(&child, size, run, recycler, out);
+            clean_path(&child, size, run, recycler, out, Salvage::Children);
         }
     }
+}
+
+/// What to do when a folder cannot be moved whole.
+#[derive(Clone, Copy)]
+enum Salvage {
+    /// Move what can be moved inside it, child by child.
+    Children,
+    /// Leave all of it. An old program version is moved whole or not at all.
+    Never,
 }
 
 /// Moves one planned path, records the outcome, and counts what left.
@@ -195,9 +204,14 @@ fn clean_path(
     run: &Run<'_>,
     recycler: &dyn Recycler,
     out: &mut GroupResult,
+    salvage: Salvage,
 ) {
     out.paths_attempted += 1;
-    if let Err(error) = delete_path_smart(path, run.guard_roots, recycler, run.stop) {
+    let moved = match salvage {
+        Salvage::Children => delete_path_smart(path, run.guard_roots, recycler, run.stop),
+        Salvage::Never => move_whole(path, run.guard_roots, recycler),
+    };
+    if let Err(error) = moved {
         out.paths_failed += 1;
         out.errors.push(PathError {
             path: path.display().to_string(),
@@ -297,9 +311,30 @@ pub fn delete_path_smart(
     }
 }
 
+/// Moves `path` in one Recycle Bin operation, after the safety guard, and
+/// leaves it untouched when that fails.
+fn move_whole(
+    path: &Path,
+    guard_roots: &[&Path],
+    recycler: &dyn Recycler,
+) -> Result<(), RecycleError> {
+    if !is_safe_path(path, guard_roots) {
+        return if path_missing(path) {
+            Ok(())
+        } else {
+            Err(RecycleError::UnsafePath(path.to_path_buf()))
+        };
+    }
+    match recycler.recycle(&[path]) {
+        Err(_) if path_missing(path) => Ok(()),
+        moved => moved,
+    }
+}
+
 /// Recycles each immediate child of `path` on its own, re-running the safety
 /// guard for each and never submitting a link. Problems go to `failures`.
-/// Returns `false` when the folder could not be listed at all.
+/// Returns `false` when the folder could not be listed at all, or when `stop`
+/// was set before every child was tried.
 fn recycle_children(
     path: &Path,
     guard_roots: &[&Path],
@@ -1047,6 +1082,47 @@ mod tests {
         assert!(old.exists(), "the build now installed must survive");
         assert_eq!(result.groups[0].paths_attempted, 0);
         assert!(mock.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_version_that_cannot_move_whole_stays_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = dir.path().join("Agent");
+        for name in ["Agent.9700", "Agent.9852"] {
+            make_children(&agent.join(name), 3);
+        }
+        fs::write(agent.join(crate::versions::PRODUCT_DB), b"x2.41.2.9852R").unwrap();
+        let old = agent.join("Agent.9700");
+        for file in fs::read_dir(&old).unwrap() {
+            fs::write(file.unwrap().path(), b"x").unwrap();
+        }
+        let mut plan = Plan {
+            groups: vec![sized_group(
+                "Battle.net",
+                vec![Target {
+                    version_rule: Some(crate::catalog::Versioned {
+                        dir: agent.clone(),
+                        prefix: "Agent.".to_owned(),
+                    }),
+                    ..Target::whole(old.clone(), 3)
+                }],
+            )],
+            ..Plan::default()
+        };
+        // One file inside is locked, so the folder cannot move whole.
+        let mut recycler = FailingRecycler::new();
+        recycler.fail_always.insert(old.clone());
+
+        let result = run(&mut plan, dir.path(), &recycler);
+
+        assert_eq!(
+            recycler.calls(),
+            std::slice::from_ref(&old),
+            "no file inside is tried"
+        );
+        assert_eq!(fs::read_dir(&old).unwrap().count(), 3);
+        assert_eq!(result.groups[0].paths_failed, 1);
+        assert_eq!(result.groups[0].freed, Some(0));
     }
 
     #[test]

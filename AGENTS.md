@@ -30,7 +30,7 @@ The user's rules in `cleaner-core/src/rules.rs` hold up three more:
 - A folder that holds an exclusion is never moved whole. Cleanup moves the children around the exclusion instead.
 - An old program version is moved whole or not at all. Age and size limits never apply to it, and an exclusion inside it leaves all of it in place.
 
-An elevated copy that runs as a different account from the signed-in one cleans nothing, because its user folders belong to that other account.
+An elevated copy that runs as a different account from the signed-in one cleans nothing, because its user folders belong to that other account. An old program version that cannot be moved whole stays where it is: cleanup never moves its files one by one.
 
 ## Tests
 

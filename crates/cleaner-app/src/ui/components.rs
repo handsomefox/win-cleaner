@@ -260,6 +260,8 @@ pub(crate) fn group_status(texts: &UiText, group: &GroupResult) -> RichText {
             &texts.failed_count(group.paths_failed),
         ))
         .color(theme::DANGER)
+    } else if let Some(reason) = &group.skipped {
+        RichText::new(texts.result_status_skipped_because(reason)).color(theme::MUTED)
     } else if group.paths_attempted == 0 {
         RichText::new(texts.result_status_skipped).color(theme::MUTED)
     } else {

@@ -12,7 +12,7 @@ use cleaner_core::Roots;
 
 /// The app's folder under `%LOCALAPPDATA%`. Users' run history lives in it, so
 /// it must never change.
-const APP_DIR: &str = "win-cleaner";
+pub(crate) const APP_DIR: &str = "win-cleaner";
 
 /// Resolves the roots the catalog and safety guard operate on. On
 /// non-Windows platforms everything is `None`, which yields an empty catalog.

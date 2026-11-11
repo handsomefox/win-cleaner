@@ -40,6 +40,13 @@ pub struct Item {
     pub versioned: Vec<Versioned>,
     /// Pre-selected in the GUI (when non-empty).
     pub default_on: bool,
+    /// Executable names of the programs that use these paths, such as
+    /// `Discord.exe`. The target is skipped while one runs, when the user
+    /// asks for that. Empty for a target that is safe to clean while its
+    /// program runs.
+    pub processes: Vec<String>,
+    /// Moving these paths needs administrator rights.
+    pub admin: bool,
 }
 
 impl Item {
@@ -64,6 +71,13 @@ impl Item {
     #[must_use]
     pub fn globs(mut self, globs: impl IntoIterator<Item = PathBuf>) -> Self {
         self.globs.extend(globs);
+        self
+    }
+
+    /// Builder shorthand: names the programs that use these paths.
+    #[must_use]
+    pub fn processes<'a>(mut self, names: impl IntoIterator<Item = &'a str>) -> Self {
+        self.processes.extend(names.into_iter().map(str::to_owned));
         self
     }
 

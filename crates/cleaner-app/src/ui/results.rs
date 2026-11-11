@@ -32,6 +32,9 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
         if let Some(stats_error) = &state.stats_error {
             ui.label(RichText::new(texts.stats_write_failed(stats_error)).color(theme::DANGER));
         }
+        if state.result.stopped {
+            ui.label(RichText::new(texts.result_stopped).color(theme::MUTED));
+        }
         if let Some(error_summary) = error_summary(texts, &state.result) {
             ui.label(&error_summary);
             if ui.button(texts.result_error_details).clicked() {
@@ -57,7 +60,8 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
                                 open_group = Some(index);
                             }
                             ui.label(components::group_status(texts, group));
-                            ui.label(human_bytes(group.bytes));
+                            // What left, where recorded; older runs only knew the plan.
+                            ui.label(human_bytes(group.freed.unwrap_or(group.bytes)));
                         });
                     });
                 }

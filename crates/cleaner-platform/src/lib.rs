@@ -4,6 +4,7 @@
 //! platforms it compiles to stubs so the workspace builds and tests run on
 //! Linux; the stubs report `UnsupportedPlatform` errors at runtime.
 
+pub mod elevation;
 pub mod recycle;
 pub mod roots;
 

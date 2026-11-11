@@ -7,11 +7,16 @@ A Windows desktop app that scans known cache locations, shows how much space eac
 
 ## Features
 
-- A built-in catalog of 119 cleanup targets covering browsers, chat apps, game launchers, developer tools, GPU shader caches, and Windows system caches. To regenerate that count, run `cargo test -p cleaner-catalog full_registry_shape`, which asserts it.
+- A built-in catalog of 123 cleanup targets covering browsers, chat apps, game launchers, developer tools, GPU shader caches, and Windows system caches. To regenerate that count, run `cargo test -p cleaner-catalog full_registry_shape`, which asserts it.
 - A selection list that groups cleanup targets by category and app, with a size estimate on each target, search, sorting, and collapsible sections.
 - Presets: save the targets you have checked under a name and check them again in one click. Mark one preset to apply at every launch, in place of your last selection.
 - Preview mode by default. Nothing is deleted until you start a clean.
 - Optional detection of empty top-level folders under AppData and ProgramData.
+- Exclusions, a minimum file age, and a minimum file size, plus an option to skip a target while its program runs.
+- A file list for each target, sortable by path, size, and date, with an **Exclude** button on each file.
+- A **Stop** button that ends a cleanup after the item being moved.
+- Badges on targets that need administrator rights, **Scan again as administrator**, and a setting to always start with them.
+- Settings export and import, for a backup or another PC.
 - Run history with per-run detail and totals for the last 7 and last 30 days.
 - A diagnostics log you can attach to a bug report.
 
@@ -28,6 +33,8 @@ After a scan, each cleanup target that holds data shows its size.
 Cache cleanup moves each selected top-level path to the Recycle Bin, using `IFileOperation` with `FOFX_RECYCLEONDELETE` and `FOFX_ADDUNDORECORD`. A few folders that Windows and other programs expect to exist, such as `Temp`, `Prefetch`, and the Windows Update download folder, stay in place, and the app moves what they hold instead. A progress sink aborts any delete that would not go to the Recycle Bin, and the app counts a path as moved only when the shell reports the item it placed there. There is no fallback to permanent deletion: if the move fails, the path stays.
 
 Empty-folder cleanup uses a non-recursive directory removal that succeeds only while the folder is still empty. Something can be written into a folder between the scan and the clean, and this closes that window without risking the new file.
+
+Exclusions, a minimum file age, and a minimum file size in **Settings** decide what a cleanup leaves. The app applies them again as the cleanup runs, so an exclusion added after a scan still holds. A folder that holds an excluded path is never moved whole: the app moves what sits around the exclusion. With an age or size limit, it moves matching files one by one and leaves the folders. Old program versions are always moved whole or not at all.
 
 Every path must sit strictly inside one of the known safe roots: AppData Local and Roaming, ProgramData, your user profile, and the Windows and Program Files trees. The app enforces that check while scanning, and checks it again immediately before each delete. It always rejects the roots themselves. It also rejects any path that is a symlink or reparse point, or that is reached through one.
 

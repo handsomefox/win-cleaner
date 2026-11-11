@@ -5,21 +5,28 @@ use std::path::Path;
 use crate::catalog::Registry;
 use crate::empty_folders::build_empty_folder_groups;
 use crate::globs::expand;
+use std::time::SystemTime;
+
 use crate::plan::{Group, Plan, ProgressUpdate, Target};
 use crate::roots::Roots;
+use crate::rules::{Rules, Walk, plan_paths};
 use crate::safety::{is_link, is_reparse_point, is_safe_path, normalized_key};
 use crate::versions::superseded;
 
 /// Builds the cleanup plan: resolves catalog paths and globs, applies the
-/// safety guard, estimates reclaimable sizes, and appends the opt-in
-/// empty-folder groups. `progress` is invoked once per catalog item.
+/// safety guard and the user's rules, estimates reclaimable sizes, and
+/// appends the opt-in empty-folder groups. `progress` is invoked once per
+/// catalog item, and `is_running` tells whether a program is running.
 pub fn build_plan(
     registry: &Registry,
     roots: &Roots,
+    rules: &Rules,
+    is_running: &dyn Fn(&str) -> bool,
     mut progress: impl FnMut(ProgressUpdate),
 ) -> Plan {
     let guard_roots = roots.guard_roots();
     let total_items = registry.items.len();
+    let now = SystemTime::now();
 
     let mut groups: Vec<Group> = Vec::with_capacity(total_items);
     for (index, item) in registry.items.iter().enumerate() {
@@ -71,23 +78,31 @@ pub fn build_plan(
                 errs.push(format!("skipping unsafe path: {}", target.path.display()));
                 continue;
             }
-            match dir_size(&target.path) {
-                Ok(size) => {
-                    target.bytes = size;
-                    bytes += size;
-                }
-                Err(err) => errs.push(format!("{}: {err}", target.path.display())),
-            }
+            target.bytes = estimate(target, rules, now, &mut errs);
+            bytes += target.bytes;
         }
+        // A target the rules leave entirely alone is not offered at all.
+        resolved.retain(|target| {
+            !rules.is_excluded(&target.path)
+                && (target.version_rule.is_none() || !rules.has_exclusion_inside(&target.path))
+        });
 
+        let running = if rules.skip_running_apps {
+            item.processes.iter().find(|name| is_running(name)).cloned()
+        } else {
+            None
+        };
         groups.push(Group {
-            app: item.app.clone(),
-            label: item.label.clone(),
             targets: resolved,
-            // Never pre-select items with nothing to clean.
-            on: item.default_on && bytes > 0,
+            // Never pre-select items with nothing to clean, or whose program
+            // is running.
+            on: item.default_on && bytes > 0 && running.is_none(),
             bytes,
             errs,
+            processes: item.processes.clone(),
+            admin: item.admin,
+            running,
+            ..Group::new(&item.app, &item.label)
         });
 
         progress(ProgressUpdate {
@@ -98,7 +113,17 @@ pub fn build_plan(
     }
 
     // Opt-in empty-folder removal groups (one per scanned root).
-    groups.extend(build_empty_folder_groups(roots));
+    groups.extend(
+        build_empty_folder_groups(roots)
+            .into_iter()
+            .map(|mut group| {
+                // A folder holding an exclusion is not empty to the user either.
+                group.targets.retain(|target| {
+                    !rules.is_excluded(&target.path) && !rules.has_exclusion_inside(&target.path)
+                });
+                group
+            }),
+    );
 
     // Apps sort by name; within one, targets keep the catalog's order, which
     // puts a browser's channels as Stable, Beta, Dev, Canary.
@@ -110,6 +135,51 @@ pub fn build_plan(
     };
     plan.recompute_totals();
     plan
+}
+
+/// The bytes cleaning `target` under `rules` would move, as cleanup will
+/// plan it: a program version whole or not at all, anything else as
+/// [`plan_paths`] splits it.
+fn estimate(target: &Target, rules: &Rules, now: SystemTime, errs: &mut Vec<String>) -> u64 {
+    if target.version_rule.is_some() {
+        if rules.is_excluded(&target.path) || rules.has_exclusion_inside(&target.path) {
+            return 0;
+        }
+        return match dir_size(&target.path) {
+            Ok(size) => size,
+            Err(err) => {
+                errs.push(format!("{}: {err}", target.path.display()));
+                0
+            }
+        };
+    }
+    if !target.keep_folder && !rules.filters_files() && !rules.has_exclusion_inside(&target.path) {
+        if rules.is_excluded(&target.path) {
+            return 0;
+        }
+        return match dir_size(&target.path) {
+            Ok(size) => size,
+            Err(err) => {
+                errs.push(format!("{}: {err}", target.path.display()));
+                0
+            }
+        };
+    }
+    let mut total = 0u64;
+    let mut walk = Walk::measured();
+    plan_paths(
+        &target.path,
+        target.keep_folder,
+        rules,
+        now,
+        &mut walk,
+        &mut |_, size| {
+            total += size;
+            true
+        },
+    );
+    errs.extend(walk.errors);
+    total
 }
 
 /// De-duplicates targets case-insensitively on the cleaned path key, keeping
@@ -182,6 +252,50 @@ mod tests {
     }
 
     #[test]
+    fn rules_shape_the_estimate_and_the_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        let roots = test_roots(dir.path());
+        let local = roots.local_app_data.clone().unwrap();
+        write_file(&local.join("App/Cache/a.bin"), 100);
+        write_file(&local.join("App/Cache/keep/b.bin"), 50);
+        write_file(&local.join("Other/Cache/c.bin"), 10);
+        let registry = Registry {
+            items: vec![
+                Item::new("App", "cache", true).paths([local.join("App/Cache")]),
+                Item::new("Other", "cache", true)
+                    .paths([local.join("Other/Cache")])
+                    .processes(["Other.exe"]),
+            ],
+        };
+        let rules = Rules {
+            exclusions: vec![local.join("App/Cache/keep")],
+            skip_running_apps: true,
+            ..Rules::default()
+        };
+        let plan = build_plan(
+            &registry,
+            &roots,
+            &rules,
+            &|name| name == "Other.exe",
+            |_| {},
+        );
+        let app = plan.groups.iter().find(|g| g.app == "App").unwrap();
+        assert_eq!(app.bytes, 100, "the excluded folder is not counted");
+        assert!(app.on);
+        let other = plan.groups.iter().find(|g| g.app == "Other").unwrap();
+        assert_eq!(other.running.as_deref(), Some("Other.exe"));
+        assert!(!other.on, "a target whose program runs is not pre-selected");
+
+        let excluded = Rules {
+            exclusions: vec![local.join("App")],
+            ..Rules::default()
+        };
+        let plan = build_plan(&registry, &roots, &excluded, &|_| false, |_| {});
+        let app = plan.groups.iter().find(|g| g.app == "App").unwrap();
+        assert!(app.targets.is_empty() && app.bytes == 0);
+    }
+
+    #[test]
     fn unique_targets_is_case_insensitive_keeping_first() {
         let targets = ["/a/B/c", "/a/b/C", "/a/b/d"]
             .map(|path| Target::whole(PathBuf::from(path), 0))
@@ -238,7 +352,9 @@ mod tests {
             ],
         };
         let mut updates = 0;
-        let plan = build_plan(&registry, &roots, |_| updates += 1);
+        let plan = build_plan(&registry, &roots, &Rules::default(), &|_| false, |_| {
+            updates += 1;
+        });
         assert_eq!(updates, registry.items.len());
 
         let app = plan.groups.iter().find(|group| group.app == "App").unwrap();
@@ -299,7 +415,7 @@ mod tests {
             ],
         };
 
-        let plan = build_plan(&registry, &roots, |_| {});
+        let plan = build_plan(&registry, &roots, &Rules::default(), &|_| false, |_| {});
         let browser = plan
             .groups
             .iter()
@@ -358,7 +474,7 @@ mod tests {
             ],
         };
 
-        let plan = build_plan(&registry, &roots, |_| {});
+        let plan = build_plan(&registry, &roots, &Rules::default(), &|_| false, |_| {});
         let tree = plan
             .groups
             .iter()
@@ -401,7 +517,7 @@ mod tests {
             ],
         };
 
-        let plan = build_plan(&registry, &roots, |_| {});
+        let plan = build_plan(&registry, &roots, &Rules::default(), &|_| false, |_| {});
         let evil = plan.groups.iter().find(|g| g.app == "Evil").unwrap();
         assert_eq!(evil.errs.len(), 1);
         assert!(evil.errs[0].contains("unsafe"));
@@ -424,7 +540,7 @@ mod tests {
                 Item::new("Unsafe", "linked cache", true).paths([local.join("linked/cache")]),
             ],
         };
-        let plan = build_plan(&registry, &roots, |_| {});
+        let plan = build_plan(&registry, &roots, &Rules::default(), &|_| false, |_| {});
         let group = &plan.groups[0];
 
         assert_eq!(group.bytes, 0);

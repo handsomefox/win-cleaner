@@ -30,6 +30,9 @@ pub struct ExecResult {
     pub freed_bytes: Option<u64>,
     pub error_count: usize,
     pub dry_run: bool,
+    /// The user stopped the run before every selected target was cleaned.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
 }
 
 /// Per-group outcome inside an [`ExecResult`].
@@ -44,6 +47,9 @@ pub struct GroupResult {
     /// The estimated size of what actually left. Absent from older files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freed: Option<u64>,
+    /// Why the group was left alone, such as its program running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<String>,
     pub paths_attempted: usize,
     pub paths_failed: usize,
 }
@@ -70,6 +76,7 @@ impl ExecResult {
             freed_bytes: (!opts.dry_run).then_some(0),
             error_count: 0,
             dry_run: opts.dry_run,
+            stopped: false,
         }
     }
 

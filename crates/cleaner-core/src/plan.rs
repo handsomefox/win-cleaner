@@ -74,6 +74,32 @@ pub struct Group {
     pub bytes: u64,
     /// Selected for deletion.
     pub on: bool,
+    /// Executable names of the programs this group belongs to; see
+    /// [`crate::Item::processes`].
+    pub processes: Vec<String>,
+    /// Whether moving these paths needs administrator rights.
+    pub admin: bool,
+    /// The program from `processes` that was running at scan time, when the
+    /// user asked to skip targets of running programs.
+    pub running: Option<String>,
+}
+
+impl Group {
+    /// An empty, unselected group.
+    #[must_use]
+    pub fn new(app: &str, label: &str) -> Self {
+        Self {
+            app: app.to_owned(),
+            label: label.to_owned(),
+            targets: Vec::new(),
+            errs: Vec::new(),
+            bytes: 0,
+            on: false,
+            processes: Vec::new(),
+            admin: false,
+            running: None,
+        }
+    }
 }
 
 /// One resolved path of a [`Group`].
@@ -125,12 +151,9 @@ mod tests {
 
     fn group(app: &str, label: &str, bytes: u64, on: bool) -> Group {
         Group {
-            app: app.to_owned(),
-            label: label.to_owned(),
-            targets: Vec::new(),
-            errs: Vec::new(),
             bytes,
             on,
+            ..Group::new(app, label)
         }
     }
 

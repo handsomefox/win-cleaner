@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 app-diagnostics.workspace = true
 app-folders.workspace = true
+app-process.workspace = true
 app-update.workspace = true
 app-update-ui.workspace = true
 cleaner-catalog = { version = "=1.2.6", path = "../cleaner-catalog" }
@@ -27,7 +28,11 @@ egui_extras.workspace = true
 image.workspace = true
 jiff.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
+
+[target."cfg(windows)".dependencies]
+rfd.workspace = true
 
 [build-dependencies]
 embed-resource = "=3.0.12"

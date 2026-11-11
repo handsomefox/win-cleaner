@@ -3,6 +3,7 @@
 
 pub(crate) mod about;
 pub(crate) mod components;
+pub(crate) mod files;
 pub(crate) mod history;
 pub(crate) mod presets;
 pub(crate) mod progress;

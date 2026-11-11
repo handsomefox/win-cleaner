@@ -24,6 +24,14 @@ This app deletes files. Five rules hold it up, and none of them is negotiable:
 - Preview is the default.
 - Empty-folder removal stays opt-in, and uses a non-recursive removal that succeeds only while the folder is still empty.
 
+The user's rules in `cleaner-core/src/rules.rs` hold up three more:
+
+- Cleanup plans each target again against the rules as they are when it runs, not as they were at the scan. An exclusion added after the scan still protects its path.
+- A folder that holds an exclusion is never moved whole. Cleanup moves the children around the exclusion instead.
+- An old program version is moved whole or not at all. Age and size limits never apply to it, and an exclusion inside it leaves all of it in place.
+
+An elevated copy that runs as a different account from the signed-in one cleans nothing, because its user folders belong to that other account.
+
 ## Tests
 
 Unit tests live beside their implementations in `#[cfg(test)]` modules. Use `tempfile` for filesystem scenarios.

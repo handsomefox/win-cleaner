@@ -501,12 +501,9 @@ mod tests {
 
     fn group(app: &str, label: &str, bytes: u64, on: bool) -> Group {
         Group {
-            app: app.to_owned(),
-            label: label.to_owned(),
-            targets: Vec::new(),
-            errs: Vec::new(),
             bytes,
             on,
+            ..Group::new(app, label)
         }
     }
 
@@ -796,6 +793,7 @@ mod tests {
                 errors: Vec::new(),
                 bytes: 1024,
                 freed: Some(1024),
+                skipped: None,
                 paths_attempted: 2,
                 paths_failed: 0,
             },
@@ -810,6 +808,7 @@ mod tests {
                     .collect(),
                 bytes: 0,
                 freed: Some(0),
+                skipped: None,
                 paths_attempted: errors,
                 paths_failed: errors,
             },

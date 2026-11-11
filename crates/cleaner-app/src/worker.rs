@@ -3,11 +3,13 @@
 //! the filesystem directly.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use cleaner_catalog::build_registry;
 use cleaner_core::{
-    ExecResult, Options, Plan, ProgressUpdate, Recycler, Registry, Roots, StoredRun, build_plan,
-    execute_with_result,
+    ExecResult, FileEntry, Options, Plan, ProgressUpdate, Recycler, Registry, Roots, Rules, Run,
+    StoredRun, Target, build_plan, execute_with_result, list_files,
 };
 use cleaner_platform::ShellRecycler;
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
@@ -18,10 +20,21 @@ pub(crate) enum Command {
     /// from a scan it has already abandoned (e.g. after Rescan).
     Scan {
         generation: u64,
+        rules: Rules,
     },
     Execute {
         plan: Plan,
         dry_run: bool,
+        rules: Rules,
+        /// Set by the UI's Stop button; the run ends before its next path.
+        stop: Arc<AtomicBool>,
+    },
+    /// List the files cleaning these targets would move, for the preview.
+    /// `request` is echoed back so a stale answer can be told apart.
+    ListFiles {
+        request: u64,
+        targets: Vec<Target>,
+        rules: Rules,
     },
     LoadHistory,
     /// Delete one run's stats file, then reload history.
@@ -43,6 +56,12 @@ pub(crate) enum Event {
     DeleteDone {
         result: ExecResult,
         stats_error: Option<String>,
+    },
+    FilesListed {
+        request: u64,
+        files: Vec<FileEntry>,
+        /// The list stopped at [`FILE_LIST_LIMIT`].
+        truncated: bool,
     },
     /// The stored runs and how many files could not be read, or why the
     /// stats directory could not be read.
@@ -142,6 +161,10 @@ fn run_commands<R: Recycler>(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per command, each short, in a single match"
+)]
 fn process_command<R: Recycler>(
     runtime: &mut Runtime<R>,
     command: Command,
@@ -155,7 +178,7 @@ fn process_command<R: Recycler>(
         supported,
     } = runtime;
     match command {
-        Command::Scan { generation } => {
+        Command::Scan { generation, rules } => {
             if !*supported || !roots.has_required() {
                 emit(Event::ScanDone {
                     generation,
@@ -164,9 +187,16 @@ fn process_command<R: Recycler>(
                 return;
             }
             tracing::info!(generation, "scan started");
-            let plan = build_plan(registry, roots, |update| {
-                emit(Event::ScanProgress { generation, update });
-            });
+            let running = app_process::Running::snapshot();
+            let plan = build_plan(
+                registry,
+                roots,
+                &rules,
+                &|name| running.contains(name),
+                |update| {
+                    emit(Event::ScanProgress { generation, update });
+                },
+            );
             tracing::info!(
                 generation,
                 groups = plan.groups.len(),
@@ -179,15 +209,24 @@ fn process_command<R: Recycler>(
                 outcome: Ok(plan),
             });
         }
-        Command::Execute { plan, dry_run } => {
+        Command::Execute {
+            plan,
+            dry_run,
+            rules,
+            stop,
+        } => {
             tracing::info!(selected = plan.selected, dry_run, "cleanup started");
-            let result = execute_with_result(
-                &plan,
-                Options { dry_run },
-                &roots.guard_roots(),
-                recycler,
-                |update| emit(Event::DeleteProgress(update)),
-            );
+            let guard_roots = roots.guard_roots();
+            let run = Run {
+                options: Options { dry_run },
+                guard_roots: &guard_roots,
+                rules: &rules,
+                stop: &stop,
+                is_running: &app_process::is_running,
+            };
+            let result = execute_with_result(&plan, &run, recycler, |update| {
+                emit(Event::DeleteProgress(update));
+            });
             let mut result = result;
             let stats_error = if dry_run {
                 None
@@ -197,7 +236,9 @@ fn process_command<R: Recycler>(
             tracing::info!(
                 total_selected = result.total_selected,
                 total_bytes = result.total_bytes,
+                freed_bytes = result.freed(),
                 error_count = result.error_count,
+                stopped = result.stopped,
                 "cleanup finished"
             );
             if let Some(err) = &stats_error {
@@ -206,6 +247,18 @@ fn process_command<R: Recycler>(
             emit(Event::DeleteDone {
                 result,
                 stats_error,
+            });
+        }
+        Command::ListFiles {
+            request,
+            targets,
+            rules,
+        } => {
+            let (files, truncated) = list_target_files(&targets, &rules);
+            emit(Event::FilesListed {
+                request,
+                files,
+                truncated,
             });
         }
         Command::LoadHistory => emit(load_history(stats_dir.as_deref())),
@@ -224,6 +277,38 @@ fn process_command<R: Recycler>(
             emit(load_history(stats_dir.as_deref()));
         }
     }
+}
+
+/// The most files a preview lists. A target holding more says so instead.
+pub(crate) const FILE_LIST_LIMIT: usize = 1_000_000;
+
+/// The files cleaning `targets` would move under `rules`, as cleanup plans
+/// them. A program version is listed whole, since it is never cleaned in part.
+fn list_target_files(targets: &[Target], rules: &Rules) -> (Vec<FileEntry>, bool) {
+    let now = std::time::SystemTime::now();
+    let whole = Rules::default();
+    let mut files = Vec::new();
+    for target in targets {
+        let remaining = FILE_LIST_LIMIT.saturating_sub(files.len());
+        if remaining == 0 {
+            return (files, true);
+        }
+        if target.version_rule.is_some() {
+            if !rules.is_excluded(&target.path) && !rules.has_exclusion_inside(&target.path) {
+                files.extend(list_files(&target.path, false, &whole, now, remaining));
+            }
+        } else {
+            files.extend(list_files(
+                &target.path,
+                target.keep_folder,
+                rules,
+                now,
+                remaining,
+            ));
+        }
+    }
+    let truncated = files.len() >= FILE_LIST_LIMIT;
+    (files, truncated)
 }
 
 /// Loads the stats directory into a [`Event::HistoryLoaded`], most recent
@@ -354,9 +439,16 @@ mod tests {
         let mut runtime = runtime(dir.path());
         let mut events = Vec::new();
 
-        process_command(&mut runtime, Command::Scan { generation: 9 }, |event| {
-            events.push(event);
-        });
+        process_command(
+            &mut runtime,
+            Command::Scan {
+                generation: 9,
+                rules: Rules::default(),
+            },
+            |event| {
+                events.push(event);
+            },
+        );
 
         assert!(matches!(
             events[0],
@@ -379,9 +471,16 @@ mod tests {
         let mut runtime = runtime(dir.path());
         runtime.supported = false;
         let mut events = Vec::new();
-        process_command(&mut runtime, Command::Scan { generation: 1 }, |event| {
-            events.push(event);
-        });
+        process_command(
+            &mut runtime,
+            Command::Scan {
+                generation: 1,
+                rules: Rules::default(),
+            },
+            |event| {
+                events.push(event);
+            },
+        );
         assert!(matches!(
             events.as_slice(),
             [Event::ScanDone {
@@ -393,9 +492,16 @@ mod tests {
         runtime.supported = true;
         runtime.roots = Roots::default();
         events.clear();
-        process_command(&mut runtime, Command::Scan { generation: 2 }, |event| {
-            events.push(event);
-        });
+        process_command(
+            &mut runtime,
+            Command::Scan {
+                generation: 2,
+                rules: Rules::default(),
+            },
+            |event| {
+                events.push(event);
+            },
+        );
         assert!(matches!(
             events.as_slice(),
             [Event::ScanDone {
@@ -414,12 +520,10 @@ mod tests {
         fs::write(cache.join("data.bin"), [0_u8; 3]).unwrap();
         let mut plan = Plan {
             groups: vec![Group {
-                app: "App".into(),
-                label: "cache".into(),
-                targets: vec![cleaner_core::Target::whole(cache.clone(), 3)],
-                errs: Vec::new(),
+                targets: vec![Target::whole(cache.clone(), 3)],
                 bytes: 3,
                 on: true,
+                ..Group::new("App", "cache")
             }],
             ..Plan::default()
         };
@@ -431,6 +535,8 @@ mod tests {
             Command::Execute {
                 plan: plan.clone(),
                 dry_run: true,
+                rules: Rules::default(),
+                stop: Arc::new(AtomicBool::new(false)),
             },
             |event| events.push(event),
         );
@@ -451,6 +557,8 @@ mod tests {
             Command::Execute {
                 plan,
                 dry_run: false,
+                rules: Rules::default(),
+                stop: Arc::new(AtomicBool::new(false)),
             },
             |event| events.push(event),
         );

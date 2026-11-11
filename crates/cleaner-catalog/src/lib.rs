@@ -713,7 +713,101 @@ pub fn build_registry(roots: &Roots) -> Registry {
             .push(item("Windows", "Prefetch data", false).contents([system_root.join("Prefetch")]));
     }
 
+    let system: Vec<&Path> = [
+        &roots.program_files,
+        &roots.program_files_x86,
+        &roots.program_w6432,
+        &roots.system_root,
+        &roots.windir,
+    ]
+    .into_iter()
+    .filter_map(|root| root.as_deref())
+    .collect();
+    for item in &mut items {
+        item.admin = needs_admin(item, &system);
+        if item.processes.is_empty() {
+            let names = processes_of(&item_key(item));
+            *item = std::mem::take(item).processes(names.iter().copied());
+        }
+    }
+
     Registry { items }
+}
+
+fn item_key(item: &Item) -> (String, String) {
+    (item.app.clone(), item.label.clone())
+}
+
+/// Whether any path of `item` lies under Program Files or Windows, where
+/// moving files needs administrator rights.
+fn needs_admin(item: &Item, system: &[&Path]) -> bool {
+    item.paths
+        .iter()
+        .chain(&item.globs)
+        .chain(&item.contents)
+        .chain(item.versioned.iter().map(|rule| &rule.dir))
+        .any(|path| system.iter().any(|root| path.starts_with(root)))
+}
+
+/// The programs whose running keeps a target's files in use. Old program
+/// versions have none: their version rule already protects the build in
+/// use, and Battle.net's Agent runs whenever the launcher does. Shared
+/// Windows folders and command-line tools have none either.
+fn processes_of((app, label): &(String, String)) -> &'static [&'static str] {
+    if label.starts_with("Old ") {
+        return &[];
+    }
+    match app.as_str() {
+        "Chrome" | "Chromium" | "Chrome for Testing" => &["chrome.exe"],
+        "Edge" => &["msedge.exe"],
+        "Firefox" => &["firefox.exe"],
+        "Brave" => &["brave.exe"],
+        "Opera" | "Opera GX" => &["opera.exe"],
+        "Vivaldi" => &["vivaldi.exe"],
+        "Thunderbird" => &["thunderbird.exe"],
+        "Discord" => &["Discord.exe"],
+        "Slack" => &["slack.exe"],
+        "Teams (classic)" => &["Teams.exe"],
+        "Teams (new)" => &["ms-teams.exe"],
+        "Zoom" => &["Zoom.exe"],
+        "Telegram" => &["Telegram.exe"],
+        "WhatsApp" => &["WhatsApp.exe"],
+        "Signal" => &["Signal.exe"],
+        "Steam" => &["steam.exe", "steamwebhelper.exe"],
+        "Battle.net" => &["Battle.net.exe"],
+        "Epic Games Launcher" => &["EpicGamesLauncher.exe"],
+        "GOG Galaxy" => &["GalaxyClient.exe"],
+        "EA/Origin" => &["EADesktop.exe", "Origin.exe"],
+        "Rockstar Games Launcher" => &["RockstarService.exe"],
+        "Battlefield 2042" => &["BF2042.exe"],
+        "osu! (lazer)" => &["osu!.exe"],
+        "VSCode" => &["Code.exe"],
+        "Cursor" => &["Cursor.exe"],
+        "VSCodium" => &["VSCodium.exe"],
+        "GitHub Desktop" => &["GitHubDesktop.exe"],
+        "Postman" => &["Postman.exe"],
+        "Obsidian" => &["Obsidian.exe"],
+        "Android Studio" => &["studio64.exe"],
+        "Visual Studio" => &["devenv.exe"],
+        "Unity" => &["Unity.exe"],
+        "NVIDIA" => &["NVIDIA app.exe"],
+        "Razer Synapse" => &["RazerAppEngine.exe"],
+        "Spotify" => &["Spotify.exe"],
+        "VLC" => &["vlc.exe"],
+        "OBS Studio" => &["obs64.exe"],
+        "Blender" => &["blender.exe"],
+        "Figma" => &["Figma.exe"],
+        "Notion" => &["Notion.exe"],
+        "Vortex" => &["Vortex.exe"],
+        "qBittorrent" => &["qbittorrent.exe"],
+        "Cloudflare WARP" => &["Cloudflare WARP.exe"],
+        "PowerToys" => &["PowerToys.exe"],
+        "Riot Client" => &["RiotClientServices.exe"],
+        "Roblox" => &["RobloxPlayerBeta.exe", "RobloxStudioBeta.exe"],
+        "Ubisoft Connect" => &["upc.exe"],
+        "DLSS Updater" => &["dlss-updater.exe"],
+        _ => &[],
+    }
 }
 
 #[cfg(test)]
@@ -1044,6 +1138,10 @@ mod tests {
         assert!(versioned.iter().all(|item| !item.default_on));
         assert_eq!(versioned[0].versioned[0].prefix, "Agent.");
         assert_eq!(versioned[1].versioned[0].prefix, "Battle.net.");
+        assert!(
+            versioned.iter().all(|item| item.processes.is_empty()),
+            "the version rule protects the build in use; the Agent always runs"
+        );
     }
 
     #[test]
@@ -1081,6 +1179,40 @@ mod tests {
         for gone in ["Chrome Beta", "Chrome Dev", "Chrome Canary"] {
             assert!(registry.items.iter().all(|item| item.app != gone));
         }
+    }
+
+    #[test]
+    fn system_targets_need_admin_and_app_targets_name_their_program() {
+        let mut roots = test_roots(Path::new("/base"));
+        roots.system_root = Some(PathBuf::from("/base/Windows"));
+        let registry = build_registry(&roots);
+        let find = |app: &str, label: &str| {
+            registry
+                .items
+                .iter()
+                .find(|i| i.app == app && i.label == label)
+                .unwrap()
+        };
+        for (app, label) in [
+            ("Windows", "Update downloads"),
+            ("Windows", "Prefetch data"),
+            ("Battle.net", "Old launcher versions"),
+            ("Ubisoft Connect", "Install folder cache"),
+        ] {
+            assert!(find(app, label).admin, "{app} - {label}");
+        }
+        for (app, label) in [("Windows", "Temp files"), ("Chrome", "Profile cache")] {
+            assert!(!find(app, label).admin, "{app} - {label}");
+        }
+        assert_eq!(
+            find("Chrome", "Profile cache (Beta)").processes,
+            ["chrome.exe"]
+        );
+        assert_eq!(
+            find("Steam", "HTML cache").processes,
+            ["steam.exe", "steamwebhelper.exe"]
+        );
+        assert!(find("Windows", "Temp files").processes.is_empty());
     }
 
     /// Folders other programs expect to exist keep the folder and lose only
@@ -1212,7 +1344,13 @@ mod tests {
 
         let registry = build_registry(&roots);
         let mut updates = 0;
-        let plan = build_plan(&registry, &roots, |_| updates += 1);
+        let plan = build_plan(
+            &registry,
+            &roots,
+            &cleaner_core::Rules::default(),
+            &|_| false,
+            |_| updates += 1,
+        );
         assert_eq!(updates, registry.items.len());
 
         let chrome = plan
@@ -1268,7 +1406,13 @@ mod tests {
 
         // Opt-in groups stay off even with content.
         write_file(&local.join("NVIDIA/DXCache/blob.bin"), 100);
-        let plan = build_plan(&registry, &roots, |_| {});
+        let plan = build_plan(
+            &registry,
+            &roots,
+            &cleaner_core::Rules::default(),
+            &|_| false,
+            |_| {},
+        );
         let shader = plan
             .groups
             .iter()

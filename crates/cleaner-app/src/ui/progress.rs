@@ -9,7 +9,9 @@ use crate::strings::UiText;
 use crate::theme;
 use crate::ui::components;
 
-pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &DeletingState) {
+/// Draws the screen and reports whether the user pressed Stop.
+pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &DeletingState) -> bool {
+    let mut stop = false;
     let fraction = components::fraction(state.current, state.total);
     ui.add_space(ui.available_height() * 0.3);
     ui.vertical_centered(|ui| {
@@ -35,5 +37,16 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &DeletingState) {
         ));
         ui.add_space(theme::SPACE_SM);
         ui.label(RichText::new(&state.message).color(theme::MUTED).small());
+        ui.add_space(theme::SPACE_MD);
+        if state.stopping {
+            ui.label(RichText::new(texts.cleanup_stopping).color(theme::MUTED));
+        } else if ui
+            .button(texts.action_stop)
+            .on_hover_text(texts.action_stop_hint)
+            .clicked()
+        {
+            stop = true;
+        }
     });
+    stop
 }

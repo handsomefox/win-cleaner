@@ -7,7 +7,9 @@
 mod app;
 mod icons;
 mod migrate;
+mod pickers;
 mod presets;
+mod settings_file;
 mod strings;
 mod theme;
 mod ui;
@@ -29,6 +31,10 @@ fn main() -> eframe::Result {
         tracing::info!("logging to {}", dir.display());
     }
 
+    if start_elevated_copy() {
+        return Ok(());
+    }
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(strings::ENGLISH.app_title)
@@ -48,6 +54,37 @@ fn main() -> eframe::Result {
         tracing::error!(%error, "could not start the updated app");
     }
     result
+}
+
+/// With "always start with administrator rights" on, asks Windows to start
+/// an elevated copy before any window opens, and reports whether one started.
+/// The copy carries `--elevated`, so it never asks again; a declined prompt
+/// or a failure leaves this unelevated copy to run as usual.
+fn start_elevated_copy() -> bool {
+    use cleaner_platform::elevation::{self, ELEVATED_ARG, Elevation};
+    if elevation::is_elevated()
+        || std::env::args().any(|arg| arg == ELEVATED_ARG)
+        || !elevation::always_elevated()
+    {
+        return false;
+    }
+    let Ok(executable) = std::env::current_exe() else {
+        return false;
+    };
+    match elevation::start_elevated(&executable) {
+        Elevation::Started => {
+            tracing::info!("started a copy with administrator rights");
+            true
+        }
+        Elevation::Declined => {
+            tracing::info!("administrator rights declined; starting without them");
+            false
+        }
+        Elevation::Failed(error) => {
+            tracing::warn!(%error, "could not start a copy with administrator rights");
+            false
+        }
+    }
 }
 
 /// Where this app's releases are published.

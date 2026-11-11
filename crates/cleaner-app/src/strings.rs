@@ -107,6 +107,51 @@ pub(crate) struct UiText {
     pub settings_reset: &'static str,
     pub settings_reset_hint: &'static str,
     pub settings_safety_note: &'static str,
+    pub action_rescan_admin: &'static str,
+    pub action_rescan_admin_hint: &'static str,
+    pub action_show_files: &'static str,
+    pub action_show_files_hint: &'static str,
+    pub action_stop: &'static str,
+    pub action_stop_hint: &'static str,
+    pub badge_admin: &'static str,
+    pub badge_admin_hint: &'static str,
+    pub badge_running: &'static str,
+    pub cleanup_stopping: &'static str,
+    pub elevate_declined: &'static str,
+    pub elevate_title: &'static str,
+    pub exclusion_pick_file: &'static str,
+    pub exclusion_pick_folder: &'static str,
+    pub files_column_modified: &'static str,
+    pub files_column_path: &'static str,
+    pub files_column_size: &'static str,
+    pub files_exclude: &'static str,
+    pub files_exclude_hint: &'static str,
+    pub files_hint: &'static str,
+    pub files_loading: &'static str,
+    pub files_none: &'static str,
+    pub result_stopped: &'static str,
+    pub settings_add_file: &'static str,
+    pub settings_add_folder: &'static str,
+    pub settings_admin_title: &'static str,
+    pub settings_always_elevated: &'static str,
+    pub settings_always_elevated_hint: &'static str,
+    pub settings_days_suffix: &'static str,
+    pub settings_exclusions_hint: &'static str,
+    pub settings_exclusions_none: &'static str,
+    pub settings_exclusions_title: &'static str,
+    pub settings_export: &'static str,
+    pub settings_file_hint: &'static str,
+    pub settings_file_title: &'static str,
+    pub settings_import: &'static str,
+    pub settings_imported: &'static str,
+    pub settings_kb_suffix: &'static str,
+    pub settings_limits_hint: &'static str,
+    pub settings_min_age: &'static str,
+    pub settings_min_size: &'static str,
+    pub settings_remove: &'static str,
+    pub settings_rules_title: &'static str,
+    pub settings_skip_running: &'static str,
+    pub settings_skip_running_hint: &'static str,
 
     pub presets_menu: &'static str,
     pub presets_tooltip: &'static str,
@@ -241,6 +286,51 @@ pub(crate) const ENGLISH: UiText = UiText {
     settings_reset: "Reset selection to defaults",
     settings_reset_hint: "Clears what the app remembers and scans again, so the targets the catalog picks come back.",
     settings_safety_note: "Preview only is on at every launch, and empty folders are removed only when you ask for it in that run.",
+    action_rescan_admin: "Scan again as administrator",
+    action_rescan_admin_hint: "Some targets on this PC are under Program Files or Windows, and cleaning them needs administrator rights. This restarts Windows Cleaner with them. Windows asks first.",
+    action_show_files: "Show files",
+    action_show_files_hint: "Lists every file cleaning this target would move, after your exclusions and limits.",
+    action_stop: "Stop",
+    action_stop_hint: "Finishes the item being moved, then stops. What already moved stays in the Recycle Bin.",
+    badge_admin: "Needs admin",
+    badge_admin_hint: "Under Program Files or Windows. Cleaning it needs administrator rights: use Scan again as administrator.",
+    badge_running: "Running",
+    cleanup_stopping: "Stopping after the current item…",
+    elevate_declined: "Windows did not start Windows Cleaner with administrator rights, so this window stays as it was.",
+    elevate_title: "Administrator rights",
+    exclusion_pick_file: "Choose a file to exclude",
+    exclusion_pick_folder: "Choose a folder to exclude",
+    files_column_modified: "Modified",
+    files_column_path: "Path",
+    files_column_size: "Size",
+    files_exclude: "Exclude",
+    files_exclude_hint: "Never clean this file. Closing the preview scans again.",
+    files_hint: "A folder with nothing excluded inside is moved whole; the list shows the files it holds.",
+    files_loading: "Listing files…",
+    files_none: "Nothing here would be cleaned.",
+    result_stopped: "You stopped the cleanup. The targets not listed here were not cleaned.",
+    settings_add_file: "Add file…",
+    settings_add_folder: "Add folder…",
+    settings_admin_title: "Administrator rights",
+    settings_always_elevated: "Always start with administrator rights",
+    settings_always_elevated_hint: "Asks Windows for administrator rights each time the app starts, so system targets can be cleaned. Answering No starts it without them.",
+    settings_days_suffix: " days",
+    settings_exclusions_hint: "An excluded folder protects everything in it. A folder holding an exclusion is cleaned around it, never as a whole.",
+    settings_exclusions_none: "Nothing is excluded.",
+    settings_exclusions_title: "Exclusions",
+    settings_export: "Export settings…",
+    settings_file_hint: "Saves your exclusions, limits, presets, and selection preferences to a file, or loads them from one. Administrator rights are never part of the file.",
+    settings_file_title: "Settings file",
+    settings_import: "Import settings…",
+    settings_imported: "Settings imported. Windows Cleaner scanned again with them.",
+    settings_kb_suffix: " KB",
+    settings_limits_hint: "With a limit set, targets are cleaned file by file and their folders stay. Zero turns a limit off. Old program versions are always cleaned whole.",
+    settings_min_age: "Leave files changed in the last",
+    settings_min_size: "Leave files smaller than",
+    settings_remove: "Remove",
+    settings_rules_title: "What to leave",
+    settings_skip_running: "Skip targets while their program is running",
+    settings_skip_running_hint: "A target whose program is open is not selected after a scan, and is skipped if the program starts before the cleanup reaches it.",
 
     presets_menu: "Presets",
     presets_tooltip: "Save the targets you have checked under a name, and check them again in one click.",
@@ -454,6 +544,69 @@ impl UiText {
     /// first few of their names.
     pub(crate) fn errors_in(&self, groups: usize, names: &str) -> String {
         format!("Errors in {}: {names}", self.items_count(groups))
+    }
+
+    pub(crate) fn badge_running_hint(&self, name: &str) -> String {
+        format!(
+            "{name} is running, so this target is skipped. Close it and scan again to clean it."
+        )
+    }
+
+    pub(crate) fn elevate_failed(&self, error: &str) -> String {
+        format!("Could not start Windows Cleaner with administrator rights: {error}")
+    }
+
+    pub(crate) fn files_summary(&self, files: usize, bytes: u64) -> String {
+        let noun = if files == 1 { "file" } else { "files" };
+        format!("{files} {noun}, {}", human_bytes(bytes))
+    }
+
+    pub(crate) fn files_truncated(&self, limit: usize) -> String {
+        format!("Only the first {limit} files are listed.")
+    }
+
+    pub(crate) fn other_account(&self, process: &str, session: &str) -> String {
+        format!(
+            "Windows Cleaner is running as {process}, but {session} is signed in. Windows gave it \
+             administrator rights through another account, so the folders it finds belong to \
+             {process}, not to you, and it cleans nothing. Close this window and start Windows \
+             Cleaner normally."
+        )
+    }
+
+    pub(crate) fn result_status_skipped_because(&self, reason: &str) -> String {
+        format!("Skipped: {reason}")
+    }
+
+    pub(crate) fn settings_exported(&self, path: &std::path::Path) -> String {
+        format!("Saved to {}.", path.display())
+    }
+
+    pub(crate) fn settings_export_failed(&self, error: &str) -> String {
+        format!("Could not save the settings file: {error}")
+    }
+
+    pub(crate) fn settings_import_failed(&self, error: &str) -> String {
+        format!("Could not read the settings file: {error}")
+    }
+
+    pub(crate) fn settings_import_refused(
+        &self,
+        error: &crate::settings_file::ImportError,
+    ) -> String {
+        use crate::settings_file::ImportError;
+        match error {
+            ImportError::TooLarge => "That file is too large to be a settings file.".to_owned(),
+            ImportError::NotJson(detail) => {
+                format!("That file is not a settings file Windows Cleaner can read: {detail}")
+            }
+            ImportError::WrongFormat => {
+                "That file holds settings for something other than Windows Cleaner.".to_owned()
+            }
+            ImportError::NewerVersion(version) => format!(
+                "That file was written by a newer Windows Cleaner (format {version}). Update this one first."
+            ),
+        }
     }
 
     pub(crate) fn stats_write_failed(&self, error: &str) -> String {

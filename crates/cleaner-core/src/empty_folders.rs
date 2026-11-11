@@ -67,15 +67,11 @@ fn empty_folder_groups(sweep_roots: Vec<(String, PathBuf)>, guard_roots: &[&Path
         // Keep each subtree in postorder so execution removes children before
         // their parents, using non-recursive remove_dir for every path.
         groups.push(Group {
-            app: EMPTY_FOLDERS_APP.to_owned(),
-            label,
             targets: candidates
                 .into_iter()
                 .map(|path| Target::whole(path, 0))
                 .collect(),
-            errs: Vec::new(),
-            bytes: 0,
-            on: false,
+            ..Group::new(EMPTY_FOLDERS_APP, &label)
         });
     }
     groups
@@ -167,13 +163,17 @@ mod tests {
             if changed {
                 fs::write(leaf.join("new.txt"), b"keep me").unwrap();
             }
-            let result = execute_with_result(
-                &plan,
-                Options { dry_run: false },
-                &roots.guard_roots(),
-                &NoRecycler,
-                |_| {},
-            );
+            let stop = std::sync::atomic::AtomicBool::new(false);
+            let rules = crate::rules::Rules::default();
+            let guard_roots = roots.guard_roots();
+            let run = crate::execute::Run {
+                options: Options { dry_run: false },
+                guard_roots: &guard_roots,
+                rules: &rules,
+                stop: &stop,
+                is_running: &|_| false,
+            };
+            let result = execute_with_result(&plan, &run, &NoRecycler, |_| {});
             if changed {
                 assert!(result.error_count > 0);
                 assert_eq!(fs::read(leaf.join("new.txt")).unwrap(), b"keep me");

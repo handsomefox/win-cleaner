@@ -5,10 +5,13 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::SystemTime;
 
 use crate::empty_folders::EMPTY_FOLDERS_APP;
 use crate::error::RecycleError;
-use crate::plan::{Options, Plan, ProgressUpdate, Target};
+use crate::plan::{Group, Options, Plan, ProgressUpdate, Target};
+use crate::rules::{Rules, Walk, plan_paths};
 use crate::safety::{is_link, is_safe_path, normalized_key};
 use crate::scan::dir_size;
 use crate::stats::{ExecResult, GroupResult, PathError};
@@ -25,24 +28,45 @@ pub trait Recycler {
     fn recycle(&self, paths: &[&Path]) -> Result<(), RecycleError>;
 }
 
+/// What a cleanup runs under, besides the plan: the safe roots, the user's
+/// rules as they are now, the flag that stops it, and how to tell whether a
+/// program is running.
+pub struct Run<'a> {
+    pub options: Options,
+    pub guard_roots: &'a [&'a Path],
+    pub rules: &'a Rules,
+    /// Set from another thread to stop before the next path. The path being
+    /// moved finishes; nothing after it starts.
+    pub stop: &'a AtomicBool,
+    /// Whether a process with this executable name is running.
+    pub is_running: &'a dyn Fn(&str) -> bool,
+}
+
 /// Executes the selected groups of `plan`, re-guarding every path against
-/// `guard_roots`. As a defense in depth (the GUI never calls this in preview
+/// the safe roots. As a defense in depth (the GUI never calls this in preview
 /// mode) a dry run performs no deletions and reports no groups.
+///
+/// Each target is planned again here, against the rules as they are now: a
+/// path excluded since the scan stays, and a folder that has gained an
+/// exclusion is split around it instead of being moved whole.
 pub fn execute_with_result(
     plan: &Plan,
-    opts: Options,
-    guard_roots: &[&Path],
+    run: &Run<'_>,
     recycler: &dyn Recycler,
     mut progress: impl FnMut(ProgressUpdate),
 ) -> ExecResult {
-    let mut result = ExecResult::begin(plan, opts);
-    if plan.selected == 0 || opts.dry_run {
+    let mut result = ExecResult::begin(plan, run.options);
+    if plan.selected == 0 || run.options.dry_run {
         result.finish();
         return result;
     }
 
     let total = plan.groups.iter().filter(|group| group.on).count();
     for (index, group) in plan.groups.iter().filter(|group| group.on).enumerate() {
+        if run.stop.load(Ordering::Relaxed) {
+            result.stopped = true;
+            break;
+        }
         progress(ProgressUpdate {
             current: index + 1,
             total,
@@ -55,37 +79,19 @@ pub fn execute_with_result(
             errors: Vec::new(),
             bytes: group.bytes,
             freed: Some(0),
+            skipped: None,
             paths_attempted: 0,
             paths_failed: 0,
         };
-        for target in &group.targets {
-            let path = target.path.as_path();
-            if !is_safe_path(path, guard_roots) {
-                group_result.errors.push(PathError {
-                    path: path.display().to_string(),
-                    error: "unsafe path (guard)".to_owned(),
-                });
-                continue;
-            }
-            if fs::symlink_metadata(path).is_err() || !still_superseded(target) {
-                continue;
-            }
-            group_result.paths_attempted += 1;
-            let operation = if group.app == EMPTY_FOLDERS_APP {
-                remove_empty_directory(path).map_err(|err| err.to_string())
-            } else if target.keep_folder {
-                recycle_contents(path, guard_roots, recycler).map_err(|err| err.to_string())
-            } else {
-                delete_path_smart(path, guard_roots, recycler).map_err(|err| err.to_string())
-            };
-            if let Err(error) = operation {
-                group_result.paths_failed += 1;
-                group_result.errors.push(PathError {
-                    path: path.display().to_string(),
-                    error,
-                });
-            }
-            group_result.freed = group_result.freed.map(|freed| freed + freed_from(target));
+        if run.rules.skip_running_apps
+            && let Some(name) = group.processes.iter().find(|name| (run.is_running)(name))
+        {
+            group_result.skipped = Some(format!("{name} is running"));
+        } else {
+            clean_group(group, run, recycler, &mut group_result);
+        }
+        if run.stop.load(Ordering::Relaxed) {
+            result.stopped = true;
         }
         result.error_count += group_result.errors.len();
         result.freed_bytes = result
@@ -95,6 +101,122 @@ pub fn execute_with_result(
     }
     result.finish();
     result
+}
+
+fn clean_group(group: &Group, run: &Run<'_>, recycler: &dyn Recycler, out: &mut GroupResult) {
+    let now = SystemTime::now();
+    for target in &group.targets {
+        if run.stop.load(Ordering::Relaxed) {
+            return;
+        }
+        let path = target.path.as_path();
+        if !is_safe_path(path, run.guard_roots) {
+            out.errors.push(PathError {
+                path: path.display().to_string(),
+                error: "unsafe path (guard)".to_owned(),
+            });
+            continue;
+        }
+        if fs::symlink_metadata(path).is_err() || run.rules.is_excluded(path) {
+            continue;
+        }
+        if group.app == EMPTY_FOLDERS_APP {
+            out.paths_attempted += 1;
+            if let Err(error) = remove_empty_directory(path) {
+                out.paths_failed += 1;
+                out.errors.push(PathError {
+                    path: path.display().to_string(),
+                    error: error.to_string(),
+                });
+            }
+            continue;
+        }
+        // A program version is moved whole or not at all: half of one is
+        // worse than either. Age and size limits do not apply to it.
+        if target.version_rule.is_some() {
+            if run.rules.has_exclusion_inside(path) || !still_superseded(target) {
+                continue;
+            }
+            clean_path(path, target.bytes, run, recycler, out);
+            continue;
+        }
+        let whole = !target.keep_folder
+            && !run.rules.filters_files()
+            && !run.rules.has_exclusion_inside(path);
+        if whole {
+            clean_path(path, target.bytes, run, recycler, out);
+            continue;
+        }
+        if target.keep_folder && !is_real_folder(path) {
+            out.paths_attempted += 1;
+            out.paths_failed += 1;
+            out.errors.push(PathError {
+                path: path.display().to_string(),
+                error: "not a folder whose contents can be recycled".to_owned(),
+            });
+            continue;
+        }
+        let mut planned = Vec::new();
+        let mut walk = Walk::measured();
+        plan_paths(
+            path,
+            target.keep_folder,
+            run.rules,
+            now,
+            &mut walk,
+            &mut |child, size| {
+                planned.push((child.to_path_buf(), size));
+                true
+            },
+        );
+        // A folder that could not be listed, such as one that needs
+        // administrator rights, is a failure, not "nothing to clean".
+        if !walk.errors.is_empty() {
+            out.paths_attempted += 1;
+            out.paths_failed += 1;
+            out.errors.push(PathError {
+                path: path.display().to_string(),
+                error: walk.errors.join("; "),
+            });
+        }
+        for (child, size) in planned {
+            if run.stop.load(Ordering::Relaxed) {
+                return;
+            }
+            clean_path(&child, size, run, recycler, out);
+        }
+    }
+}
+
+/// Moves one planned path, records the outcome, and counts what left.
+fn clean_path(
+    path: &Path,
+    planned_bytes: u64,
+    run: &Run<'_>,
+    recycler: &dyn Recycler,
+    out: &mut GroupResult,
+) {
+    out.paths_attempted += 1;
+    if let Err(error) = delete_path_smart(path, run.guard_roots, recycler) {
+        out.paths_failed += 1;
+        out.errors.push(PathError {
+            path: path.display().to_string(),
+            error: error.to_string(),
+        });
+    }
+    let remaining = if path_missing(path) {
+        0
+    } else {
+        dir_size(path).unwrap_or(planned_bytes)
+    };
+    out.freed = out
+        .freed
+        .map(|freed| freed + planned_bytes.saturating_sub(remaining));
+}
+
+fn is_real_folder(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .is_ok_and(|metadata| metadata.file_type().is_dir() && !is_link(&metadata))
 }
 
 /// Whether a program version found at scan time is still superseded. An
@@ -108,64 +230,6 @@ fn still_superseded(target: &Target) -> bool {
     superseded(rule)
         .iter()
         .any(|path| normalized_key(path) == key)
-}
-
-/// The bytes a target's cleanup freed: its scanned size less whatever is still
-/// there. A path that is gone costs no walk; one that stayed, such as a
-/// folder holding a locked file, is measured again.
-fn freed_from(target: &Target) -> u64 {
-    let remaining = if path_missing(&target.path) {
-        0
-    } else {
-        dir_size(&target.path).unwrap_or(target.bytes)
-    };
-    target.bytes.saturating_sub(remaining)
-}
-
-/// Moves what the folder at `path` holds to the Recycle Bin and leaves the
-/// folder itself, for a folder that other programs expect to exist, such as
-/// the user's `Temp`. Each child is guarded and recycled on its own, so a
-/// locked one does not keep the others. Links inside are left alone.
-///
-/// # Errors
-///
-/// Returns an aggregate error when a child could not be recycled, or the path
-/// is unsafe or is not a real folder.
-pub fn recycle_contents(
-    path: &Path,
-    guard_roots: &[&Path],
-    recycler: &dyn Recycler,
-) -> Result<(), RecycleError> {
-    if !is_safe_path(path, guard_roots) {
-        return if path_missing(path) {
-            Ok(())
-        } else {
-            Err(RecycleError::UnsafePath(path.to_path_buf()))
-        };
-    }
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(RecycleError::Multiple(format!(
-                "could not inspect {}: {error}",
-                path.display()
-            )));
-        }
-        Ok(metadata) if !metadata.file_type().is_dir() || is_link(&metadata) => {
-            return Err(RecycleError::Multiple(format!(
-                "not a folder whose contents can be recycled: {}",
-                path.display()
-            )));
-        }
-        Ok(_) => {}
-    }
-    let mut failures = Vec::new();
-    recycle_children(path, guard_roots, recycler, &mut failures);
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        Err(RecycleError::Multiple(failures.join("; ")))
-    }
 }
 
 /// First attempts to move exactly `path` to the Recycle Bin in one operation.
@@ -493,15 +557,13 @@ mod tests {
 
     fn selected_group(app: &str, paths: Vec<PathBuf>) -> Group {
         Group {
-            app: app.to_owned(),
-            label: "test".to_owned(),
             targets: paths
                 .into_iter()
                 .map(|path| Target::whole(path, 5))
                 .collect(),
-            errs: Vec::new(),
             bytes: 10,
             on: true,
+            ..Group::new(app, "test")
         }
     }
 
@@ -516,18 +578,286 @@ mod tests {
 
     fn sized_group(app: &str, targets: Vec<Target>) -> Group {
         Group {
-            app: app.to_owned(),
-            label: "test".to_owned(),
             bytes: targets.iter().map(|target| target.bytes).sum(),
             targets,
-            errs: Vec::new(),
             on: true,
+            ..Group::new(app, "test")
         }
     }
 
+    fn execute_plain(
+        plan: &Plan,
+        dry_run: bool,
+        roots: &[&Path],
+        recycler: &dyn Recycler,
+        progress: impl FnMut(ProgressUpdate),
+    ) -> ExecResult {
+        let stop = AtomicBool::new(false);
+        let rules = Rules::default();
+        let run = Run {
+            options: Options { dry_run },
+            guard_roots: roots,
+            rules: &rules,
+            stop: &stop,
+            is_running: &|_| false,
+        };
+        execute_with_result(plan, &run, recycler, progress)
+    }
+
     fn run(plan: &mut Plan, root: &Path, recycler: &dyn Recycler) -> ExecResult {
+        run_with(
+            plan,
+            root,
+            recycler,
+            &Rules::default(),
+            &AtomicBool::new(false),
+        )
+    }
+
+    fn run_with(
+        plan: &mut Plan,
+        root: &Path,
+        recycler: &dyn Recycler,
+        rules: &Rules,
+        stop: &AtomicBool,
+    ) -> ExecResult {
         plan.recompute_totals();
-        execute_with_result(plan, Options { dry_run: false }, &[root], recycler, |_| {})
+        let roots = [root];
+        let run = Run {
+            options: Options { dry_run: false },
+            guard_roots: &roots,
+            rules,
+            stop,
+            is_running: &|_| false,
+        };
+        execute_with_result(plan, &run, recycler, |_| {})
+    }
+
+    /// Moves paths like [`MockRecycler`] and sets the stop flag after the
+    /// first one, the way the user's Stop click lands mid-run.
+    struct StoppingRecycler<'a> {
+        inner: MockRecycler,
+        stop: &'a AtomicBool,
+    }
+
+    impl Recycler for StoppingRecycler<'_> {
+        fn recycle(&self, paths: &[&Path]) -> Result<(), RecycleError> {
+            let result = self.inner.recycle(paths);
+            self.stop.store(true, Ordering::Relaxed);
+            result
+        }
+    }
+
+    fn files(root: &Path, entries: &[(&str, usize)]) {
+        for (name, size) in entries {
+            let path = root.join(name);
+            create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, vec![0; *size]).unwrap();
+        }
+    }
+
+    #[test]
+    fn an_exclusion_added_after_the_scan_still_protects_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        files(&cache, &[("a", 10), ("keep/precious", 20), ("other/b", 5)]);
+        // Scanned with no exclusions: the whole folder was planned.
+        let mut plan = Plan {
+            groups: vec![sized_group("App", vec![Target::whole(cache.clone(), 35)])],
+            ..Plan::default()
+        };
+        let rules = Rules {
+            exclusions: vec![cache.join("KEEP")],
+            ..Rules::default()
+        };
+
+        let mock = MockRecycler::new();
+        let result = run_with(
+            &mut plan,
+            dir.path(),
+            &mock,
+            &rules,
+            &AtomicBool::new(false),
+        );
+        assert!(
+            cache.join("keep/precious").exists(),
+            "the exclusion was bypassed"
+        );
+        assert!(!cache.join("a").exists() && !cache.join("other").exists());
+        assert!(
+            mock.calls
+                .borrow()
+                .iter()
+                .flatten()
+                .all(|path| path != &cache),
+            "a folder holding an exclusion is never moved whole"
+        );
+        assert_eq!(result.freed_bytes, Some(15));
+        assert_eq!(result.error_count, 0);
+    }
+
+    #[test]
+    fn an_excluded_target_and_a_version_holding_one_stay_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        files(&cache, &[("a", 1)]);
+        let agent = dir.path().join("Agent");
+        files(
+            &agent,
+            &[
+                ("Agent.9700/Agent.exe", 1),
+                ("Agent.9700/data/x", 1),
+                ("Agent.9852/Agent.exe", 1),
+            ],
+        );
+        fs::write(agent.join(crate::versions::PRODUCT_DB), b"x2.41.2.9852R").unwrap();
+        let rule = crate::catalog::Versioned {
+            dir: agent.clone(),
+            prefix: "Agent.".to_owned(),
+        };
+        let old = agent.join("Agent.9700");
+        let mut plan = Plan {
+            groups: vec![
+                sized_group("App", vec![Target::whole(cache.clone(), 1)]),
+                sized_group(
+                    "Battle.net",
+                    vec![Target {
+                        version_rule: Some(rule),
+                        ..Target::whole(old.clone(), 2)
+                    }],
+                ),
+            ],
+            ..Plan::default()
+        };
+        let rules = Rules {
+            exclusions: vec![cache.clone(), old.join("data/x")],
+            min_size_bytes: 1,
+            ..Rules::default()
+        };
+
+        let mock = MockRecycler::new();
+        run_with(
+            &mut plan,
+            dir.path(),
+            &mock,
+            &rules,
+            &AtomicBool::new(false),
+        );
+        assert!(mock.calls.borrow().is_empty());
+        assert!(cache.join("a").exists());
+        assert!(
+            old.join("Agent.exe").exists(),
+            "a program version is never cleaned in part"
+        );
+    }
+
+    #[test]
+    fn a_size_limit_moves_only_large_files_and_keeps_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        files(&cache, &[("small", 10), ("sub/big", 5000)]);
+        let mut plan = Plan {
+            groups: vec![sized_group("App", vec![Target::whole(cache.clone(), 5010)])],
+            ..Plan::default()
+        };
+        let rules = Rules {
+            min_size_bytes: 1000,
+            ..Rules::default()
+        };
+        let mock = MockRecycler::new();
+        let result = run_with(
+            &mut plan,
+            dir.path(),
+            &mock,
+            &rules,
+            &AtomicBool::new(false),
+        );
+        assert!(cache.join("small").exists());
+        assert!(cache.join("sub").is_dir());
+        assert!(!cache.join("sub/big").exists());
+        assert_eq!(result.freed_bytes, Some(5000));
+    }
+
+    #[test]
+    fn stop_finishes_the_current_path_and_starts_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join("Temp");
+        files(&temp, &[("a", 1), ("b", 1), ("c", 1)]);
+        let later = dir.path().join("later");
+        files(&later, &[("x", 1)]);
+        let mut plan = Plan {
+            groups: vec![
+                sized_group(
+                    "A",
+                    vec![Target {
+                        keep_folder: true,
+                        ..Target::whole(temp.clone(), 3)
+                    }],
+                ),
+                sized_group("B", vec![Target::whole(later.clone(), 1)]),
+            ],
+            ..Plan::default()
+        };
+        let stop = AtomicBool::new(false);
+        let recycler = StoppingRecycler {
+            inner: MockRecycler::new(),
+            stop: &stop,
+        };
+        let result = run_with(&mut plan, dir.path(), &recycler, &Rules::default(), &stop);
+        assert!(result.stopped);
+        assert_eq!(
+            recycler.inner.call_sizes(),
+            vec![1],
+            "one path, then the stop"
+        );
+        assert!(!temp.join("a").exists());
+        assert!(temp.join("b").exists() && temp.join("c").exists());
+        assert!(later.join("x").exists());
+        assert_eq!(result.groups.len(), 1, "the second group never started");
+        assert_eq!(result.freed_bytes, Some(1));
+    }
+
+    #[test]
+    fn a_running_program_skips_its_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        files(&cache, &[("a", 1)]);
+        let mut group = sized_group("Discord", vec![Target::whole(cache.clone(), 1)]);
+        group.processes = vec!["Discord.exe".to_owned()];
+        let mut plan = Plan {
+            groups: vec![group],
+            ..Plan::default()
+        };
+        plan.recompute_totals();
+        let rules = Rules {
+            skip_running_apps: true,
+            ..Rules::default()
+        };
+        let stop = AtomicBool::new(false);
+        let roots = [dir.path()];
+        let mock = MockRecycler::new();
+        let run = Run {
+            options: Options { dry_run: false },
+            guard_roots: &roots,
+            rules: &rules,
+            stop: &stop,
+            is_running: &|name| name.eq_ignore_ascii_case("discord.exe"),
+        };
+        let result = execute_with_result(&plan, &run, &mock, |_| {});
+        assert!(cache.join("a").exists());
+        assert_eq!(
+            result.groups[0].skipped.as_deref(),
+            Some("Discord.exe is running")
+        );
+        assert!(mock.calls.borrow().is_empty());
+
+        let unchecked = Rules::default();
+        let run = Run {
+            rules: &unchecked,
+            ..run
+        };
+        execute_with_result(&plan, &run, &mock, |_| {});
+        assert!(!cache.exists(), "without the setting the target is cleaned");
     }
 
     #[test]
@@ -608,32 +938,45 @@ mod tests {
         make_children(&temp, 3);
         let mut recycler = FailingRecycler::new();
         recycler.fail_always.insert(temp.join("f0001"));
+        let mut plan = Plan {
+            groups: vec![sized_group(
+                "Windows",
+                vec![Target {
+                    keep_folder: true,
+                    ..Target::whole(temp.clone(), 0)
+                }],
+            )],
+            ..Plan::default()
+        };
 
-        let error = recycle_contents(&temp, &[dir.path()], &recycler).unwrap_err();
-        assert!(error.to_string().contains("f0001"));
+        let result = run(&mut plan, dir.path(), &recycler);
+        assert_eq!(result.error_count, 1);
+        assert!(result.groups[0].errors[0].path.ends_with("f0001"));
         assert!(temp.join("f0001").exists());
         assert!(!temp.join("f0000").exists() && !temp.join("f0002").exists());
         assert!(!recycler.calls().contains(&temp));
     }
 
     #[test]
-    fn a_kept_folder_must_be_a_real_folder_inside_a_root() {
+    fn a_kept_folder_must_be_a_real_folder() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("safe");
-        let outside = dir.path().join("outside");
-        make_children(&outside, 1);
-        make_children(&root, 0);
-        let file = root.join("file");
+        let file = dir.path().join("file");
         fs::write(&file, b"x").unwrap();
+        let mut plan = Plan {
+            groups: vec![sized_group(
+                "Windows",
+                vec![Target {
+                    keep_folder: true,
+                    ..Target::whole(file.clone(), 1)
+                }],
+            )],
+            ..Plan::default()
+        };
         let mock = MockRecycler::new();
-        assert!(recycle_contents(&outside, &[&root], &mock).is_err());
-        assert!(
-            recycle_contents(&root, &[&root], &mock).is_err(),
-            "a root itself"
-        );
-        assert!(recycle_contents(&file, &[&root], &mock).is_err());
+        let result = run(&mut plan, dir.path(), &mock);
+        assert_eq!(result.error_count, 1);
         assert!(mock.calls.borrow().is_empty());
-        assert!(outside.join("f0000").exists() && file.exists());
+        assert!(file.exists());
     }
 
     #[test]
@@ -690,13 +1033,7 @@ mod tests {
 
         let mock = MockRecycler::new();
         let mut updates = Vec::new();
-        let result = execute_with_result(
-            &plan,
-            Options { dry_run: false },
-            &[&root],
-            &mock,
-            |update| updates.push(update),
-        );
+        let result = execute_plain(&plan, false, &[&root], &mock, |update| updates.push(update));
 
         assert_eq!(result.groups.len(), 3);
         let good = &result.groups[0];
@@ -736,8 +1073,7 @@ mod tests {
         plan.recompute_totals();
 
         let mock = MockRecycler::new();
-        let result =
-            execute_with_result(&plan, Options { dry_run: false }, &[&root], &mock, |_| {});
+        let result = execute_plain(&plan, false, &[&root], &mock, |_| {});
 
         assert!(mock.call_sizes().is_empty());
         assert!(outside.join("cache/f0000").exists());
@@ -765,8 +1101,7 @@ mod tests {
         plan.recompute_totals();
 
         let mock = MockRecycler::new();
-        let result =
-            execute_with_result(&plan, Options { dry_run: false }, &[&root], &mock, |_| {});
+        let result = execute_plain(&plan, false, &[&root], &mock, |_| {});
 
         assert!(!empty.exists());
         assert!(changed.join("appeared-after-scan.txt").exists());
@@ -790,7 +1125,7 @@ mod tests {
         plan.recompute_totals();
 
         let mock = MockRecycler::new();
-        let result = execute_with_result(&plan, Options { dry_run: true }, &[&root], &mock, |_| {});
+        let result = execute_plain(&plan, true, &[&root], &mock, |_| {});
         assert!(mock.call_sizes().is_empty());
         assert!(inside.exists());
         assert!(result.dry_run);

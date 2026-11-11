@@ -16,6 +16,10 @@ use crate::viewmodel::{self, AppView, CategoryView, SortMode, ViewFilter, visibl
 pub(crate) enum SelectAction {
     Rescan,
     ConfirmedCleanup,
+    /// Open the file preview for the group at this index.
+    ListFiles(usize),
+    /// Start again with administrator rights.
+    Elevate,
 }
 
 /// The central pane: search/sort toolbar, the scrollable category sections, and
@@ -54,6 +58,22 @@ pub(crate) fn statusbar(
                 .clicked()
             {
                 action = Some(SelectAction::Rescan);
+            }
+            // Offered only when something on this PC needs it.
+            let needs_admin = state
+                .plan
+                .groups
+                .iter()
+                .any(|group| group.admin && group.bytes > 0);
+            if cfg!(windows)
+                && !state.elevated
+                && needs_admin
+                && ui
+                    .button(texts.action_rescan_admin)
+                    .on_hover_text(texts.action_rescan_admin_hint)
+                    .clicked()
+            {
+                action = Some(SelectAction::Elevate);
             }
             if ui
                 .selectable_label(
@@ -331,6 +351,8 @@ fn item_row(
         let empty = viewmodel::is_empty_target(group);
         let has_errs = !group.errs.is_empty();
         let err_count = group.errs.len();
+        let running = group.running.clone();
+        let needs_admin = group.admin && !state.elevated;
         let mut label = RichText::new(&group.label);
         if empty || app.is_some() {
             label = label.color(theme::MUTED);
@@ -353,6 +375,18 @@ fn item_row(
                     ui.add(egui::Label::new(RichText::new(app).family(theme::bold())).truncate());
                 }
                 ui.add(egui::Label::new(label).truncate());
+                if let Some(name) = &running {
+                    ui.label(
+                        RichText::new(texts.badge_running)
+                            .small()
+                            .color(theme::ACCENT),
+                    )
+                    .on_hover_text(texts.badge_running_hint(name));
+                }
+                if needs_admin {
+                    ui.label(RichText::new(texts.badge_admin).small().color(theme::MUTED))
+                        .on_hover_text(texts.badge_admin_hint);
+                }
             },
             |ui| {
                 ui.label(size);
@@ -383,6 +417,58 @@ fn item_row(
     });
     if open_details {
         state.modal = Some(SelectModal::GroupDetails(index));
+    }
+}
+
+enum DetailsChoice {
+    Open,
+    Close,
+    ShowFiles,
+}
+
+/// A target's paths and scan notes, with a button that lists the files.
+fn details_modal(
+    ctx: &egui::Context,
+    texts: &UiText,
+    title: &str,
+    body: &str,
+    has_paths: bool,
+) -> DetailsChoice {
+    let mut choice = DetailsChoice::Open;
+    let response = egui::Modal::new(egui::Id::unique("group-details")).show(ctx, |ui| {
+        ui.set_max_width(720.0);
+        ui.label(
+            RichText::new(title)
+                .family(theme::bold())
+                .size(theme::FONT_HEADING),
+        );
+        ui.separator();
+        egui::ScrollArea::vertical()
+            .max_height(400.0)
+            .show(ui, |ui| {
+                ui.add(egui::Label::new(body).selectable(true));
+            });
+        ui.separator();
+        ui.horizontal(|ui| {
+            if has_paths
+                && ui
+                    .button(texts.action_show_files)
+                    .on_hover_text(texts.action_show_files_hint)
+                    .clicked()
+            {
+                choice = DetailsChoice::ShowFiles;
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(texts.dialog_close).clicked() {
+                    choice = DetailsChoice::Close;
+                }
+            });
+        });
+    });
+    if matches!(choice, DetailsChoice::Open) && response.should_close() {
+        DetailsChoice::Close
+    } else {
+        choice
     }
 }
 
@@ -430,8 +516,10 @@ fn modals(
             };
             let title = format!("{} - {}", group.app, group.label);
             let body = texts.group_details(group);
-            if !components::text_modal(ctx, "group-details", &title, &body, texts.dialog_close) {
-                state.modal = Some(SelectModal::GroupDetails(index));
+            match details_modal(ctx, texts, &title, &body, !group.targets.is_empty()) {
+                DetailsChoice::Open => state.modal = Some(SelectModal::GroupDetails(index)),
+                DetailsChoice::Close => {}
+                DetailsChoice::ShowFiles => *action = Some(SelectAction::ListFiles(index)),
             }
         }
         SelectModal::Preview => {

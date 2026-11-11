@@ -3,8 +3,10 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use cleaner_core::{ExecResult, Plan, StoredRun};
+use cleaner_core::{ExecResult, Plan, Rules, StoredRun};
 use eframe::egui::{self, RichText};
 
 use crate::presets::{PresetError, Presets};
@@ -32,6 +34,8 @@ pub(crate) struct Prefs {
     pub presets: Presets,
     /// How often to check for a new version, and what the user skipped.
     pub app_updates: app_update::Settings,
+    /// Exclusions, age and size limits, and skipping running programs.
+    pub rules: Rules,
 }
 
 impl Default for Prefs {
@@ -42,6 +46,7 @@ impl Default for Prefs {
             selection: Vec::new(),
             presets: Presets::default(),
             app_updates: app_update::Settings::default(),
+            rules: Rules::default(),
         }
     }
 }
@@ -51,6 +56,7 @@ const KEY_SHOW_EMPTY: &str = "show_empty";
 const KEY_SELECTION: &str = "selection";
 const KEY_PRESETS: &str = "presets";
 const KEY_APP_UPDATES: &str = "app_updates";
+const KEY_RULES: &str = "rules";
 
 impl Prefs {
     fn load(storage: Option<&dyn eframe::Storage>) -> Self {
@@ -67,6 +73,8 @@ impl Prefs {
         let mut selection: Vec<TargetKey> =
             eframe::get_value(storage, KEY_SELECTION).unwrap_or(fallback.selection);
         crate::migrate::target_keys(&mut selection);
+        let mut rules: Rules = eframe::get_value(storage, KEY_RULES).unwrap_or(fallback.rules);
+        rules.sanitize();
         Self {
             remember_selection: eframe::get_value(storage, KEY_REMEMBER)
                 .unwrap_or(fallback.remember_selection),
@@ -75,6 +83,7 @@ impl Prefs {
             presets,
             app_updates: eframe::get_value(storage, KEY_APP_UPDATES)
                 .unwrap_or(fallback.app_updates),
+            rules,
         }
     }
 
@@ -100,9 +109,14 @@ impl Prefs {
         eframe::set_value(storage, KEY_SELECTION, &self.selection);
         eframe::set_value(storage, KEY_PRESETS, &self.presets);
         eframe::set_value(storage, KEY_APP_UPDATES, &self.app_updates);
+        eframe::set_value(storage, KEY_RULES, &self.rules);
     }
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one flag per open dialog, plus elevation"
+)]
 pub(crate) struct WinCleanerApp {
     texts: &'static UiText,
     worker: Worker,
@@ -118,6 +132,21 @@ pub(crate) struct WinCleanerApp {
     update_open: bool,
     prefs: Prefs,
     updater: app_update::Updater,
+    /// Shared with the running cleanup; the Stop button sets it.
+    stop: Arc<AtomicBool>,
+    /// Whether this copy runs with administrator rights.
+    elevated: bool,
+    /// The rules as the Settings dialog found them, to rescan on close when
+    /// they changed. Cleared whenever the dialog is not open.
+    settings_baseline: Option<Rules>,
+    /// The rules as the file preview found them, likewise.
+    preview_baseline: Option<Rules>,
+    /// The file preview window, when open.
+    files: Option<ui::files::FilesView>,
+    /// Bumped for each file list request, so a late answer is ignored.
+    file_request: u64,
+    /// A message for the user, shown once: a title and a body.
+    notice: Option<(String, String)>,
 }
 
 pub(crate) enum Screen {
@@ -149,6 +178,9 @@ pub(crate) struct SelectState {
     /// the next save.
     pub presets: Presets,
     pub modal: Option<SelectModal>,
+    /// Whether this copy runs with administrator rights, which decides
+    /// whether targets that need them carry a badge.
+    pub elevated: bool,
 }
 
 impl SelectState {
@@ -163,6 +195,7 @@ impl SelectState {
             dry_run: true,
             presets: Presets::default(),
             modal: None,
+            elevated: false,
         }
     }
 }
@@ -187,6 +220,8 @@ pub(crate) struct DeletingState {
     pub message: String,
     pub task: String,
     pub selected_bytes: u64,
+    /// The user pressed Stop; the run ends after the path it is moving.
+    pub stopping: bool,
 }
 
 pub(crate) struct ResultsState {
@@ -235,6 +270,12 @@ struct Nav {
     rescan: bool,
     reset_selection: bool,
     execute: bool,
+    stop: bool,
+    list_files: Option<usize>,
+    exclude: Option<PathBuf>,
+    close_files: bool,
+    elevate: bool,
+    settings_action: Option<ui::settings::SettingsAction>,
 }
 
 struct HeaderInfo {
@@ -269,7 +310,22 @@ impl WinCleanerApp {
                 let ctx = cc.egui_ctx.clone();
                 move || ctx.request_repaint()
             }),
+            stop: Arc::new(AtomicBool::new(false)),
+            elevated: cleaner_platform::elevation::is_elevated(),
+            settings_baseline: None,
+            preview_baseline: None,
+            files: None,
+            file_request: 0,
+            notice: None,
         };
+        // UAC can elevate as an administrator account other than the one
+        // signed in. That copy would find the other account's folders, so it
+        // cleans nothing at all.
+        if let Some((process, session)) = cleaner_platform::elevation::elevated_as_someone_else() {
+            tracing::warn!(%process, %session, "running as another account");
+            app.screen = Screen::Unsupported(app.texts.other_account(&process, &session));
+            return app;
+        }
         app.start_scan();
         app
     }
@@ -283,6 +339,7 @@ impl WinCleanerApp {
         };
         self.worker.send(Command::Scan {
             generation: self.generation,
+            rules: self.prefs.rules.clone(),
         });
     }
 
@@ -306,10 +363,14 @@ impl WinCleanerApp {
                     message: self.texts.status_preparing.to_owned(),
                     task: self.texts.task_cache_deleting.to_owned(),
                     selected_bytes: state.plan.total_bytes,
+                    stopping: false,
                 });
+                self.stop = Arc::new(AtomicBool::new(false));
                 self.worker.send(Command::Execute {
                     plan: state.plan,
                     dry_run: false,
+                    rules: self.prefs.rules.clone(),
+                    stop: Arc::clone(&self.stop),
                 });
             }
             other => self.screen = other,
@@ -382,6 +443,17 @@ impl WinCleanerApp {
                     modal: None,
                 });
             }
+            Event::FilesListed {
+                request,
+                files,
+                truncated,
+            } => {
+                if let Some(view) = &mut self.files
+                    && request == self.file_request
+                {
+                    view.loaded(files, truncated);
+                }
+            }
             Event::HistoryLoaded { outcome } => {
                 if let Some(history) = &mut self.history {
                     *history = match outcome {
@@ -410,8 +482,165 @@ impl WinCleanerApp {
     /// defaults the scan computed stand. That makes a first launch and a reset
     /// behave alike, at the price of one case: someone who clears every
     /// checkbox and quits gets the defaults back rather than an empty list.
+    /// Opens the file preview for one target and asks the worker for its
+    /// files under the current rules.
+    fn list_files(&mut self, index: usize) {
+        let Screen::Select(state) = &self.screen else {
+            return;
+        };
+        let Some(group) = state.plan.groups.get(index) else {
+            return;
+        };
+        self.file_request += 1;
+        self.preview_baseline = Some(self.prefs.rules.clone());
+        self.files = Some(ui::files::FilesView::new(format!(
+            "{} - {}",
+            group.app, group.label
+        )));
+        self.worker.send(Command::ListFiles {
+            request: self.file_request,
+            targets: group.targets.clone(),
+            rules: self.prefs.rules.clone(),
+        });
+    }
+
+    /// Adds `path` to the exclusions, and drops it from the open preview.
+    fn exclude(&mut self, path: &std::path::Path) {
+        if !self.prefs.rules.is_excluded(path) {
+            self.prefs.rules.exclusions.push(path.to_path_buf());
+            self.prefs.rules.sanitize();
+        }
+        if let Some(view) = &mut self.files {
+            view.exclude(path);
+        }
+    }
+
+    fn settings_action(&mut self, action: ui::settings::SettingsAction) {
+        use ui::settings::SettingsAction;
+        match action {
+            SettingsAction::ResetSelection => {}
+            SettingsAction::AddFolder => {
+                if let Some(path) = crate::pickers::pick_folder(self.texts.exclusion_pick_folder) {
+                    self.exclude(&path);
+                }
+            }
+            SettingsAction::AddFile => {
+                if let Some(path) = crate::pickers::pick_file(self.texts.exclusion_pick_file) {
+                    self.exclude(&path);
+                }
+            }
+            SettingsAction::RemoveExclusion(index) => {
+                if index < self.prefs.rules.exclusions.len() {
+                    self.prefs.rules.exclusions.remove(index);
+                }
+            }
+            SettingsAction::Export => self.export_settings(),
+            SettingsAction::Import => self.import_settings(),
+        }
+    }
+
+    fn export_settings(&mut self) {
+        if let Screen::Select(state) = &self.screen {
+            self.prefs.remember(state);
+        }
+        let Some(path) = crate::pickers::save_settings_file(self.texts.settings_export) else {
+            return;
+        };
+        let file = crate::settings_file::SettingsFile::new(
+            &self.prefs.rules,
+            &self.prefs.presets,
+            self.prefs.remember_selection,
+            self.prefs.show_empty,
+            &self.prefs.selection,
+        );
+        let notice = match std::fs::write(&path, file.to_json()) {
+            Ok(()) => self.texts.settings_exported(&path),
+            Err(error) => self.texts.settings_export_failed(&error.to_string()),
+        };
+        self.notice = Some((self.texts.settings_export.to_owned(), notice));
+    }
+
+    /// Reads a settings file and, once all of it checks out, puts it in
+    /// place and scans again. Nothing is cleaned.
+    fn import_settings(&mut self) {
+        let Some(path) = crate::pickers::open_settings_file(self.texts.settings_import) else {
+            return;
+        };
+        let read = std::fs::File::open(&path).and_then(|file| {
+            use std::io::Read as _;
+            let mut bytes = Vec::new();
+            file.take(crate::settings_file::MAX_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .map(|_| bytes)
+        });
+        let parsed = read
+            .map_err(|error| self.texts.settings_import_failed(&error.to_string()))
+            .and_then(|bytes| {
+                crate::settings_file::SettingsFile::parse(&bytes)
+                    .map_err(|error| self.texts.settings_import_refused(&error))
+            });
+        match parsed {
+            Ok(file) => {
+                self.prefs.rules = file.rules;
+                self.prefs.presets = file.presets;
+                self.prefs.remember_selection = file.remember_selection;
+                self.prefs.show_empty = file.show_empty;
+                self.prefs.selection = file.selection;
+                self.settings_baseline = None;
+                self.settings_open = false;
+                self.notice = Some((
+                    self.texts.settings_import.to_owned(),
+                    self.texts.settings_imported.to_owned(),
+                ));
+                self.history = None;
+                self.start_scan();
+            }
+            Err(message) => {
+                self.notice = Some((self.texts.settings_import.to_owned(), message));
+            }
+        }
+    }
+
+    /// Starts an elevated copy once this one's state is on disk, then
+    /// closes. A declined prompt leaves this copy running.
+    fn restart_elevated(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if let Some(storage) = frame.storage_mut() {
+            eframe::App::save(self, storage);
+            storage.flush();
+        }
+        let executable = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(error) => {
+                self.notice = Some((
+                    self.texts.elevate_title.to_owned(),
+                    self.texts.elevate_failed(&error.to_string()),
+                ));
+                return;
+            }
+        };
+        match cleaner_platform::elevation::start_elevated(&executable) {
+            cleaner_platform::elevation::Elevation::Started => {
+                tracing::info!("restarting with administrator rights");
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            cleaner_platform::elevation::Elevation::Declined => {
+                self.notice = Some((
+                    self.texts.elevate_title.to_owned(),
+                    self.texts.elevate_declined.to_owned(),
+                ));
+            }
+            cleaner_platform::elevation::Elevation::Failed(error) => {
+                self.notice = Some((
+                    self.texts.elevate_title.to_owned(),
+                    self.texts.elevate_failed(&error),
+                ));
+            }
+        }
+    }
+
     fn restored_state(&self, plan: Plan) -> SelectState {
         let mut state = SelectState::new(plan);
+        state.elevated = self.elevated;
         state.show_empty = self.prefs.show_empty;
         state.presets = self.prefs.presets.clone();
         if let Some(preset) = self.prefs.presets.on_start() {
@@ -567,9 +796,15 @@ impl WinCleanerApp {
                     Screen::Select(state) => match ui::select::show(ui, texts, state) {
                         Some(SelectAction::Rescan) => nav.rescan = true,
                         Some(SelectAction::ConfirmedCleanup) => nav.execute = true,
+                        Some(SelectAction::ListFiles(index)) => nav.list_files = Some(index),
+                        Some(SelectAction::Elevate) => nav.elevate = true,
                         None => {}
                     },
-                    Screen::Deleting(state) => ui::progress::show(ui, texts, state),
+                    Screen::Deleting(state) => {
+                        if ui::progress::show(ui, texts, state) {
+                            nav.stop = true;
+                        }
+                    }
                     Screen::Results(state) => match ui::results::show(ui, texts, state) {
                         Some(ResultsAction::Done) => nav.rescan = true,
                         Some(ResultsAction::History) => nav.show_history = true,
@@ -623,10 +858,10 @@ impl WinCleanerApp {
                     .fill(theme::SURFACE)
                     .inner_margin(egui::Margin::symmetric(12, 8)),
             )
-            .show(root, |ui| {
-                if let Some(SelectAction::Rescan) = ui::select::statusbar(ui, texts, state) {
-                    nav.rescan = true;
-                }
+            .show(root, |ui| match ui::select::statusbar(ui, texts, state) {
+                Some(SelectAction::Rescan) => nav.rescan = true,
+                Some(SelectAction::Elevate) => nav.elevate = true,
+                _ => {}
             });
     }
 
@@ -634,22 +869,50 @@ impl WinCleanerApp {
     /// "List empty targets" updates the list behind it; `save` stores what the
     /// view ended up holding.
     fn draw_settings(&mut self, ctx: &egui::Context, nav: &mut Nav) {
+        // However the dialog closed, its baseline goes with it, so the next
+        // opening compares against the rules as they are then.
         if !self.settings_open {
+            self.settings_baseline = None;
             return;
         }
         let Screen::Select(state) = &mut self.screen else {
             self.settings_open = false;
+            self.settings_baseline = None;
             return;
         };
+        if self.settings_baseline.is_none() {
+            self.settings_baseline = Some(self.prefs.rules.clone());
+        }
+        let mut always_elevated = cleaner_platform::elevation::always_elevated();
+        let was_always = always_elevated;
         let action = ui::settings::show(
             ctx,
             self.texts,
-            &mut self.prefs.remember_selection,
-            &mut state.show_empty,
+            ui::settings::Values {
+                remember_selection: &mut self.prefs.remember_selection,
+                show_empty: &mut state.show_empty,
+                rules: &mut self.prefs.rules,
+                always_elevated: &mut always_elevated,
+            },
             &mut self.settings_open,
         );
-        if let Some(ui::settings::SettingsAction::ResetSelection) = action {
-            nav.reset_selection = true;
+        if always_elevated != was_always
+            && let Err(error) = cleaner_platform::elevation::set_always_elevated(always_elevated)
+        {
+            self.notice = Some((self.texts.settings_title.to_owned(), error.to_string()));
+        }
+        match action {
+            Some(ui::settings::SettingsAction::ResetSelection) => nav.reset_selection = true,
+            Some(other) => nav.settings_action = Some(other),
+            None => {}
+        }
+        // Closing the dialog after changing a rule scans again, so the sizes
+        // and selection reflect the new rules.
+        if !self.settings_open
+            && let Some(before) = self.settings_baseline.take()
+            && before != self.prefs.rules
+        {
+            nav.rescan = true;
         }
     }
 
@@ -695,7 +958,34 @@ impl WinCleanerApp {
         }
     }
 
-    fn handle_nav(&mut self, ctx: &egui::Context, nav: Nav) {
+    fn handle_nav(&mut self, ctx: &egui::Context, mut nav: Nav) {
+        if nav.stop {
+            self.stop.store(true, Ordering::Relaxed);
+            if let Screen::Deleting(state) = &mut self.screen {
+                state.stopping = true;
+            }
+        }
+        if let Some(index) = nav.list_files {
+            self.list_files(index);
+        }
+        if let Some(path) = nav.exclude {
+            self.exclude(&path);
+        }
+        if nav.close_files {
+            self.files = None;
+            // An exclusion made from the preview changes what the scan found.
+            // The rescan below remembers the screen first, as Rescan does.
+            if self
+                .preview_baseline
+                .take()
+                .is_some_and(|before| before != self.prefs.rules)
+            {
+                nav.rescan = true;
+            }
+        }
+        if let Some(action) = nav.settings_action {
+            self.settings_action(action);
+        }
         if nav.about {
             self.about_open = true;
         }
@@ -767,7 +1057,7 @@ impl eframe::App for WinCleanerApp {
         self.prefs.store(storage);
     }
 
-    fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.drain_events();
         self.updater.poll(&mut self.prefs.app_updates);
         let ctx = root.ctx().clone();
@@ -788,6 +1078,21 @@ impl eframe::App for WinCleanerApp {
         }
         self.draw_settings(&ctx, &mut nav);
         self.draw_updates(&ctx, &mut nav);
+        if let Some(view) = &mut self.files {
+            match ui::files::show(&ctx, self.texts, view) {
+                Some(ui::files::FilesAction::Exclude(path)) => nav.exclude = Some(path),
+                Some(ui::files::FilesAction::Close) => nav.close_files = true,
+                None => {}
+            }
+        }
+        if let Some((title, body)) = &self.notice
+            && !ui::components::text_modal(&ctx, "notice", title, body, self.texts.dialog_close)
+        {
+            self.notice = None;
+        }
+        if nav.elevate {
+            self.restart_elevated(&ctx, frame);
+        }
         self.handle_nav(&ctx, nav);
     }
 }
@@ -815,6 +1120,13 @@ mod tests {
                 update_open: false,
                 prefs: Prefs::default(),
                 updater: app_update::Updater::new(crate::APP_INFO, || {}),
+                stop: Arc::new(AtomicBool::new(false)),
+                elevated: false,
+                settings_baseline: None,
+                preview_baseline: None,
+                files: None,
+                file_request: 0,
+                notice: None,
             },
             commands,
             events,
@@ -824,12 +1136,9 @@ mod tests {
     fn plan() -> Plan {
         let mut plan = Plan {
             groups: vec![Group {
-                app: "App".into(),
-                label: "cache".into(),
-                targets: Vec::new(),
-                errs: Vec::new(),
                 bytes: 42,
                 on: true,
+                ..Group::new("App", "cache")
             }],
             ..Plan::default()
         };
@@ -852,7 +1161,7 @@ mod tests {
         assert_eq!(app.generation, 1);
         assert!(matches!(
             commands.recv().unwrap(),
-            Command::Scan { generation: 1 }
+            Command::Scan { generation: 1, .. }
         ));
 
         app.apply_event(Event::ScanProgress {
@@ -937,6 +1246,62 @@ mod tests {
     }
 
     #[test]
+    fn closing_the_preview_after_an_exclusion_keeps_selection_edits() {
+        let two = || {
+            let mut plan = plan();
+            let mut logs = plan.groups[0].clone();
+            logs.label = "logs".into();
+            plan.groups.push(logs);
+            plan.recompute_totals();
+            plan
+        };
+        let (mut app, commands, _) = app();
+        app.start_scan();
+        let _ = commands.recv().unwrap();
+        app.apply_event(Event::ScanDone {
+            generation: 1,
+            outcome: Ok(two()),
+        });
+        let Screen::Select(state) = &mut app.screen else {
+            panic!("expected the selection screen");
+        };
+        state.plan.groups[0].on = false;
+        app.list_files(1);
+        let _ = commands.recv().unwrap();
+        let ctx = egui::Context::default();
+        app.handle_nav(
+            &ctx,
+            Nav {
+                exclude: Some(PathBuf::from("/some/file")),
+                ..Nav::default()
+            },
+        );
+        app.handle_nav(
+            &ctx,
+            Nav {
+                close_files: true,
+                ..Nav::default()
+            },
+        );
+        assert!(matches!(
+            commands.recv().unwrap(),
+            Command::Scan { generation: 2, .. }
+        ));
+        app.apply_event(Event::ScanDone {
+            generation: 2,
+            outcome: Ok(two()),
+        });
+        let Screen::Select(state) = &app.screen else {
+            panic!("expected the selection screen");
+        };
+        assert!(
+            !state.plan.groups[0].on,
+            "the preview's rescan lost an edit"
+        );
+        assert!(state.plan.groups[1].on);
+    }
+
+    #[test]
     fn a_stopped_worker_ends_the_scan_in_progress() {
         let (mut app, _commands, events) = app();
         app.start_scan();
@@ -975,6 +1340,7 @@ mod tests {
             total: 1,
             message: String::new(),
             task: String::new(),
+            stopping: false,
             selected_bytes: 42,
         });
         app.apply_event(Event::DeleteProgress(progress(1, 1, "App - cache")));
@@ -1004,6 +1370,7 @@ mod tests {
             selection: vec![("Gone".to_owned(), "cache".to_owned())],
             presets: Presets::default(),
             app_updates: app_update::Settings::default(),
+            rules: Rules::default(),
         };
         remembered.generation = 1;
         remembered.apply_event(Event::ScanDone {
@@ -1126,7 +1493,7 @@ mod tests {
         // Only a fresh scan can put the catalog defaults back on the plan.
         assert!(matches!(
             commands.recv().unwrap(),
-            Command::Scan { generation: 1 }
+            Command::Scan { generation: 1, .. }
         ));
         assert!(matches!(app.screen, Screen::Scanning { .. }));
     }

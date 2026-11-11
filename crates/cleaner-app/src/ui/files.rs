@@ -37,6 +37,9 @@ pub(crate) struct FilesView {
     /// The old program versions in the list. Each is cleaned whole or not
     /// at all, so an exclusion inside one keeps all of it.
     versions: Vec<PathBuf>,
+    /// Whether an age or size limit was set when the list was asked for,
+    /// so files go one by one rather than in whole folders.
+    filtered: bool,
     /// Tells the worker to stop listing once this view is gone.
     cancel: Arc<AtomicBool>,
     contents: Contents,
@@ -57,10 +60,11 @@ pub(crate) enum FilesAction {
 }
 
 impl FilesView {
-    pub(crate) fn new(title: String, versions: Vec<PathBuf>) -> Self {
+    pub(crate) fn new(title: String, versions: Vec<PathBuf>, filtered: bool) -> Self {
         Self {
             title,
             versions,
+            filtered,
             cancel: Arc::new(AtomicBool::new(false)),
             contents: Contents::Loading,
             sort: SortBy::Size,
@@ -170,8 +174,13 @@ pub(crate) fn show(
                         RichText::new(texts.files_truncated(FILE_LIST_LIMIT)).color(theme::MUTED),
                     );
                 }
+                let hint = if view.filtered {
+                    texts.files_hint_filtered
+                } else {
+                    texts.files_hint
+                };
                 ui.label(
-                    RichText::new(texts.files_hint)
+                    RichText::new(hint)
                         .size(theme::FONT_SMALL)
                         .color(theme::MUTED),
                 );
@@ -282,7 +291,7 @@ mod tests {
 
     #[test]
     fn the_list_sorts_by_each_column_and_drops_excluded_paths() {
-        let mut view = FilesView::new("App - Cache".to_owned(), Vec::new());
+        let mut view = FilesView::new("App - Cache".to_owned(), Vec::new(), false);
         view.loaded(
             vec![entry("/c/b", 5), entry("/c/a", 50), entry("/c/keep/x", 7)],
             false,
@@ -308,7 +317,7 @@ mod tests {
 
     #[test]
     fn closing_the_list_stops_its_walk() {
-        let view = FilesView::new("App - Cache".to_owned(), Vec::new());
+        let view = FilesView::new("App - Cache".to_owned(), Vec::new(), false);
         let cancel = view.cancel_flag();
         assert!(!cancel.load(Ordering::Relaxed));
         drop(view);
@@ -323,6 +332,7 @@ mod tests {
                 PathBuf::from("/agent/Agent.1"),
                 PathBuf::from("/agent/Agent.2"),
             ],
+            false,
         );
         view.loaded(
             vec![
@@ -347,7 +357,7 @@ mod tests {
     #[test]
     #[ignore = "timing probe; run with --release --ignored"]
     fn a_million_rows_sort_quickly() {
-        let mut view = FilesView::new("Big".to_owned(), Vec::new());
+        let mut view = FilesView::new("Big".to_owned(), Vec::new(), false);
         let files = (0..1_000_000u64)
             .map(|index| entry(&format!("/cache/{:07}", (index * 7919) % 1_000_000), index))
             .collect();

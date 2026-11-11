@@ -529,7 +529,11 @@ impl WinCleanerApp {
             .filter(|target| target.version_rule.is_some())
             .map(|target| target.path.clone())
             .collect();
-        let view = ui::files::FilesView::new(format!("{} - {}", group.app, group.label), versions);
+        let view = ui::files::FilesView::new(
+            format!("{} - {}", group.app, group.label),
+            versions,
+            self.prefs.rules.filters_files(),
+        );
         let cancel = view.cancel_flag();
         // Replacing an open list drops it, which stops its walk.
         self.files = Some(view);

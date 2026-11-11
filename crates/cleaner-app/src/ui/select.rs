@@ -59,12 +59,13 @@ pub(crate) fn statusbar(
             {
                 action = Some(SelectAction::Rescan);
             }
-            // Offered only when something on this PC needs it.
+            // Offered only when something on this PC needs it: a target that
+            // holds data, or one that could not be read, such as Prefetch.
             let needs_admin = state
                 .plan
                 .groups
                 .iter()
-                .any(|group| group.admin && group.bytes > 0);
+                .any(|group| group.admin && (group.bytes > 0 || !group.errs.is_empty()));
             if cfg!(windows)
                 && !state.elevated
                 && needs_admin

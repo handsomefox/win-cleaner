@@ -727,6 +727,14 @@ impl WinCleanerApp {
         if nav.header_action {
             self.on_header_action(ctx);
         }
+        // A scan replaces the selection screen, and `save` only reads that
+        // screen. Take what it holds first, so preset edits and checkbox
+        // changes made since the last save survive the rescan.
+        if (nav.rescan || nav.reset_selection)
+            && let Screen::Select(state) = &self.screen
+        {
+            self.prefs.remember(state);
+        }
         // Clearing the stored selection is only half of it. `save` rewrites
         // that field from the live screen within 30 seconds, so the reset has
         // to reach the plan too, and a fresh scan is what puts the catalog
@@ -879,6 +887,46 @@ mod tests {
             outcome: Ok(plan()),
         });
         assert!(matches!(app.screen, Screen::Select(_)));
+    }
+
+    #[test]
+    fn a_rescan_keeps_the_selection_made_since_the_last_save() {
+        let two = || {
+            let mut plan = plan();
+            let mut logs = plan.groups[0].clone();
+            logs.label = "logs".into();
+            plan.groups.push(logs);
+            plan.recompute_totals();
+            plan
+        };
+        let (mut app, commands, _) = app();
+        app.start_scan();
+        let _ = commands.recv().unwrap();
+        app.apply_event(Event::ScanDone {
+            generation: 1,
+            outcome: Ok(two()),
+        });
+        let Screen::Select(state) = &mut app.screen else {
+            panic!("expected the selection screen");
+        };
+        // The user clears one target, and no timed save runs before the rescan.
+        state.plan.groups[0].on = false;
+        app.handle_nav(
+            &egui::Context::default(),
+            Nav {
+                rescan: true,
+                ..Nav::default()
+            },
+        );
+        app.apply_event(Event::ScanDone {
+            generation: 2,
+            outcome: Ok(two()),
+        });
+        let Screen::Select(state) = &app.screen else {
+            panic!("expected the selection screen");
+        };
+        assert!(!state.plan.groups[0].on, "the rescan restored a stale selection");
+        assert!(state.plan.groups[1].on);
     }
 
     #[test]

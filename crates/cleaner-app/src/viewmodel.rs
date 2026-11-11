@@ -155,6 +155,13 @@ pub(crate) fn is_empty_target(group: &Group) -> bool {
     group.bytes == 0 && (group.targets.is_empty() || group.app != EMPTY_FOLDERS_APP)
 }
 
+/// Whether a select-all box may check this target, and counts it. An empty
+/// target that could not be read is shown but left out: cleaning it would
+/// only fail again. Ticking its own box still selects it.
+pub(crate) fn takes_select_all(group: &Group) -> bool {
+    !is_empty_target(group) || group.errs.is_empty()
+}
+
 /// Whether "Show empty" hides this target: an empty target the scan had no
 /// trouble reading. One that could not be read, such as Prefetch without
 /// administrator rights, stays in view with its error.
@@ -1056,6 +1063,11 @@ mod tests {
         };
         let categories = visible_categories(&ENGLISH, &plan, &filter);
         assert_eq!(categories[0].apps[0].indices, [1]);
+        assert!(
+            !takes_select_all(&plan.groups[1]),
+            "select-all leaves it out, since cleaning it would only fail"
+        );
+        assert!(takes_select_all(&plan.groups[0]));
     }
 
     #[test]

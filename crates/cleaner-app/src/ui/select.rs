@@ -115,9 +115,7 @@ fn toolbar(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
             let select = selected < total;
             for category in &categories {
                 for app in &category.apps {
-                    for &index in &app.indices {
-                        state.plan.groups[index].on = select;
-                    }
+                    set_all(state, &app.indices, select);
                 }
             }
         }
@@ -240,9 +238,7 @@ fn category_section(ui: &mut Ui, texts: &UiText, state: &mut SelectState, catego
     if toggle {
         let select = selected < total || total == 0;
         for app in &category.apps {
-            for &index in &app.indices {
-                state.plan.groups[index].on = select;
-            }
+            set_all(state, &app.indices, select);
         }
     }
     if fold {
@@ -287,12 +283,7 @@ fn app_card(
     app: &AppView,
     tag: egui::Color32,
 ) {
-    let selected = app
-        .indices
-        .iter()
-        .filter(|&&index| state.plan.groups[index].on)
-        .count();
-    let total = app.indices.len();
+    let (selected, total) = selection_counts(state, &app.indices);
 
     let mut toggle = false;
     components::tagged_card(ui, tag, |ui| {
@@ -327,9 +318,7 @@ fn app_card(
     });
     if toggle {
         let select = selected < total;
-        for &index in &app.indices {
-            state.plan.groups[index].on = select;
-        }
+        set_all(state, &app.indices, select);
     }
     ui.add_space(theme::SPACE_SM);
 }
@@ -474,17 +463,33 @@ fn details_modal(
 }
 
 fn category_selection_counts(state: &SelectState, category: &CategoryView) -> (usize, usize) {
-    let mut selected = 0;
-    let mut total = 0;
-    for app in &category.apps {
-        for &index in &app.indices {
-            total += 1;
-            if state.plan.groups[index].on {
-                selected += 1;
-            }
-        }
-    }
+    category
+        .apps
+        .iter()
+        .map(|app| selection_counts(state, &app.indices))
+        .fold((0, 0), |(s, t), (selected, total)| {
+            (s + selected, t + total)
+        })
+}
+
+/// How many of these targets are checked, out of those a select-all box
+/// covers ([`viewmodel::takes_select_all`]) plus any checked by hand.
+fn selection_counts(state: &SelectState, indices: &[usize]) -> (usize, usize) {
+    let groups = || indices.iter().map(|&index| &state.plan.groups[index]);
+    let selected = groups().filter(|group| group.on).count();
+    let total = groups()
+        .filter(|group| group.on || viewmodel::takes_select_all(group))
+        .count();
     (selected, total)
+}
+
+/// Checks or clears every target in `indices`. Checking leaves out a target
+/// a select-all box does not cover; clearing clears it too.
+fn set_all(state: &mut SelectState, indices: &[usize], select: bool) {
+    for &index in indices {
+        let group = &mut state.plan.groups[index];
+        group.on = select && viewmodel::takes_select_all(group);
+    }
 }
 
 fn modals(

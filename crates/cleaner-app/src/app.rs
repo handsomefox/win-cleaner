@@ -523,16 +523,18 @@ impl WinCleanerApp {
         if self.preview_baseline.is_none() {
             self.preview_baseline = Some(self.prefs.rules.clone());
         }
-        let versions = group
+        let versions: Vec<PathBuf> = group
             .targets
             .iter()
             .filter(|target| target.version_rule.is_some())
             .map(|target| target.path.clone())
             .collect();
+        // An old program version moves whole even with a limit set.
+        let filtered = self.prefs.rules.filters_files() && versions.is_empty();
         let view = ui::files::FilesView::new(
             format!("{} - {}", group.app, group.label),
             versions,
-            self.prefs.rules.filters_files(),
+            filtered,
         );
         let cancel = view.cancel_flag();
         // Replacing an open list drops it, which stops its walk.

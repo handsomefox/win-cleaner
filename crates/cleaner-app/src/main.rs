@@ -34,6 +34,16 @@ fn main() -> eframe::Result {
     if start_elevated_copy() {
         return Ok(());
     }
+    // A copy started by "Scan again as administrator" waits for the window
+    // that started it to close, because that window writes the settings
+    // this copy is about to read.
+    if let Some(pid) = cleaner_platform::elevation::after_pid(std::env::args()) {
+        tracing::info!(
+            pid,
+            "waiting for the window that started this copy to close"
+        );
+        cleaner_platform::elevation::wait_for_exit(pid, std::time::Duration::from_secs(15));
+    }
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -71,7 +81,7 @@ fn start_elevated_copy() -> bool {
     let Ok(executable) = std::env::current_exe() else {
         return false;
     };
-    match elevation::start_elevated(&executable) {
+    match elevation::start_elevated(&executable, false) {
         Elevation::Started => {
             tracing::info!("started a copy with administrator rights");
             true

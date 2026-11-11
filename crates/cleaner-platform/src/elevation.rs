@@ -7,10 +7,15 @@
 //! user folders, so [`account_check`] lets the app refuse to clean there.
 
 use std::path::Path;
+use std::time::Duration;
 
 /// The argument an elevated copy is started with, so it never asks for
 /// elevation again even when the setting to always start elevated is on.
 pub const ELEVATED_ARG: &str = "--elevated";
+
+/// Starts the argument that names the process an elevated copy waits for:
+/// `--after=<pid>`.
+pub const AFTER_ARG: &str = "--after=";
 
 /// Whether this process runs with administrator rights.
 #[must_use]
@@ -72,6 +77,29 @@ pub fn account_check() -> Account {
     }
 }
 
+/// Waits up to `timeout` for the process with id `pid` to exit. Returns at
+/// once when it has already exited or cannot be opened.
+///
+/// An elevated copy calls this before it loads its settings, because the
+/// window that started it writes them as it closes.
+pub fn wait_for_exit(pid: u32, timeout: Duration) {
+    #[cfg(windows)]
+    {
+        imp::wait_for_exit(pid, timeout);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (pid, timeout);
+    }
+}
+
+/// The process id an elevated copy was told to wait for, from `args`.
+#[must_use]
+pub fn after_pid(args: impl IntoIterator<Item = String>) -> Option<u32> {
+    args.into_iter()
+        .find_map(|arg| arg.strip_prefix(AFTER_ARG)?.parse().ok())
+}
+
 /// The file whose presence means "always start with administrator rights".
 /// It sits beside the logs, so `main` can read it before the window opens,
 /// and outside eframe's storage, which a settings import could not reach
@@ -118,16 +146,24 @@ pub enum Elevation {
 }
 
 /// Starts `executable` with administrator rights through the UAC prompt,
-/// passing [`ELEVATED_ARG`].
+/// passing [`ELEVATED_ARG`]. With `after`, the copy also gets [`AFTER_ARG`]
+/// with this process's id, and waits for this process to exit before it
+/// reads its settings.
 #[must_use]
-pub fn start_elevated(executable: &Path) -> Elevation {
+pub fn start_elevated(executable: &Path, after: bool) -> Elevation {
+    let mut parameters = ELEVATED_ARG.to_owned();
+    if after {
+        parameters.push(' ');
+        parameters.push_str(AFTER_ARG);
+        parameters.push_str(&std::process::id().to_string());
+    }
     #[cfg(windows)]
     {
-        imp::start_elevated(executable)
+        imp::start_elevated(executable, &parameters)
     }
     #[cfg(not(windows))]
     {
-        let _ = executable;
+        let _ = (executable, parameters);
         Elevation::Failed("administrator rights are only available on Windows".to_owned())
     }
 }
@@ -150,12 +186,14 @@ mod imp {
         WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTS_INFO_CLASS, WTSDomainName,
         WTSFreeMemory, WTSQuerySessionInformationW, WTSUserName,
     };
-    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    use windows::Win32::System::Threading::{
+        GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+    };
     use windows::Win32::UI::Shell::{SHELLEXECUTEINFOW, ShellExecuteExW};
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     use windows::core::{PCWSTR, PWSTR, w};
 
-    use super::{ELEVATED_ARG, Elevation};
+    use super::Elevation;
 
     /// This process's token, closed on drop.
     struct Token(HANDLE);
@@ -321,13 +359,25 @@ mod imp {
         text
     }
 
-    pub(super) fn start_elevated(executable: &Path) -> Elevation {
+    pub(super) fn wait_for_exit(pid: u32, timeout: std::time::Duration) {
+        // SAFETY: plain call; a failure means there is nothing to wait for.
+        let Ok(process) = (unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }) else {
+            return;
+        };
+        let millis = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
+        // SAFETY: `process` is a valid handle with SYNCHRONIZE access.
+        let _ = unsafe { WaitForSingleObject(process, millis) };
+        // SAFETY: the handle came from OpenProcess and is closed once.
+        let _ = unsafe { CloseHandle(process) };
+    }
+
+    pub(super) fn start_elevated(executable: &Path, parameters: &str) -> Elevation {
         let file: Vec<u16> = executable
             .as_os_str()
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        let parameters: Vec<u16> = ELEVATED_ARG
+        let parameters: Vec<u16> = parameters
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
@@ -366,5 +416,16 @@ mod tests {
     fn the_checks_answer_without_panicking() {
         let _: bool = is_elevated();
         let _ = account_check();
+    }
+
+    #[test]
+    fn the_process_to_wait_for_comes_from_its_argument() {
+        let args = |list: &[&str]| list.iter().map(|&arg| arg.to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            after_pid(args(&["app.exe", "--elevated", "--after=4242"])),
+            Some(4242)
+        );
+        assert_eq!(after_pid(args(&["app.exe", "--elevated"])), None);
+        assert_eq!(after_pid(args(&["app.exe", "--after=nope"])), None);
     }
 }

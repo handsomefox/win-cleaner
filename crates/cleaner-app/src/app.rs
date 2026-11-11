@@ -642,7 +642,9 @@ impl WinCleanerApp {
                 return;
             }
         };
-        match cleaner_platform::elevation::start_elevated(&executable) {
+        // The copy waits for this process to exit, since eframe finishes
+        // writing the settings only as this window closes.
+        match cleaner_platform::elevation::start_elevated(&executable, true) {
             cleaner_platform::elevation::Elevation::Started => {
                 tracing::info!("restarting with administrator rights");
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);

@@ -74,6 +74,7 @@ pub(crate) struct UiText {
     pub result_contents_only: &'static str,
     pub result_scan_issues: &'static str,
     pub result_cleanup_complete: &'static str,
+    pub result_cleanup_stopped: &'static str,
     pub result_cleanup_with_errors: &'static str,
     pub freed_prefix: &'static str,
 
@@ -254,6 +255,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     result_contents_only: "(what it holds; the folder stays)",
     result_scan_issues: "Scan issues:",
     result_cleanup_complete: "Cleanup complete",
+    result_cleanup_stopped: "Cleanup stopped",
     result_cleanup_with_errors: "Cleanup finished with errors",
     freed_prefix: "Freed: ",
 
@@ -310,7 +312,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     files_hint: "A folder with nothing excluded inside is moved whole; the list shows the files it holds.",
     files_loading: "Listing files…",
     files_none: "Nothing here would be cleaned.",
-    result_stopped: "You stopped the cleanup. The targets not listed here were not cleaned.",
+    result_stopped: "You stopped the cleanup. The last target listed may be only partly cleaned, and the targets not listed were not cleaned.",
     settings_add_file: "Add file…",
     settings_add_folder: "Add folder…",
     settings_admin_title: "Administrator rights",

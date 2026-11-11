@@ -406,7 +406,9 @@ pub(crate) fn cache_selection_summary(texts: &UiText, plan: &mut Plan) -> (Strin
 /// Headline for a finished cleanup, shown in the header and on the results
 /// screen.
 pub(crate) fn cleanup_result_headline<'a>(texts: &'a UiText, result: &ExecResult) -> &'a str {
-    if result.error_count > 0 {
+    if result.stopped {
+        texts.result_cleanup_stopped
+    } else if result.error_count > 0 {
         texts.result_cleanup_with_errors
     } else {
         texts.result_cleanup_complete
@@ -827,6 +829,11 @@ mod tests {
 
         let (headline, _) = cleanup_result_summary(&ENGLISH, &sample_result(2));
         assert_eq!(headline, "Cleanup finished with errors");
+
+        let mut stopped = sample_result(2);
+        stopped.stopped = true;
+        let (headline, _) = cleanup_result_summary(&ENGLISH, &stopped);
+        assert_eq!(headline, "Cleanup stopped");
     }
 
     #[test]

@@ -2,6 +2,42 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.2.6
+
+- Keep the `Temp`, `Prefetch`, and Windows Update download folders and clean only what they hold.
+  Moving the folder itself to the Recycle Bin removed a folder Windows and other programs expect
+  to exist.
+- Record what a cleanup actually freed. A target that could not be moved counted its whole size
+  as freed, so failed runs inflated the totals in **History**. Runs from earlier versions keep
+  the size they recorded.
+- Keep checkbox and preset changes when you rescan or reset the selection within 30 seconds of
+  making them.
+- Stop cleaning data that is not a cache:
+  - **Misc - Leftover caches** no longer takes the whole `.cache` folder in your profile, which
+    holds sign-in tokens such as Hugging Face's.
+  - **Playwright** cleans the downloaded browsers and keeps the saved browser profiles.
+  - **GOG Galaxy** keeps the launcher's cookies and saved sign-in, and **Spotify** keeps songs
+    saved for offline listening.
+  - The **Maven**, **uv**, **Bun**, and **Windows - Delivery optimization cache** targets are
+    removed. Maven's repository holds artifacts you built yourself, the uv and Bun caches can back
+    installed environments, and the Delivery Optimization path was out of date.
+  - The **Discord** and **osu! (lazer)** old-version targets are removed. Both apps already remove
+    their own old versions.
+- **Battle.net - Old agent versions** keeps the version Battle.net records as installed, and checks
+  again right before cleaning.
+- Find caches the old paths missed: EA, Steam, and Opera caches in newer layouts, Slack from the
+  Microsoft Store, the WhatsApp desktop app, Rockstar launcher logs in Documents, Blender's cache,
+  deeper PowerToys logs, and AMD's DX12 shader cache.
+- Add **NuGet - HTTP cache** and **Windows - Direct3D shader cache**, both unchecked by default.
+  The Direct3D cache was part of **Misc - Leftover caches**.
+- **NuGet - Package cache** is unchecked by default, because projects build from it and clearing it
+  means a restore. **Unity - GI cache** takes only the GI cache folder.
+- Rename **pnpm - Store cache** to **Metadata cache** and **Cypress - Downloaded browsers** to
+  **Downloaded Cypress versions**, which is what they hold.
+- Write log lines to the console when today's log file cannot be opened, instead of dropping them.
+- Opening a second copy of the app while the first has an update waiting no longer deletes the
+  first copy's download.
+
 ## 1.2.5
 
 - **Check for updates** in **About** checks GitHub right away as it opens the update window. It

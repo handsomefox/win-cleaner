@@ -813,7 +813,7 @@ mod tests {
                 bytes: 0,
                 freed: Some(0),
                 skipped: None,
-                paths_attempted: errors,
+                paths_attempted: errors + 1,
                 paths_failed: errors,
             },
         ];

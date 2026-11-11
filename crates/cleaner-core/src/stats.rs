@@ -54,6 +54,16 @@ pub struct GroupResult {
     pub paths_failed: usize,
 }
 
+impl GroupResult {
+    /// Whether the run left this target alone: a reason was given, such as
+    /// its program running, or nothing in it was left to try, such as when
+    /// everything in it was excluded.
+    #[must_use]
+    pub fn was_skipped(&self) -> bool {
+        self.skipped.is_some() || self.paths_attempted == 0
+    }
+}
+
 /// One failed path inside a [`GroupResult`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathError {
@@ -93,7 +103,7 @@ impl ExecResult {
     pub fn skipped_count(&self) -> usize {
         self.groups
             .iter()
-            .filter(|group| group.skipped.is_some())
+            .filter(|group| group.was_skipped())
             .count()
     }
 

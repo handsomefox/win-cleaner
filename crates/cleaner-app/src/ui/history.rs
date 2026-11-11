@@ -196,6 +196,9 @@ fn run_details(ui: &mut Ui, texts: &UiText, run: &StoredRun, action: &mut Option
         );
         error_chip(ui, texts, result.error_count);
     });
+    if result.stopped {
+        ui.label(RichText::new(texts.result_stopped).color(theme::MUTED));
+    }
     ui.separator();
 
     if result.groups.is_empty() {
@@ -296,11 +299,14 @@ fn run_row(ui: &mut Ui, texts: &UiText, run: &StoredRun) {
                             .small(),
                         );
                     } else {
-                        ui.label(
-                            RichText::new(texts.result_status_ok)
-                                .color(theme::MUTED)
-                                .small(),
-                        );
+                        // A stopped run did not clean everything it was
+                        // given, even when nothing failed.
+                        let status = if result.stopped {
+                            texts.result_status_stopped
+                        } else {
+                            texts.result_status_ok
+                        };
+                        ui.label(RichText::new(status).color(theme::MUTED).small());
                     }
                 });
             });

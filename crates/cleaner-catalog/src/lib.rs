@@ -1167,10 +1167,11 @@ mod tests {
                 "{app}"
             );
             for (item, folder) in items.iter().zip(folders) {
+                let parts: Vec<_> = item.paths[0].iter().collect();
                 assert!(
-                    item.paths[0]
-                        .to_string_lossy()
-                        .contains(&format!("/{folder}/User Data")),
+                    parts
+                        .windows(2)
+                        .any(|pair| pair[0] == folder && pair[1] == "User Data"),
                     "{app} {} reads {folder}",
                     item.label
                 );

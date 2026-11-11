@@ -1190,7 +1190,9 @@ mod tests {
         app.start_scan();
         assert_eq!(app.generation, 1);
         assert!(matches!(
-            commands.recv().unwrap(),
+            commands
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
             Command::Scan { generation: 1, .. }
         ));
 
@@ -1244,7 +1246,9 @@ mod tests {
         };
         let (mut app, commands, _) = app();
         app.start_scan();
-        let _ = commands.recv().unwrap();
+        let _ = commands
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         app.apply_event(Event::ScanDone {
             generation: 1,
             outcome: Ok(two()),
@@ -1287,7 +1291,9 @@ mod tests {
         };
         let (mut app, commands, _) = app();
         app.start_scan();
-        let _ = commands.recv().unwrap();
+        let _ = commands
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         app.apply_event(Event::ScanDone {
             generation: 1,
             outcome: Ok(two()),
@@ -1297,12 +1303,14 @@ mod tests {
         };
         state.plan.groups[0].on = false;
         app.list_files(1);
-        let _ = commands.recv().unwrap();
+        let _ = commands
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         let ctx = egui::Context::default();
         app.handle_nav(
             &ctx,
             Nav {
-                exclude: Some(PathBuf::from("/some/file")),
+                exclude: Some(std::env::temp_dir().join("some-file")),
                 ..Nav::default()
             },
         );
@@ -1314,7 +1322,9 @@ mod tests {
             },
         );
         assert!(matches!(
-            commands.recv().unwrap(),
+            commands
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
             Command::Scan { generation: 2, .. }
         ));
         app.apply_event(Event::ScanDone {
@@ -1335,23 +1345,29 @@ mod tests {
     fn a_second_preview_keeps_the_first_ones_exclusions_pending() {
         let (mut app, commands, _) = app();
         app.start_scan();
-        let _ = commands.recv().unwrap();
+        let _ = commands
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         app.apply_event(Event::ScanDone {
             generation: 1,
             outcome: Ok(plan()),
         });
         app.list_files(0);
-        let _ = commands.recv().unwrap();
+        let _ = commands
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         let ctx = egui::Context::default();
         app.handle_nav(
             &ctx,
             Nav {
-                exclude: Some(PathBuf::from("/some/file")),
+                exclude: Some(std::env::temp_dir().join("some-file")),
                 ..Nav::default()
             },
         );
         app.list_files(0);
-        let _ = commands.recv().unwrap();
+        let _ = commands
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         app.handle_nav(
             &ctx,
             Nav {
@@ -1360,7 +1376,9 @@ mod tests {
             },
         );
         assert!(matches!(
-            commands.recv().unwrap(),
+            commands
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
             Command::Scan { generation: 2, .. }
         ));
     }
@@ -1369,17 +1387,26 @@ mod tests {
     fn a_cleanup_closes_the_preview() {
         let (mut app, commands, _) = app();
         app.start_scan();
-        let _ = commands.recv().unwrap();
+        let _ = commands
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         app.apply_event(Event::ScanDone {
             generation: 1,
             outcome: Ok(plan()),
         });
         app.list_files(0);
-        let _ = commands.recv().unwrap();
+        let _ = commands
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         app.begin_execute();
         assert!(app.files.is_none());
         assert!(app.preview_baseline.is_none());
-        assert!(matches!(commands.recv().unwrap(), Command::Execute { .. }));
+        assert!(matches!(
+            commands
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
+            Command::Execute { .. }
+        ));
     }
 
     #[test]
@@ -1573,7 +1600,9 @@ mod tests {
         assert!(!app.settings_open, "the modal has no screen to sit on");
         // Only a fresh scan can put the catalog defaults back on the plan.
         assert!(matches!(
-            commands.recv().unwrap(),
+            commands
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
             Command::Scan { generation: 1, .. }
         ));
         assert!(matches!(app.screen, Screen::Scanning { .. }));
@@ -1586,7 +1615,9 @@ mod tests {
         app.begin_execute();
         assert!(matches!(app.screen, Screen::Deleting(_)));
         assert!(matches!(
-            commands.recv().unwrap(),
+            commands
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
             Command::Execute { dry_run: false, .. }
         ));
         // The plan is gone to the worker, so the selection has to be captured
@@ -1597,7 +1628,12 @@ mod tests {
         );
 
         app.show_history();
-        assert!(matches!(commands.recv().unwrap(), Command::LoadHistory));
+        assert!(matches!(
+            commands
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
+            Command::LoadHistory
+        ));
         app.apply_event(Event::HistoryLoaded {
             outcome: Ok((Vec::new(), 2)),
         });

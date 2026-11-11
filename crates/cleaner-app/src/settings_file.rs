@@ -102,7 +102,7 @@ mod tests {
             .unwrap();
         SettingsFile::new(
             &Rules {
-                exclusions: vec![PathBuf::from("/keep/this")],
+                exclusions: vec![std::env::temp_dir().join("keep-this")],
                 min_age_days: 7,
                 min_size_bytes: 1024,
                 skip_running_apps: true,
@@ -153,7 +153,10 @@ mod tests {
         file.selection
             .push(("Chrome Beta".to_owned(), "Profile cache".to_owned()));
         let imported = SettingsFile::parse(file.to_json().as_bytes()).unwrap();
-        assert_eq!(imported.rules.exclusions, vec![PathBuf::from("/keep/this")]);
+        assert_eq!(
+            imported.rules.exclusions,
+            vec![std::env::temp_dir().join("keep-this")]
+        );
         assert!(
             imported
                 .selection

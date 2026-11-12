@@ -164,7 +164,7 @@ fn clean_group(
             continue;
         }
         let mut planned = Vec::new();
-        let mut walk = Walk::measured();
+        let mut walk = Walk::measured().stopping_on(run.stop);
         plan_paths(
             path,
             target.keep_folder,

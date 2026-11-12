@@ -129,24 +129,41 @@ pub struct FileEntry {
     pub modified: Option<SystemTime>,
 }
 
-/// How [`plan_paths`] walks: whether it sizes what it visits, and where it
-/// reports the folders it could not read.
+/// How [`plan_paths`] walks: whether it sizes what it visits, where it
+/// reports the folders it could not read, and what stops it.
 #[derive(Debug, Default)]
-pub struct Walk {
+pub struct Walk<'a> {
     /// Size each visited path. Off for a caller that only needs the paths.
     pub measure: bool,
     /// One line per folder that could not be listed, such as one that needs
     /// administrator rights. Its contents are neither visited nor counted.
     pub errors: Vec<String>,
+    /// Checked before every entry, so a walk through thousands of files that
+    /// fail the age or size limit still stops, though none reach `visit`.
+    pub stop: Option<&'a AtomicBool>,
 }
 
-impl Walk {
+impl<'a> Walk<'a> {
     #[must_use]
     pub fn measured() -> Self {
         Self {
             measure: true,
             errors: Vec::new(),
+            stop: None,
         }
+    }
+
+    /// This walk, stopping once `stop` is set.
+    #[must_use]
+    pub fn stopping_on(self, stop: &'a AtomicBool) -> Self {
+        Self {
+            stop: Some(stop),
+            ..self
+        }
+    }
+
+    fn stopped(&self) -> bool {
+        self.stop.is_some_and(|stop| stop.load(Ordering::Relaxed))
     }
 
     fn size(&self, path: &Path) -> u64 {
@@ -193,7 +210,7 @@ pub fn plan_paths(
     keep_folder: bool,
     rules: &Rules,
     now: SystemTime,
-    walk: &mut Walk,
+    walk: &mut Walk<'_>,
     visit: &mut dyn FnMut(&Path, u64) -> bool,
 ) {
     if rules.is_excluded(root) {
@@ -220,13 +237,16 @@ pub fn plan_paths(
 fn split_folder(
     folder: &Path,
     rules: &Rules,
-    walk: &mut Walk,
+    walk: &mut Walk<'_>,
     visit: &mut dyn FnMut(&Path, u64) -> bool,
 ) -> bool {
     let Some(children) = walk.read_dir(folder) else {
         return true;
     };
     for child in children {
+        if walk.stopped() {
+            return false;
+        }
         if rules.is_excluded(&child) {
             continue;
         }
@@ -256,7 +276,7 @@ fn walk_files(
     metadata: &fs::Metadata,
     rules: &Rules,
     now: SystemTime,
-    walk: &mut Walk,
+    walk: &mut Walk<'_>,
     visit: &mut dyn FnMut(&Path, u64) -> bool,
 ) -> bool {
     if is_link(metadata) || is_reparse_point(metadata) {
@@ -275,6 +295,9 @@ fn walk_files(
         return true;
     };
     for child in children {
+        if walk.stopped() {
+            return false;
+        }
         if rules.is_excluded(&child) {
             continue;
         }
@@ -307,7 +330,7 @@ pub fn list_files(
         keep_folder,
         rules,
         now,
-        &mut Walk::default(),
+        &mut Walk::default().stopping_on(cancel),
         &mut |path, _| {
             collect_files(path, &mut files, limit, cancel);
             files.len() < limit && !cancel.load(Ordering::Relaxed)
@@ -430,6 +453,49 @@ mod tests {
         );
         assert!(planned(&cache.join("sub/keep"), false, &rules).is_empty());
         assert!(planned(&cache.join("sub/keep/k"), false, &rules).is_empty());
+    }
+
+    #[test]
+    fn a_filtered_walk_stops_between_files_that_do_not_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        create_dir_all(cache.join("sub")).unwrap();
+        for index in 0..50 {
+            write(cache.join(format!("a-small-{index:02}")), [0; 10]).unwrap();
+        }
+        write(cache.join("sub/z-big"), [0; 5000]).unwrap();
+        let by_size = Rules {
+            min_size_bytes: 1000,
+            ..Rules::default()
+        };
+        let stop = AtomicBool::new(true);
+        let mut visited = 0;
+        plan_paths(
+            &cache,
+            false,
+            &by_size,
+            SystemTime::now(),
+            &mut Walk::default().stopping_on(&stop),
+            &mut |_, _| {
+                visited += 1;
+                true
+            },
+        );
+        assert_eq!(visited, 0, "the big file is reached only after Stop");
+
+        stop.store(false, Ordering::Relaxed);
+        plan_paths(
+            &cache,
+            false,
+            &by_size,
+            SystemTime::now(),
+            &mut Walk::default().stopping_on(&stop),
+            &mut |_, _| {
+                visited += 1;
+                true
+            },
+        );
+        assert_eq!(visited, 1);
     }
 
     #[test]

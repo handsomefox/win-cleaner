@@ -257,6 +257,8 @@ pub(crate) enum HistoryState {
 pub(crate) struct LoadedHistory {
     pub runs: Vec<StoredRun>,
     pub skipped: usize,
+    /// Why the last delete or clear failed, in whole or in part.
+    pub change_error: Option<String>,
     pub selected: usize,
     /// Whether the clear-history confirmation dialog is open.
     pub confirm_clear: bool,
@@ -490,12 +492,16 @@ impl WinCleanerApp {
                     view.loaded(files, truncated);
                 }
             }
-            Event::HistoryLoaded { outcome } => {
+            Event::HistoryLoaded {
+                outcome,
+                change_error,
+            } => {
                 if let Some(history) = &mut self.history {
                     *history = match outcome {
                         Ok((runs, skipped)) => HistoryState::Loaded(LoadedHistory {
                             runs,
                             skipped,
+                            change_error,
                             selected: 0,
                             confirm_clear: false,
                         }),
@@ -1783,6 +1789,7 @@ mod tests {
         ));
         app.apply_event(Event::HistoryLoaded {
             outcome: Ok((Vec::new(), 2)),
+            change_error: None,
         });
         let Some(HistoryState::Loaded(history)) = &app.history else {
             panic!("expected loaded history");

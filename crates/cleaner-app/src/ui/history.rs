@@ -63,6 +63,13 @@ fn loaded(ui: &mut Ui, texts: &UiText, state: &mut LoadedHistory) -> Option<Hist
                     .small(),
             );
         }
+        if let Some(error) = &state.change_error {
+            ui.label(
+                RichText::new(format!("{} {error}", texts.stats_change_failed))
+                    .color(theme::DANGER)
+                    .small(),
+            );
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
             if ui
                 .button(icons::with_label(icons::RESCAN, texts.action_refresh))

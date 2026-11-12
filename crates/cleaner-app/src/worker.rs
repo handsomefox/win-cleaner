@@ -66,9 +66,11 @@ pub(crate) enum Event {
         truncated: bool,
     },
     /// The stored runs and how many files could not be read, or why the
-    /// stats directory could not be read.
+    /// stats directory could not be read. `change_error` says why deleting
+    /// a run or clearing History just failed, in whole or in part.
     HistoryLoaded {
         outcome: Result<(Vec<StoredRun>, usize), String>,
+        change_error: Option<String>,
     },
 }
 
@@ -265,20 +267,22 @@ fn process_command<R: Recycler>(
                 truncated,
             });
         }
-        Command::LoadHistory => emit(load_history(stats_dir.as_deref())),
+        Command::LoadHistory => emit(load_history(stats_dir.as_deref(), None)),
         Command::DeleteRun(path) => {
-            if let Err(err) = std::fs::remove_file(&path) {
+            let change_error = std::fs::remove_file(&path).err().map(|err| {
                 tracing::warn!("failed to delete run {}: {err}", path.display());
-            }
-            emit(load_history(stats_dir.as_deref()));
+                format!("{}: {err}", path.display())
+            });
+            emit(load_history(stats_dir.as_deref(), change_error));
         }
         Command::ClearHistory => {
-            if let Some(dir) = stats_dir.as_deref()
-                && let Err(err) = cleaner_core::clear_stats(dir)
-            {
-                tracing::warn!("failed to clear history: {err}");
-            }
-            emit(load_history(stats_dir.as_deref()));
+            let change_error = stats_dir.as_deref().and_then(|dir| {
+                cleaner_core::clear_stats(dir).err().map(|err| {
+                    tracing::warn!("failed to clear history: {err}");
+                    err.to_string()
+                })
+            });
+            emit(load_history(stats_dir.as_deref(), change_error));
         }
     }
 }
@@ -334,11 +338,12 @@ fn list_target_files(
 }
 
 /// Loads the stats directory into a [`Event::HistoryLoaded`], most recent
-/// cleanup first.
-fn load_history(stats_dir: Option<&std::path::Path>) -> Event {
+/// cleanup first, along with why the change before it failed, if it did.
+fn load_history(stats_dir: Option<&std::path::Path>, change_error: Option<String>) -> Event {
     let Some(dir) = stats_dir else {
         return Event::HistoryLoaded {
             outcome: Err(crate::strings::ENGLISH.stats_dir_unavailable.to_owned()),
+            change_error,
         };
     };
     let outcome = cleaner_core::load_stats(dir)
@@ -347,7 +352,10 @@ fn load_history(stats_dir: Option<&std::path::Path>) -> Event {
             (runs, skipped)
         })
         .map_err(|err| err.to_string());
-    Event::HistoryLoaded { outcome }
+    Event::HistoryLoaded {
+        outcome,
+        change_error,
+    }
 }
 
 fn write_stats(stats_dir: Option<&std::path::Path>, result: &mut ExecResult) -> Option<String> {
@@ -617,6 +625,7 @@ mod tests {
         });
         let Event::HistoryLoaded {
             outcome: Ok((runs, skipped)),
+            change_error: None,
         } = events.pop().unwrap()
         else {
             panic!("expected history");
@@ -626,6 +635,18 @@ mod tests {
 
         process_command(&mut runtime, Command::DeleteRun(older.clone()), |_| {});
         assert!(!older.exists());
+        // A delete that fails says so beside the history it reloads.
+        let mut events = Vec::new();
+        process_command(&mut runtime, Command::DeleteRun(older.clone()), |event| {
+            events.push(event);
+        });
+        assert!(matches!(
+            events.pop(),
+            Some(Event::HistoryLoaded {
+                outcome: Ok(_),
+                change_error: Some(_)
+            })
+        ));
         process_command(&mut runtime, Command::ClearHistory, |_| {});
         assert!(!newer.exists());
         assert!(!stats.join("broken.json").exists());
@@ -637,8 +658,11 @@ mod tests {
         let mut runtime = runtime(dir.path());
         runtime.stats_dir = None;
         assert!(matches!(
-            load_history(None),
-            Event::HistoryLoaded { outcome: Err(_) }
+            load_history(None, None),
+            Event::HistoryLoaded {
+                outcome: Err(_),
+                change_error: None
+            }
         ));
         let (tx, rx) = crossbeam_channel::unbounded();
         drop(tx);

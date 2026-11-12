@@ -174,6 +174,12 @@ pub(crate) struct UiText {
     pub presets_delete: &'static str,
     pub presets_error_empty: &'static str,
     pub presets_error_duplicate: &'static str,
+    pub presets_status_running: &'static str,
+    pub presets_status_nothing_now: &'static str,
+    pub presets_status_not_found: &'static str,
+    pub presets_status_no_empty_folders: &'static str,
+    pub presets_status_gone: &'static str,
+    pub presets_status_folders_on_pick: &'static str,
     pub about_version_label: &'static str,
     pub about_fonts: &'static str,
     pub about_repo_label: &'static str,
@@ -357,6 +363,12 @@ pub(crate) const ENGLISH: UiText = UiText {
     presets_delete: "Delete this preset",
     presets_error_empty: "Give the preset a name.",
     presets_error_duplicate: "Another preset already uses that name.",
+    presets_status_running: "its program is running",
+    presets_status_nothing_now: "nothing to clean now",
+    presets_status_not_found: "not found on this PC",
+    presets_status_no_empty_folders: "no empty folders now",
+    presets_status_gone: "no longer offered",
+    presets_status_folders_on_pick: "checked when you pick the preset, not at launch",
     about_version_label: "Version",
     about_fonts: "Inter — SIL Open Font License 1.1 · Phosphor Icons — MIT",
     about_repo_label: "Project page",
@@ -424,8 +436,22 @@ impl UiText {
         self.items_count(n)
     }
 
-    pub(crate) fn presets_apply_hint(&self, n: usize) -> String {
-        format!("Check the {} in this preset", self.items_count(n))
+    /// The first line of a preset's contents: how many of its targets
+    /// picking it checks on this scan.
+    pub(crate) fn presets_apply_summary(&self, checks: usize, total: usize) -> String {
+        if checks == total {
+            format!("Checks the {} in this preset.", self.items_count(total))
+        } else {
+            format!(
+                "Checks {checks} of the {} in this preset right now.",
+                self.items_count(total)
+            )
+        }
+    }
+
+    /// The last line of a list cut short.
+    pub(crate) fn and_more(&self, n: usize) -> String {
+        format!("and {n} more")
     }
 
     pub(crate) fn presets_error_full(&self, max: usize) -> String {

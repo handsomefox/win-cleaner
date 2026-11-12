@@ -395,6 +395,56 @@ pub(crate) fn apply_saved_selection(plan: &mut Plan, keys: &[TargetKey], rows: E
     plan.recompute_totals();
 }
 
+/// What picking a preset does with one of its targets on this scan. The
+/// order is the order the preset's contents are listed in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum PresetTargetStatus {
+    /// Picking the preset checks it.
+    Checks,
+    /// Its program is running, so cleanup would skip it.
+    Running,
+    /// It was found, but holds nothing to clean right now.
+    NothingNow,
+    /// None of its paths exist on this PC.
+    NotFound,
+    /// An empty-folder row whose root holds no empty folders right now.
+    NoEmptyFolders,
+    /// The catalog no longer has a target under this name.
+    Gone,
+}
+
+/// Each target `keys` names, with what picking the preset does with it on
+/// this scan: the targets it checks first, then the rest, each part in the
+/// preset's own order.
+pub(crate) fn preset_targets<'a>(
+    plan: &Plan,
+    keys: &'a [TargetKey],
+) -> Vec<(&'a TargetKey, PresetTargetStatus)> {
+    let mut out: Vec<_> = keys
+        .iter()
+        .map(|key| {
+            let group = plan
+                .groups
+                .iter()
+                .find(|group| group.app == key.0 && group.label == key.1);
+            let status = match group {
+                Some(group) if checks_on_apply(group, EmptyFolderRows::Check) => {
+                    PresetTargetStatus::Checks
+                }
+                Some(group) if group.running.is_some() => PresetTargetStatus::Running,
+                Some(group) if group.targets.is_empty() => PresetTargetStatus::NotFound,
+                Some(_) => PresetTargetStatus::NothingNow,
+                // An empty-folder row exists only while its root holds one.
+                None if key.0 == EMPTY_FOLDERS_APP => PresetTargetStatus::NoEmptyFolders,
+                None => PresetTargetStatus::Gone,
+            };
+            (key, status)
+        })
+        .collect();
+    out.sort_by_key(|(_, status)| *status);
+    out
+}
+
 /// How many targets "Show empty" hides ([`is_hidden_when_empty`]).
 pub(crate) fn empty_target_count(plan: &Plan) -> usize {
     plan.groups
@@ -1024,6 +1074,58 @@ mod tests {
         apply_saved_selection(&mut plan, &keys, EmptyFolderRows::Leave);
         assert!(plan.groups.last().is_some_and(|g| !g.on));
         assert_eq!(plan.selected, keys.len() - 1);
+    }
+
+    #[test]
+    fn a_presets_contents_match_what_picking_it_checks() {
+        let mut plan = Plan {
+            groups: vec![
+                group("Chrome", "cache", 500, false),
+                group("Edge", "cache", 0, false),
+                Group {
+                    running: Some("Discord.exe".to_owned()),
+                    ..group("Discord", "Cache", 500, false)
+                },
+                group_with_path("Firefox", "cache", 0),
+                group_with_path("Empty folders", "ProgramData", 0),
+            ],
+            ..Plan::default()
+        };
+        let key = |app: &str, label: &str| (app.to_owned(), label.to_owned());
+        let keys = vec![
+            key("Vivaldi", "cache"),
+            key("Edge", "cache"),
+            key("Empty folders", r"AppData\Roaming"),
+            key("Discord", "Cache"),
+            key("Firefox", "cache"),
+            key("Chrome", "cache"),
+            key("Empty folders", "ProgramData"),
+        ];
+        let listed: Vec<(&str, PresetTargetStatus)> = preset_targets(&plan, &keys)
+            .into_iter()
+            .map(|(key, status)| (key.0.as_str(), status))
+            .collect();
+        assert_eq!(
+            listed,
+            vec![
+                ("Chrome", PresetTargetStatus::Checks),
+                ("Empty folders", PresetTargetStatus::Checks),
+                ("Discord", PresetTargetStatus::Running),
+                ("Firefox", PresetTargetStatus::NothingNow),
+                ("Edge", PresetTargetStatus::NotFound),
+                ("Empty folders", PresetTargetStatus::NoEmptyFolders),
+                ("Vivaldi", PresetTargetStatus::Gone),
+            ]
+        );
+
+        apply_saved_selection(&mut plan, &keys, EmptyFolderRows::Check);
+        let checked: Vec<&str> = plan
+            .groups
+            .iter()
+            .filter(|g| g.on)
+            .map(|g| g.app.as_str())
+            .collect();
+        assert_eq!(checked, vec!["Chrome", "Empty folders"]);
     }
 
     #[test]

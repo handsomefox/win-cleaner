@@ -445,6 +445,25 @@ pub(crate) fn preset_targets<'a>(
     out
 }
 
+/// The folders an empty-folder row would remove, as listed to the user: the
+/// top of each empty subtree, not every folder inside one.
+///
+/// Every folder in a subtree is empty, and cleanup removes the ones inside
+/// before the top, so the top stands for all of them.
+pub(crate) fn empty_folder_tops(group: &Group) -> Vec<&std::path::Path> {
+    let paths: std::collections::HashSet<&std::path::Path> = group
+        .targets
+        .iter()
+        .map(|target| target.path.as_path())
+        .collect();
+    group
+        .targets
+        .iter()
+        .map(|target| target.path.as_path())
+        .filter(|path| path.parent().is_none_or(|parent| !paths.contains(parent)))
+        .collect()
+}
+
 /// How many targets "Show empty" hides ([`is_hidden_when_empty`]).
 pub(crate) fn empty_target_count(plan: &Plan) -> usize {
     plan.groups
@@ -1126,6 +1145,27 @@ mod tests {
             .map(|g| g.app.as_str())
             .collect();
         assert_eq!(checked, vec!["Chrome", "Empty folders"]);
+    }
+
+    #[test]
+    fn an_empty_folder_row_lists_the_top_of_each_subtree() {
+        let target = |path: &str| cleaner_core::Target::whole(std::path::PathBuf::from(path), 0);
+        let group = Group {
+            targets: vec![
+                target("/local/A/inner/deep"),
+                target("/local/A/inner"),
+                target("/local/A"),
+                target("/local/B"),
+            ],
+            ..Group::new("Empty folders", r"AppData\Local")
+        };
+        assert_eq!(
+            empty_folder_tops(&group),
+            vec![
+                std::path::Path::new("/local/A"),
+                std::path::Path::new("/local/B")
+            ]
+        );
     }
 
     #[test]

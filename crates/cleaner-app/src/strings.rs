@@ -182,6 +182,7 @@ pub(crate) struct UiText {
     pub presets_status_no_empty_folders: &'static str,
     pub presets_status_gone: &'static str,
     pub presets_status_folders_on_pick: &'static str,
+    pub empty_folders_details_note: &'static str,
     pub about_version_label: &'static str,
     pub about_fonts: &'static str,
     pub about_repo_label: &'static str,
@@ -373,6 +374,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     presets_status_no_empty_folders: "no empty folders now",
     presets_status_gone: "no longer offered",
     presets_status_folders_on_pick: "checked when you pick the preset, not at launch",
+    empty_folders_details_note: "Each folder is removed only if it is still empty when cleanup reaches it, the folders inside first. A folder that gained a file since the scan stays. Removed folders do not go to the Recycle Bin, because they hold nothing.",
     about_version_label: "Version",
     about_fonts: "Inter — SIL Open Font License 1.1 · Phosphor Icons — MIT",
     about_repo_label: "Project page",
@@ -458,6 +460,11 @@ impl UiText {
         format!("and {n} more")
     }
 
+    /// What an empty-folder row shows in place of a size.
+    pub(crate) fn empty_folder_count(&self, n: usize) -> String {
+        format!("{n} empty {}", plural(n, "folder", "folders"))
+    }
+
     pub(crate) fn presets_error_full(&self, max: usize) -> String {
         format!(
             "You can keep {max} presets. Delete one first, or save over a name you already have."
@@ -523,6 +530,9 @@ impl UiText {
     pub(crate) fn group_details(&self, group: &Group) -> String {
         use std::fmt::Write as _;
 
+        if group.app == cleaner_core::EMPTY_FOLDERS_APP {
+            return self.empty_folder_details(group);
+        }
         let mut out = String::new();
         let _ = writeln!(
             out,
@@ -546,13 +556,53 @@ impl UiText {
                 let _ = writeln!(out, "- {}", target.path.display());
             }
         }
+        self.scan_issues(&mut out, group);
+        out
+    }
+
+    /// The detail body for an empty-folder row: what cleanup removes, and
+    /// each empty folder at the top of its tree with how many it holds.
+    fn empty_folder_details(&self, group: &Group) -> String {
+        use std::fmt::Write as _;
+
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "Inside: {}\nRemoves: {}\n\n{}\n\nFolders:",
+            group.label,
+            self.empty_folder_count(group.targets.len()),
+            self.empty_folders_details_note
+        );
+        for top in crate::viewmodel::empty_folder_tops(group) {
+            let inside = group
+                .targets
+                .iter()
+                .filter(|target| target.path != top && target.path.starts_with(top))
+                .count();
+            if inside == 0 {
+                let _ = writeln!(out, "- {}", top.display());
+            } else {
+                let _ = writeln!(
+                    out,
+                    "- {} (and the {} inside)",
+                    top.display(),
+                    self.empty_folder_count(inside)
+                );
+            }
+        }
+        self.scan_issues(&mut out, group);
+        out
+    }
+
+    fn scan_issues(&self, out: &mut String, group: &Group) {
+        use std::fmt::Write as _;
+
         if !group.errs.is_empty() {
             let _ = writeln!(out, "\n{}", self.result_scan_issues);
             for err in &group.errs {
                 let _ = writeln!(out, "- {err}");
             }
         }
-        out
     }
 
     /// The plain-text detail body for one group of a finished cleanup.

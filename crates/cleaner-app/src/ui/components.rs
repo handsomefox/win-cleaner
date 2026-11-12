@@ -157,10 +157,13 @@ pub(crate) fn size_text(bytes: u64) -> RichText {
 }
 
 /// The size cell for one scanned group, which can tell the zero-byte cases
-/// apart: no matched paths renders italic "Not found", matched-but-empty
-/// paths render their count (the deletable payload of empty-folder groups).
+/// apart: no matched paths renders italic "Not found", an empty-folder row
+/// renders how many folders it removes, and other matched-but-empty paths
+/// render their count.
 pub(crate) fn group_size_text(texts: &UiText, group: &Group) -> RichText {
-    if group.bytes > 0 {
+    if group.app == cleaner_core::EMPTY_FOLDERS_APP && !group.targets.is_empty() {
+        RichText::new(texts.empty_folder_count(group.targets.len())).color(theme::MUTED)
+    } else if group.bytes > 0 {
         size_text(group.bytes)
     } else if group.targets.is_empty() {
         RichText::new(texts.not_found).color(theme::MUTED).italics()

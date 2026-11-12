@@ -2,6 +2,7 @@
 //! app cards), its status bar, and the preview/confirm/details modals. Sidebar
 //! navigation lives in `sidebar.rs`.
 
+use cleaner_core::EMPTY_FOLDERS_APP;
 use eframe::egui::{self, RichText, Ui};
 
 use crate::app::{SelectModal, SelectState};
@@ -343,6 +344,7 @@ fn item_row(
         let err_count = group.errs.len();
         let running = group.running.clone();
         let needs_admin = group.admin && !state.elevated;
+        let folders = group.app == EMPTY_FOLDERS_APP && !group.targets.is_empty();
         let mut label = RichText::new(&group.label);
         if empty || app.is_some() {
             label = label.color(theme::MUTED);
@@ -379,7 +381,10 @@ fn item_row(
                 }
             },
             |ui| {
-                ui.label(size);
+                let size = ui.label(size);
+                if folders {
+                    size.on_hover_ui(|ui| empty_folder_preview(ui, texts, group));
+                }
                 if has_errs {
                     let warn = egui::Button::new(
                         RichText::new(icons::WARNING)
@@ -407,6 +412,23 @@ fn item_row(
     });
     if open_details {
         state.modal = Some(SelectModal::GroupDetails(index));
+    }
+}
+
+/// The folders an empty-folder row removes, on hover over its count: the top
+/// of each empty tree, up to ten of them.
+fn empty_folder_preview(ui: &mut Ui, texts: &UiText, group: &cleaner_core::Group) {
+    const LINES: usize = 10;
+    let tops = viewmodel::empty_folder_tops(group);
+    for top in tops.iter().take(LINES) {
+        ui.label(RichText::new(top.display().to_string()).size(theme::FONT_SMALL));
+    }
+    if tops.len() > LINES {
+        ui.label(
+            RichText::new(texts.and_more(tops.len() - LINES))
+                .size(theme::FONT_SMALL)
+                .color(theme::MUTED),
+        );
     }
 }
 
@@ -522,7 +544,10 @@ fn modals(
             };
             let title = format!("{} - {}", group.app, group.label);
             let body = texts.group_details(group);
-            match details_modal(ctx, texts, &title, &body, !group.targets.is_empty()) {
+            // An empty-folder row has no files to list; its details already
+            // list the folders.
+            let has_files = !group.targets.is_empty() && group.app != EMPTY_FOLDERS_APP;
+            match details_modal(ctx, texts, &title, &body, has_files) {
                 DetailsChoice::Open => state.modal = Some(SelectModal::GroupDetails(index)),
                 DetailsChoice::Close => {}
                 DetailsChoice::ShowFiles => *action = Some(SelectAction::ListFiles(index)),

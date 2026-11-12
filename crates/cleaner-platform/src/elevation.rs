@@ -21,7 +21,7 @@ pub const AFTER_ARG: &str = "--after=";
 pub fn is_elevated() -> bool {
     #[cfg(windows)]
     {
-        imp::is_elevated()
+        imp::elevation().unwrap_or(false)
     }
     #[cfg(not(windows))]
     {
@@ -47,11 +47,12 @@ pub enum Account {
 /// An unelevated process is always [`Account::Same`]: it runs as whoever
 /// started it. An elevated one is [`Account::Same`] only when the SIDs are
 /// read and match, so an answer that cannot be established blocks cleaning.
+/// A process whose elevation cannot be read is compared too.
 #[must_use]
 pub fn account_check() -> Account {
     #[cfg(windows)]
     {
-        if !is_elevated() {
+        if imp::elevation() == Some(false) {
             return Account::Same;
         }
         let process = imp::process_account();
@@ -246,21 +247,19 @@ mod imp {
         }
     }
 
-    pub(super) fn is_elevated() -> bool {
-        let Some(token) = Token::open() else {
-            return false;
-        };
-        let Some(buffer) = token.read(TokenElevation) else {
-            return false;
-        };
+    /// Whether this process's token is elevated, or `None` when the token
+    /// cannot be read.
+    pub(super) fn elevation() -> Option<bool> {
+        let token = Token::open()?;
+        let buffer = token.read(TokenElevation)?;
         if buffer.len() < size_of::<TOKEN_ELEVATION>() {
-            return false;
+            return None;
         }
         // SAFETY: the buffer holds at least one TOKEN_ELEVATION, written by
         // GetTokenInformation; read_unaligned copes with the Vec's alignment.
         let elevation: TOKEN_ELEVATION =
             unsafe { std::ptr::read_unaligned(buffer.as_ptr().cast()) };
-        elevation.TokenIsElevated != 0
+        Some(elevation.TokenIsElevated != 0)
     }
 
     /// The account this process runs as, as `DOMAIN\user`.
@@ -270,7 +269,7 @@ mod imp {
         if buffer.len() < size_of::<TOKEN_USER>() {
             return None;
         }
-        // SAFETY: as in `is_elevated`; the SID it points to lives in `buffer`,
+        // SAFETY: as in `elevation`; the SID it points to lives in `buffer`,
         // which outlives every use below.
         let user: TOKEN_USER = unsafe { std::ptr::read_unaligned(buffer.as_ptr().cast()) };
         let mut name = [0u16; 256];
@@ -307,7 +306,7 @@ mod imp {
         if buffer.len() < size_of::<TOKEN_USER>() {
             return None;
         }
-        // SAFETY: as in `is_elevated`; the SID lives in `buffer`.
+        // SAFETY: as in `elevation`; the SID lives in `buffer`.
         let user: TOKEN_USER = unsafe { std::ptr::read_unaligned(buffer.as_ptr().cast()) };
         let name: Vec<u16> = domain_user
             .encode_utf16()

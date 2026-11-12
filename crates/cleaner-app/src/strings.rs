@@ -367,7 +367,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     presets_error_empty: "Give the preset a name.",
     presets_error_duplicate: "Another preset already uses that name.",
     presets_update: "Update",
-    presets_update_hint: "Replace what this preset holds with the targets checked now. Its name and Use on start stay.",
+    presets_update_hint: "Make this preset hold the targets checked now. A target in it that this scan could not offer, such as one with nothing to clean, stays. Its name and Use on start stay too.",
     presets_status_running: "its program is running",
     presets_status_nothing_now: "nothing to clean now",
     presets_status_not_found: "not found on this PC",

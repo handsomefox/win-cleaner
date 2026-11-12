@@ -273,9 +273,8 @@ pub(crate) fn manage_dialog(ctx: &egui::Context, texts: &UiText, state: &mut Sel
     {
         // Saving under the same name keeps the name and Use on start.
         let name = preset.name.clone();
-        let _ = state
-            .presets
-            .save(&name, viewmodel::selected_keys(&state.plan));
+        let keys = viewmodel::updated_keys(&state.plan, &preset.keys);
+        let _ = state.presets.save(&name, keys);
     }
     if let Some(index) = remove {
         state.presets.remove(index);

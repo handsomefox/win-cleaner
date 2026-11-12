@@ -325,22 +325,16 @@ fn answerable(group: &Group) -> bool {
     !is_empty_target(group) && group.running.is_none()
 }
 
-/// What to remember after this run: every selected target, plus the keys in
-/// `previous` this run could not ask about.
+/// Every target checked now, plus the keys in `previous` this run could not
+/// ask about. This is what Update stores in a preset, empty-folder rows
+/// included.
 ///
-/// Carrying those forward is what keeps a selection alive across a run where
-/// the target was empty or its app was gone. Reading the plan alone would drop
-/// the key, and the next run would have nothing left to restore.
-///
-/// Empty-folder groups are never stored. Removing empty folders is a choice
-/// made for one run, and the restore at launch leaves them unchecked anyway.
-///
-/// One consequence: with empty targets listed, an empty one shows unchecked
-/// yet stays remembered, so clearing its box does not forget it. Resetting the
-/// selection does.
-pub(crate) fn remembered_keys(plan: &Plan, previous: &[TargetKey]) -> Vec<TargetKey> {
+/// Carrying those keys forward is what keeps a selection alive across a run
+/// where the target was empty, its program was running, or its app was gone.
+/// Reading the plan alone would drop the key for good. A target this run did
+/// offer, left unchecked, is dropped: the user saw it and cleared it.
+pub(crate) fn updated_keys(plan: &Plan, previous: &[TargetKey]) -> Vec<TargetKey> {
     let mut keys = selected_keys(plan);
-    keys.retain(|(app, _)| app != EMPTY_FOLDERS_APP);
     let answered: std::collections::HashSet<(&str, &str)> = plan
         .groups
         .iter()
@@ -348,13 +342,26 @@ pub(crate) fn remembered_keys(plan: &Plan, previous: &[TargetKey]) -> Vec<Target
         .map(|group| (group.app.as_str(), group.label.as_str()))
         .collect();
     for (app, label) in previous {
-        if app == EMPTY_FOLDERS_APP || answered.contains(&(app.as_str(), label.as_str())) {
+        if answered.contains(&(app.as_str(), label.as_str())) {
             continue;
         }
         if !keys.iter().any(|(a, l)| a == app && l == label) {
             keys.push((app.clone(), label.clone()));
         }
     }
+    keys
+}
+
+/// What to remember after this run: [`updated_keys`] without empty-folder
+/// rows. Removing empty folders is a choice made for one run, and the restore
+/// at launch leaves them unchecked anyway.
+///
+/// One consequence: with empty targets listed, an empty one shows unchecked
+/// yet stays remembered, so clearing its box does not forget it. Resetting the
+/// selection does.
+pub(crate) fn remembered_keys(plan: &Plan, previous: &[TargetKey]) -> Vec<TargetKey> {
+    let mut keys = updated_keys(plan, previous);
+    keys.retain(|(app, _)| app != EMPTY_FOLDERS_APP);
     keys
 }
 
@@ -1165,6 +1172,49 @@ mod tests {
                 std::path::Path::new("/local/A"),
                 std::path::Path::new("/local/B")
             ]
+        );
+    }
+
+    #[test]
+    fn updating_a_preset_keeps_the_targets_this_scan_could_not_offer() {
+        let key = |app: &str, label: &str| (app.to_owned(), label.to_owned());
+        let mut plan = Plan {
+            groups: vec![
+                group("Chrome", "cache", 500, false),
+                group("Edge", "cache", 0, false),
+                Group {
+                    running: Some("Discord.exe".to_owned()),
+                    ..group("Discord", "Cache", 500, false)
+                },
+                group("Firefox", "cache", 300, false),
+                group_with_path("Empty folders", r"AppData\Local", 0),
+            ],
+            ..Plan::default()
+        };
+        let preset = vec![
+            key("Edge", "cache"),
+            key("Discord", "Cache"),
+            key("Vivaldi", "cache"),
+            key("Firefox", "cache"),
+            key("Empty folders", "ProgramData"),
+        ];
+        apply_saved_selection(&mut plan, &preset, EmptyFolderRows::Check);
+        // The user clears Firefox, and ticks Chrome and an empty-folder row,
+        // before pressing Update.
+        plan.groups[3].on = false;
+        plan.groups[0].on = true;
+        plan.groups[4].on = true;
+        assert_eq!(
+            updated_keys(&plan, &preset),
+            vec![
+                key("Chrome", "cache"),
+                key("Empty folders", r"AppData\Local"),
+                key("Edge", "cache"),
+                key("Discord", "Cache"),
+                key("Vivaldi", "cache"),
+                key("Empty folders", "ProgramData"),
+            ],
+            "an empty, running, missing, or folderless target stays; a cleared one goes"
         );
     }
 

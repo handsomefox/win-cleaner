@@ -2,8 +2,10 @@
 //! dialogs behind it.
 //!
 //! Applying a preset goes through [`viewmodel::apply_saved_selection`], the
-//! same path a remembered selection takes, so the empty-target and
-//! empty-folder rules hold for a preset too.
+//! same path a remembered selection takes, so the empty-target rule holds for
+//! a preset too. Picking a preset by hand also checks the empty-folder rows
+//! it holds: that pick is the user's own click. The startup preset leaves
+//! them unchecked.
 
 use eframe::egui::{self, RichText, Ui};
 
@@ -12,7 +14,7 @@ use crate::icons;
 use crate::presets::{MAX_PRESETS, PresetError};
 use crate::strings::UiText;
 use crate::theme;
-use crate::viewmodel;
+use crate::viewmodel::{self, EmptyFolderRows};
 
 /// The toolbar's Presets button and its drop-down.
 pub(crate) fn menu(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
@@ -69,7 +71,7 @@ pub(crate) fn menu(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
         if let Some(index) = apply
             && let Some(preset) = state.presets.get(index)
         {
-            viewmodel::apply_saved_selection(&mut state.plan, &preset.keys);
+            viewmodel::apply_saved_selection(&mut state.plan, &preset.keys, EmptyFolderRows::Check);
             ui.close();
         }
 
@@ -250,7 +252,7 @@ pub(crate) fn manage_dialog(ctx: &egui::Context, texts: &UiText, state: &mut Sel
     if let Some(index) = apply
         && let Some(preset) = state.presets.get(index)
     {
-        viewmodel::apply_saved_selection(&mut state.plan, &preset.keys);
+        viewmodel::apply_saved_selection(&mut state.plan, &preset.keys, EmptyFolderRows::Check);
     }
     if let Some(index) = remove {
         state.presets.remove(index);

@@ -304,15 +304,15 @@ pub(crate) fn category_summaries(plan: &Plan) -> Vec<CategorySummary> {
 /// change with the machine, but these two are the catalog's own names.
 pub(crate) type TargetKey = (String, String);
 
-/// The keys of every target checked right now. This is what a preset stores:
-/// the selection as it stands, with nothing carried over from a previous run.
-///
-/// Empty-folder groups are left out. Their labels come from the scanned root,
-/// so a key saved on one machine never matches on another.
+/// The keys of every target checked right now, empty-folder rows included.
+/// This is what a preset stores, and what an elevated copy is handed: the
+/// selection as it stands, with nothing carried over from a previous run.
+/// Empty-folder labels name the root they sweep, such as `AppData\Local`, so
+/// a key saved on one machine matches on another.
 pub(crate) fn selected_keys(plan: &Plan) -> Vec<TargetKey> {
     plan.groups
         .iter()
-        .filter(|group| group.on && group.app != EMPTY_FOLDERS_APP)
+        .filter(|group| group.on)
         .map(|group| (group.app.clone(), group.label.clone()))
         .collect()
 }
@@ -332,15 +332,15 @@ fn answerable(group: &Group) -> bool {
 /// the target was empty or its app was gone. Reading the plan alone would drop
 /// the key, and the next run would have nothing left to restore.
 ///
-/// Empty-folder groups are never stored. Their labels come from the scanned
-/// root, so a key saved on one machine matches nothing on another, and the
-/// restore skips them regardless.
+/// Empty-folder groups are never stored. Removing empty folders is a choice
+/// made for one run, and the restore at launch leaves them unchecked anyway.
 ///
 /// One consequence: with empty targets listed, an empty one shows unchecked
 /// yet stays remembered, so clearing its box does not forget it. Resetting the
 /// selection does.
 pub(crate) fn remembered_keys(plan: &Plan, previous: &[TargetKey]) -> Vec<TargetKey> {
     let mut keys = selected_keys(plan);
+    keys.retain(|(app, _)| app != EMPTY_FOLDERS_APP);
     let answered: std::collections::HashSet<(&str, &str)> = plan
         .groups
         .iter()
@@ -358,22 +358,38 @@ pub(crate) fn remembered_keys(plan: &Plan, previous: &[TargetKey]) -> Vec<Target
     keys
 }
 
-/// Selects exactly the targets named by `keys` and clears the rest.
+/// Whether applying a saved selection checks the empty-folder rows it names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EmptyFolderRows {
+    /// The user asked for this selection just now: by picking a preset, or
+    /// through the copy that restarted with administrator rights.
+    Check,
+    /// The selection comes back at launch, from the startup preset or the
+    /// last run. Removing empty folders stays a choice made each run.
+    Leave,
+}
+
+/// Whether applying a saved selection that names `group` checks it.
 ///
-/// Three kinds stay unselected. An empty target, because this run has nothing
-/// to offer for it and selecting it would only queue a folder that frees no
-/// space. A target whose program is running, because cleanup would skip it.
-/// The keys of both are still remembered, so each comes back the run it can
-/// be cleaned again. And an empty-folder group, because removing empty folders
-/// stays opt-in for each run.
-pub(crate) fn apply_saved_selection(plan: &mut Plan, keys: &[TargetKey]) {
+/// An empty target stays unchecked, because this run has nothing to offer
+/// for it and checking it would only queue a folder that frees no space. A
+/// target whose program is running stays unchecked, because cleanup would
+/// skip it. The keys of both are still remembered, so each comes back the run
+/// it can be cleaned again. An empty-folder row is checked only with
+/// [`EmptyFolderRows::Check`].
+fn checks_on_apply(group: &Group, rows: EmptyFolderRows) -> bool {
+    answerable(group) && (group.app != EMPTY_FOLDERS_APP || rows == EmptyFolderRows::Check)
+}
+
+/// Checks exactly the targets named by `keys` that [`checks_on_apply`]
+/// allows, and clears the rest.
+pub(crate) fn apply_saved_selection(plan: &mut Plan, keys: &[TargetKey], rows: EmptyFolderRows) {
     let saved: std::collections::HashSet<(&str, &str)> = keys
         .iter()
         .map(|(app, label)| (app.as_str(), label.as_str()))
         .collect();
     for group in &mut plan.groups {
-        group.on = answerable(group)
-            && group.app != EMPTY_FOLDERS_APP
+        group.on = checks_on_apply(group, rows)
             && saved.contains(&(group.app.as_str(), group.label.as_str()));
     }
     plan.recompute_totals();
@@ -967,10 +983,10 @@ mod tests {
         for g in &mut plan.groups {
             g.on = false;
         }
-        // Feed the empty-folder key in anyway: restoring must refuse it even
-        // when something put it in the stored set.
+        // Feed the empty-folder key in anyway: a restore at launch must leave
+        // it unchecked even when something put it in the stored set.
         keys.push(("Empty folders".to_owned(), "temp".to_owned()));
-        apply_saved_selection(&mut plan, &keys);
+        apply_saved_selection(&mut plan, &keys, EmptyFolderRows::Leave);
         let on: Vec<&str> = plan
             .groups
             .iter()
@@ -980,6 +996,34 @@ mod tests {
         // Empty-folder removal stays opt-in, so it is not restored.
         assert_eq!(on, vec!["Chrome", "npm", "Windows"]);
         assert_eq!(plan.selected, 3);
+    }
+
+    #[test]
+    fn a_preset_holds_empty_folder_rows_and_picking_it_checks_them() {
+        let mut plan = sample_plan();
+        plan.groups
+            .push(group_with_path("Empty folders", "ProgramData", 0));
+        let keys = selected_keys(&plan);
+        assert!(
+            keys.contains(&("Empty folders".to_owned(), "ProgramData".to_owned())),
+            "a preset saves the empty-folder row with the rest"
+        );
+        assert!(
+            !remembered_keys(&plan, &[])
+                .iter()
+                .any(|(app, _)| app == "Empty folders"),
+            "the last selection never keeps one"
+        );
+
+        for g in &mut plan.groups {
+            g.on = false;
+        }
+        apply_saved_selection(&mut plan, &keys, EmptyFolderRows::Check);
+        assert!(plan.groups.last().is_some_and(|g| g.on));
+
+        apply_saved_selection(&mut plan, &keys, EmptyFolderRows::Leave);
+        assert!(plan.groups.last().is_some_and(|g| !g.on));
+        assert_eq!(plan.selected, keys.len() - 1);
     }
 
     #[test]
@@ -999,7 +1043,7 @@ mod tests {
             ("Vivaldi".to_owned(), "cache".to_owned()),
         ];
 
-        apply_saved_selection(&mut plan, &keys);
+        apply_saved_selection(&mut plan, &keys, EmptyFolderRows::Leave);
         assert!(plan.groups[0].on);
         assert!(
             !plan.groups[1].on,
@@ -1027,7 +1071,7 @@ mod tests {
             groups: vec![group("Chrome", "cache", 0, false)],
             ..Plan::default()
         };
-        apply_saved_selection(&mut second, &stored);
+        apply_saved_selection(&mut second, &stored, EmptyFolderRows::Leave);
         assert!(!second.groups[0].on);
         let stored = remembered_keys(&second, &stored);
         assert_eq!(
@@ -1041,7 +1085,7 @@ mod tests {
             groups: vec![group("Chrome", "cache", 700, false)],
             ..Plan::default()
         };
-        apply_saved_selection(&mut third, &stored);
+        apply_saved_selection(&mut third, &stored, EmptyFolderRows::Leave);
         assert!(third.groups[0].on);
         assert_eq!(third.selected, 1);
     }
@@ -1103,7 +1147,7 @@ mod tests {
             ("Discord".to_owned(), "Cache".to_owned()),
         ];
 
-        apply_saved_selection(&mut plan, &keys);
+        apply_saved_selection(&mut plan, &keys, EmptyFolderRows::Leave);
         assert!(plan.groups[0].on);
         assert!(
             !plan.groups[1].on,

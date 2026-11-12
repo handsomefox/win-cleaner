@@ -97,7 +97,12 @@ mod tests {
         presets
             .save(
                 "Weekly",
-                vec![("Chrome".to_owned(), "Profile cache".to_owned())],
+                vec![
+                    ("Chrome".to_owned(), "Profile cache".to_owned()),
+                    // A preset carries its empty-folder rows from machine to
+                    // machine with the rest.
+                    ("Empty folders".to_owned(), r"AppData\Local".to_owned()),
+                ],
             )
             .unwrap();
         SettingsFile::new(

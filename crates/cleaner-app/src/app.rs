@@ -17,7 +17,7 @@ use crate::ui::history::HistoryAction;
 use crate::ui::results::ResultsAction;
 use crate::ui::select::SelectAction;
 use crate::ui::sidebar::SidebarAction;
-use crate::viewmodel::{self, Category, SortMode, TargetKey};
+use crate::viewmodel::{self, Category, EmptyFolderRows, SortMode, TargetKey};
 use crate::worker::{self, Command, Event, Worker, WorkerStopped};
 
 /// What the app remembers between launches, held in eframe's storage.
@@ -701,9 +701,11 @@ impl WinCleanerApp {
     /// selection applied.
     ///
     /// A selection handed over by the window that started this copy with
-    /// administrator rights wins, once. Next comes a preset marked to apply
-    /// at launch, because the user asked for that selection by name.
-    /// Otherwise the last selection comes back.
+    /// administrator rights wins, once, empty-folder rows included: the user
+    /// checked them a moment ago. Next comes a preset marked to apply at
+    /// launch, because the user asked for that selection by name. Otherwise
+    /// the last selection comes back. Neither of those two checks an
+    /// empty-folder row, since removing empty folders is chosen each run.
     ///
     /// An empty stored selection means nothing is remembered, so the catalog
     /// defaults the scan computed stand. That makes a first launch and a reset
@@ -715,11 +717,15 @@ impl WinCleanerApp {
         state.show_empty = self.prefs.show_empty;
         state.presets = self.prefs.presets.clone();
         if let Some(keys) = self.handoff.take() {
-            viewmodel::apply_saved_selection(&mut state.plan, &keys);
+            viewmodel::apply_saved_selection(&mut state.plan, &keys, EmptyFolderRows::Check);
         } else if let Some(preset) = self.prefs.presets.on_start() {
-            viewmodel::apply_saved_selection(&mut state.plan, &preset.keys);
+            viewmodel::apply_saved_selection(&mut state.plan, &preset.keys, EmptyFolderRows::Leave);
         } else if self.prefs.remember_selection && !self.prefs.selection.is_empty() {
-            viewmodel::apply_saved_selection(&mut state.plan, &self.prefs.selection);
+            viewmodel::apply_saved_selection(
+                &mut state.plan,
+                &self.prefs.selection,
+                EmptyFolderRows::Leave,
+            );
         }
         state
     }
@@ -1656,6 +1662,55 @@ mod tests {
                 .collect();
             let expected = if generation == 1 { "logs" } else { "cache" };
             assert_eq!(on, [expected], "scan {generation}");
+        }
+    }
+
+    #[test]
+    fn only_a_handed_over_selection_checks_an_empty_folder_row_at_launch() {
+        let (mut app, _, _) = app();
+        let folders = ("Empty folders".to_owned(), "ProgramData".to_owned());
+        let mut presets = Presets::default();
+        presets
+            .save(
+                "Weekly",
+                vec![("App".to_owned(), "cache".to_owned()), folders.clone()],
+            )
+            .unwrap();
+        presets.set_on_start(0, true);
+        app.prefs = Prefs {
+            presets,
+            ..Prefs::default()
+        };
+        app.handoff = Some(vec![folders]);
+        let with_folders = || {
+            let mut plan = plan();
+            plan.groups.push(Group {
+                targets: vec![cleaner_core::Target::whole(
+                    PathBuf::from(r"C:\ProgramData\Empty"),
+                    0,
+                )],
+                ..Group::new(cleaner_core::EMPTY_FOLDERS_APP, "ProgramData")
+            });
+            plan.recompute_totals();
+            plan
+        };
+        for (generation, expected) in [(1, vec!["ProgramData"]), (2, vec!["cache"])] {
+            app.generation = generation;
+            app.apply_event(Event::ScanDone {
+                generation,
+                outcome: Ok(with_folders()),
+            });
+            let Screen::Select(state) = &app.screen else {
+                panic!("expected the selection screen");
+            };
+            let on: Vec<&str> = state
+                .plan
+                .groups
+                .iter()
+                .filter(|group| group.on)
+                .map(|group| group.label.as_str())
+                .collect();
+            assert_eq!(on, expected, "scan {generation}");
         }
     }
 

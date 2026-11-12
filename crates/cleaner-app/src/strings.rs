@@ -350,7 +350,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     presets_name_hint: "Preset name",
     presets_replace_note: "A preset of this name already exists. Saving replaces what it holds.",
     presets_manage_title: "Presets",
-    presets_startup_note: "The preset marked Use on start is checked for you at every launch, in place of your last selection.",
+    presets_startup_note: "The preset marked Use on start is checked for you at every launch, in place of your last selection. Its empty-folder rows are checked only when you pick it yourself.",
     presets_on_start: "Use on start",
     presets_on_start_hint: "Check this preset at every launch. Only one preset can do that.",
     presets_apply: "Apply",

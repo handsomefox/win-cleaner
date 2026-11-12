@@ -197,6 +197,11 @@ fn unique_targets(targets: Vec<Target>) -> Vec<Target> {
 
 /// Total byte size of a path. Returns `Ok(0)` for non-existent paths to avoid
 /// noisy errors. Symlinks and reparse points are never followed or sized.
+///
+/// A folder whose own contents cannot be listed is an error, not an empty
+/// folder, so the scan shows it with that error instead of hiding it. A
+/// subfolder deeper in that cannot be listed is skipped, and the size counts
+/// what could be read.
 pub(crate) fn dir_size(path: &Path) -> std::io::Result<u64> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -211,11 +216,12 @@ pub(crate) fn dir_size(path: &Path) -> std::io::Result<u64> {
     }
 
     let mut total = 0u64;
-    for entry in walkdir::WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(Result::ok)
-    {
+    for entry in walkdir::WalkDir::new(path).follow_links(false) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) if err.depth() == 0 => return Err(err.into()),
+            Err(_) => continue,
+        };
         let file_type = entry.file_type();
         if file_type.is_symlink() || !file_type.is_file() {
             continue;
@@ -494,17 +500,26 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn unreadable_tree_errors_are_tolerated_without_counting_bytes() {
+    fn an_unreadable_folder_is_an_error_and_an_unreadable_subfolder_is_skipped() {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().unwrap();
-        let locked = dir.path().join("locked");
-        create_dir_all(&locked).unwrap();
+        let cache = dir.path().join("cache");
+        let locked = cache.join("locked");
+        write_file(&cache.join("readable.bin"), 100);
+        write_file(&locked.join("hidden.bin"), 5000);
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
-        let size = dir_size(&locked);
+        // Root reads the folder anyway, which leaves nothing to check.
+        let enforced = fs::read_dir(&locked).is_err();
+        let inner = dir_size(&locked);
+        let outer = dir_size(&cache);
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
 
-        assert_eq!(size.unwrap(), 0);
+        if !enforced {
+            return;
+        }
+        assert!(inner.is_err(), "{inner:?}");
+        assert_eq!(outer.unwrap(), 100);
     }
 
     #[test]

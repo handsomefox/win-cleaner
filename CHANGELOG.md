@@ -2,6 +2,23 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.4.0
+
+- Picking a preset from **Presets** or **Manage presets** now checks its empty-folder rows. Saving
+  a preset used to drop them. The preset marked **Use on start** and your last selection still
+  leave them unchecked, so removing empty folders stays a choice you make each run.
+- Presets saved before 1.4.0 hold no empty-folder rows. To add them, pick the preset, check the
+  rows, then press **Update** beside it in **Manage presets**.
+- Add **Update** to each preset in **Manage presets**. It stores the targets checked now and keeps
+  the preset's name and **Use on start**. A target this scan could not offer, such as one with
+  nothing to clean or whose program is running, stays in the preset.
+- Hover a preset in the menu to see what it checks on this scan, and open **Manage presets** to see
+  every target in each one. A target the preset leaves unchecked is greyed out with the reason.
+- Empty-folder rows read "4 empty folders" instead of "4 items", and hovering the count lists the
+  folders. Their details explain that a folder is removed only while it is still empty, and
+  **Show files** no longer appears on these rows.
+- Restarting with administrator rights keeps empty-folder rows checked.
+
 ## 1.3.1
 
 - A target that could not be read, such as `Prefetch` without administrator rights, stays listed

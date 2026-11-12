@@ -421,10 +421,9 @@ pub(crate) enum PresetTargetStatus {
     Checks,
     /// Its program is running, so cleanup would skip it.
     Running,
-    /// It was found, but holds nothing to clean right now.
+    /// It holds nothing to clean right now. The scan cannot tell a target
+    /// that is missing from one an exclusion covers, so this says neither.
     NothingNow,
-    /// None of its paths exist on this PC.
-    NotFound,
     /// An empty-folder row whose root holds no empty folders right now.
     NoEmptyFolders,
     /// The catalog no longer has a target under this name.
@@ -450,7 +449,6 @@ pub(crate) fn preset_targets<'a>(
                     PresetTargetStatus::Checks
                 }
                 Some(group) if group.running.is_some() => PresetTargetStatus::Running,
-                Some(group) if group.targets.is_empty() => PresetTargetStatus::NotFound,
                 Some(_) => PresetTargetStatus::NothingNow,
                 // An empty-folder row exists only while its root holds one.
                 None if key.0 == EMPTY_FOLDERS_APP => PresetTargetStatus::NoEmptyFolders,
@@ -1148,8 +1146,8 @@ mod tests {
                 ("Chrome", PresetTargetStatus::Checks),
                 ("Empty folders", PresetTargetStatus::Checks),
                 ("Discord", PresetTargetStatus::Running),
+                ("Edge", PresetTargetStatus::NothingNow),
                 ("Firefox", PresetTargetStatus::NothingNow),
-                ("Edge", PresetTargetStatus::NotFound),
                 ("Empty folders", PresetTargetStatus::NoEmptyFolders),
                 ("Vivaldi", PresetTargetStatus::Gone),
             ]

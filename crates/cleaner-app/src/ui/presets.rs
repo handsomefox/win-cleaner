@@ -329,7 +329,6 @@ fn status_text(texts: &UiText, status: PresetTargetStatus) -> &'static str {
         PresetTargetStatus::Checks => "",
         PresetTargetStatus::Running => texts.presets_status_running,
         PresetTargetStatus::NothingNow => texts.presets_status_nothing_now,
-        PresetTargetStatus::NotFound => texts.presets_status_not_found,
         PresetTargetStatus::NoEmptyFolders => texts.presets_status_no_empty_folders,
         PresetTargetStatus::Gone => texts.presets_status_gone,
     }

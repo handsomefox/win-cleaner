@@ -155,10 +155,15 @@ pub(crate) fn save_dialog(
 }
 
 /// The Manage dialog: rename, pick the startup preset, see what each preset
-/// holds, apply, or delete.
+/// holds, apply, update, or delete.
+#[expect(
+    clippy::too_many_lines,
+    reason = "each preset's row and its contents read best in one place"
+)]
 pub(crate) fn manage_dialog(ctx: &egui::Context, texts: &UiText, state: &mut SelectState) -> bool {
     let mut close = false;
     let mut apply = None;
+    let mut update = None;
     let mut remove = None;
     let mut startup: Option<(usize, bool)> = None;
     let mut renamed: Option<(usize, String)> = None;
@@ -206,6 +211,13 @@ pub(crate) fn manage_dialog(ctx: &egui::Context, texts: &UiText, state: &mut Sel
                                             .clicked()
                                         {
                                             remove = Some(index);
+                                        }
+                                        if ui
+                                            .button(texts.presets_update)
+                                            .on_hover_text(texts.presets_update_hint)
+                                            .clicked()
+                                        {
+                                            update = Some(index);
                                         }
                                         if ui.button(texts.presets_apply).clicked() {
                                             apply = Some(index);
@@ -255,6 +267,15 @@ pub(crate) fn manage_dialog(ctx: &egui::Context, texts: &UiText, state: &mut Sel
         && let Some(preset) = state.presets.get(index)
     {
         viewmodel::apply_saved_selection(&mut state.plan, &preset.keys, EmptyFolderRows::Check);
+    }
+    if let Some(index) = update
+        && let Some(preset) = state.presets.get(index)
+    {
+        // Saving under the same name keeps the name and Use on start.
+        let name = preset.name.clone();
+        let _ = state
+            .presets
+            .save(&name, viewmodel::selected_keys(&state.plan));
     }
     if let Some(index) = remove {
         state.presets.remove(index);

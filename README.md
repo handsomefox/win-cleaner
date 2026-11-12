@@ -38,7 +38,7 @@ Exclusions, a minimum file age, and a minimum file size in **Settings** decide w
 
 Every path must sit strictly inside one of the known safe roots: AppData Local and Roaming, ProgramData, your user profile, and the Windows and Program Files trees. The app enforces that check while scanning, and checks it again immediately before each delete. It always rejects the roots themselves. It also rejects any path that is a symlink or reparse point, or that is reached through one.
 
-Symlinks and reparse points count as content everywhere else too. The app never follows one, never adds its target to a size estimate, and never treats a folder containing one as empty. Groups that turn out to be empty are never pre-selected, and empty-folder removal stays off until you turn it on. Picking a preset that holds empty-folder rows checks them, because that pick is your own click. The preset marked to apply at launch and your last selection never check them.
+Symlinks and reparse points count as content everywhere else too. The app never follows one, never adds its target to a size estimate, and never treats a folder containing one as empty. Groups that turn out to be empty are never pre-selected, and empty-folder removal stays off until you turn it on. Picking a preset that holds empty-folder rows checks them, and so does a select-all box, because those are your own clicks. The preset marked to apply at launch and your last selection never check them. When any are checked, the cleanup question says how many folders it removes and that they cannot be restored.
 
 Each clean writes a JSON record of what it attempted to the run history.
 

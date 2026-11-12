@@ -173,6 +173,15 @@ pub(crate) fn select_all_result(group: &Group, select: bool) -> bool {
     }
 }
 
+/// How many empty folders the checked empty-folder rows would remove.
+pub(crate) fn checked_empty_folders(plan: &Plan) -> usize {
+    plan.groups
+        .iter()
+        .filter(|group| group.on && group.app == EMPTY_FOLDERS_APP)
+        .map(|group| group.targets.len())
+        .sum()
+}
+
 /// Whether "Show empty" hides this target: an empty target the scan had no
 /// trouble reading. One that could not be read, such as Prefetch without
 /// administrator rights, stays in view with its error.
@@ -1289,6 +1298,22 @@ mod tests {
         apply_saved_selection(&mut third, &stored, EmptyFolderRows::Leave);
         assert!(third.groups[0].on);
         assert_eq!(third.selected, 1);
+    }
+
+    #[test]
+    fn the_cleanup_question_counts_only_checked_empty_folders() {
+        let mut local = group_with_path(EMPTY_FOLDERS_APP, r"AppData\Local", 0);
+        local.targets.push(local.targets[0].clone());
+        let roaming = Group {
+            on: false,
+            ..group_with_path(EMPTY_FOLDERS_APP, r"AppData\Roaming", 0)
+        };
+        let plan = Plan {
+            groups: vec![local, roaming, group_with_path("Chrome", "cache", 100)],
+            ..Plan::default()
+        };
+        assert_eq!(checked_empty_folders(&plan), 2);
+        assert!(ENGLISH.confirm_empty_folders(2).contains("2 empty folders"));
     }
 
     #[test]

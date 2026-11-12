@@ -22,7 +22,7 @@ This app deletes files. Five rules hold it up, and none of them is negotiable:
 - Deletion goes to the Recycle Bin through `IFileOperation` with `FOFX_RECYCLEONDELETE | FOFX_ADDUNDORECORD`. The progress sink in `recycle.rs` aborts any delete that would not go to the Recycle Bin. There is no permanent-deletion fallback. A failed move leaves the path alone.
 - Symlinks and reparse points count as content. Never follow one, never add its target to a size estimate, never treat a folder holding one as empty.
 - Preview is the default.
-- Empty-folder removal stays opt-in, and uses a non-recursive removal that succeeds only while the folder is still empty. Only the user's own click checks an empty-folder row: ticking it, or picking a preset that holds it. The elevated copy carries that click across the restart. A scan, the startup preset, and the remembered selection never check one.
+- Empty-folder removal stays opt-in, and uses a non-recursive removal that succeeds only while the folder is still empty. Only the user's own click checks an empty-folder row: ticking it, a select-all box that covers it, or picking a preset that holds it. The elevated copy carries that click across the restart. A scan, the startup preset, and the remembered selection never check one. Whenever one is checked, the cleanup question warns that its folders are removed for good, not sent to the Recycle Bin.
 
 The user's rules in `cleaner-core/src/rules.rs` hold up three more:
 

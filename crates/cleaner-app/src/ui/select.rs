@@ -571,6 +571,13 @@ fn modals(
                 );
                 ui.separator();
                 ui.label(texts.confirm_cache_cleanup(&state.plan));
+                let folders = viewmodel::checked_empty_folders(&state.plan);
+                if folders > 0 {
+                    ui.add_space(theme::SPACE_SM);
+                    ui.label(
+                        RichText::new(texts.confirm_empty_folders(folders)).color(theme::DANGER),
+                    );
+                }
                 ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui

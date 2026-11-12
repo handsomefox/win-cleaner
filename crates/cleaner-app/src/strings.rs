@@ -234,7 +234,9 @@ pub(crate) const ENGLISH: UiText = UiText {
     category_empty_folders: "Empty folders",
     category_other: "Other",
     toggle_preview_only: "Preview only",
-    tooltip_select_visible: "Select or clear every item in view, collapsed sections included",
+    tooltip_select_visible: "Select or clear every item in view, collapsed sections included. \
+                             This includes empty-folder rows, which are removed for good \
+                             rather than sent to the Recycle Bin.",
     tooltip_expand_section: "Expand section",
     tooltip_collapse_section: "Collapse section",
     action_expand_all: "Expand all",
@@ -511,9 +513,20 @@ impl UiText {
 
     pub(crate) fn confirm_cache_cleanup(&self, plan: &Plan) -> String {
         format!(
-            "Clean {}?\nEstimated savings: {}\n\nCache paths are moved to the Recycle Bin. Empty folders are removed only if they are still empty.",
+            "Clean {}?\nEstimated savings: {}\n\nCache paths are moved to the Recycle Bin.",
             self.items_count(plan.selected),
             human_bytes(plan.total_bytes),
+        )
+    }
+
+    /// The warning under the cleanup question when empty-folder rows are
+    /// checked, by hand, by select all, or by a preset.
+    pub(crate) fn confirm_empty_folders(&self, folders: usize) -> String {
+        format!(
+            "This also removes {}. They do not go to the Recycle Bin, so they cannot be \
+             restored, and some programs expect their empty folders to exist. Each is removed \
+             only if it is still empty. Uncheck the Empty folders rows to keep them.",
+            self.empty_folder_count(folders),
         )
     }
 

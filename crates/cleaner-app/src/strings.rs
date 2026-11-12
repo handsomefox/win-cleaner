@@ -417,7 +417,7 @@ impl UiText {
 
     /// What the Save dialog says it is about to store.
     pub(crate) fn presets_save_count(&self, n: usize) -> String {
-        format!("{} checked right now.", self.items_selected(n))
+        format!("{} checked right now.", self.items_count(n))
     }
 
     pub(crate) fn presets_target_count(&self, n: usize) -> String {

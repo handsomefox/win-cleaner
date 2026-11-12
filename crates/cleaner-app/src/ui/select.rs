@@ -505,12 +505,13 @@ fn selection_counts(state: &SelectState, indices: &[usize]) -> (usize, usize) {
     (selected, total)
 }
 
-/// Checks or clears every target in `indices`. Checking leaves out a target
-/// a select-all box does not cover; clearing clears it too.
+/// Checks or clears every target in `indices`. Checking leaves a target a
+/// select-all box does not cover as it was, so one the user checked by hand
+/// stays checked; clearing clears it too.
 fn set_all(state: &mut SelectState, indices: &[usize], select: bool) {
     for &index in indices {
         let group = &mut state.plan.groups[index];
-        group.on = select && viewmodel::takes_select_all(group);
+        group.on = viewmodel::select_all_result(group, select);
     }
 }
 

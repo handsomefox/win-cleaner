@@ -162,6 +162,17 @@ pub(crate) fn takes_select_all(group: &Group) -> bool {
     !is_empty_target(group) || group.errs.is_empty()
 }
 
+/// Whether `group` is checked after a select-all box is set to `select`.
+/// Checking all leaves a target the box does not cover as it was, so one
+/// checked by hand stays checked. Clearing all clears every target.
+pub(crate) fn select_all_result(group: &Group, select: bool) -> bool {
+    if select {
+        group.on || takes_select_all(group)
+    } else {
+        false
+    }
+}
+
 /// Whether "Show empty" hides this target: an empty target the scan had no
 /// trouble reading. One that could not be read, such as Prefetch without
 /// administrator rights, stays in view with its error.
@@ -1304,6 +1315,13 @@ mod tests {
             "select-all leaves it out, since cleaning it would only fail"
         );
         assert!(takes_select_all(&plan.groups[0]));
+
+        // Select-all leaves it as it was, so a hand-checked one stays checked.
+        let mut checked = plan.groups[1].clone();
+        assert!(!select_all_result(&checked, true));
+        checked.on = true;
+        assert!(select_all_result(&checked, true));
+        assert!(!select_all_result(&checked, false));
     }
 
     #[test]

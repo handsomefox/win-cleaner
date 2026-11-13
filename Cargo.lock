@@ -68,8 +68,8 @@ checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
 
 [[package]]
 name = "app-diagnostics"
-version = "0.2.2"
-source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.2#306c7853f669b94d37aed0d6c6eb767dae0b374b"
+version = "0.2.3"
+source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.3#0db46c8cb8a93d2a946359ac8ee2c1086f9b40f5"
 dependencies = [
  "jiff",
  "tracing",
@@ -78,8 +78,8 @@ dependencies = [
 
 [[package]]
 name = "app-folders"
-version = "0.2.2"
-source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.2#306c7853f669b94d37aed0d6c6eb767dae0b374b"
+version = "0.2.3"
+source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.3#0db46c8cb8a93d2a946359ac8ee2c1086f9b40f5"
 dependencies = [
  "tracing",
  "windows-sys 0.61.2",
@@ -87,16 +87,16 @@ dependencies = [
 
 [[package]]
 name = "app-process"
-version = "0.2.2"
-source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.2#306c7853f669b94d37aed0d6c6eb767dae0b374b"
+version = "0.2.3"
+source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.3#0db46c8cb8a93d2a946359ac8ee2c1086f9b40f5"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "app-update"
-version = "0.2.2"
-source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.2#306c7853f669b94d37aed0d6c6eb767dae0b374b"
+version = "0.2.3"
+source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.3#0db46c8cb8a93d2a946359ac8ee2c1086f9b40f5"
 dependencies = [
  "flate2",
  "reqwest",
@@ -111,8 +111,8 @@ dependencies = [
 
 [[package]]
 name = "app-update-ui"
-version = "0.2.2"
-source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.2#306c7853f669b94d37aed0d6c6eb767dae0b374b"
+version = "0.2.3"
+source = "git+https://github.com/handsomefox/app-internals?tag=v0.2.3#0db46c8cb8a93d2a946359ac8ee2c1086f9b40f5"
 dependencies = [
  "app-update",
  "egui",

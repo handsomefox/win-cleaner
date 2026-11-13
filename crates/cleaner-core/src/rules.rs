@@ -174,11 +174,22 @@ impl<'a> Walk<'a> {
         }
     }
 
+    /// The children of `folder`, sorted, or `None` when it cannot be read or
+    /// the walk stops. Listing a folder with many thousands of entries takes a
+    /// while, so the stop is checked as each one is read.
     fn read_dir(&mut self, folder: &Path) -> Option<Vec<PathBuf>> {
+        if self.stopped() {
+            return None;
+        }
         match fs::read_dir(folder) {
             Ok(entries) => {
-                let mut children: Vec<PathBuf> =
-                    entries.flatten().map(|entry| entry.path()).collect();
+                let mut children = Vec::new();
+                for entry in entries.flatten() {
+                    if self.stopped() {
+                        return None;
+                    }
+                    children.push(entry.path());
+                }
                 children.sort();
                 Some(children)
             }
@@ -241,7 +252,7 @@ fn split_folder(
     visit: &mut dyn FnMut(&Path, u64) -> bool,
 ) -> bool {
     let Some(children) = walk.read_dir(folder) else {
-        return true;
+        return !walk.stopped();
     };
     for child in children {
         if walk.stopped() {
@@ -292,7 +303,7 @@ fn walk_files(
         return true;
     }
     let Some(children) = walk.read_dir(root) else {
-        return true;
+        return !walk.stopped();
     };
     for child in children {
         if walk.stopped() {
@@ -496,6 +507,22 @@ mod tests {
             },
         );
         assert_eq!(visited, 1);
+    }
+
+    #[test]
+    fn a_stopped_walk_does_not_list_a_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path().join("file"), [0; 10]).unwrap();
+        let stop = AtomicBool::new(true);
+        let mut walk = Walk::default().stopping_on(&stop);
+        assert_eq!(walk.read_dir(dir.path()), None);
+        assert!(walk.errors.is_empty());
+
+        stop.store(false, Ordering::Relaxed);
+        assert_eq!(
+            walk.read_dir(dir.path()).map(|children| children.len()),
+            Some(1)
+        );
     }
 
     #[test]

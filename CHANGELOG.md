@@ -2,6 +2,30 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.4.1
+
+- A cache folder whose contents cannot be listed shows with its error instead of being hidden as
+  empty.
+- Checking all with a select-all box keeps targets you checked by hand, such as Prefetch data
+  without administrator rights. It used to uncheck them.
+- **Stop** and closing the file list take effect promptly with an age or size limit set. A large
+  folder of files below the limits kept the walk running to the end, and a folder holding many
+  thousands of files was always listed in full first.
+- A preset's list says "nothing to clean now" for any target it will not check because the target is
+  empty. It said "not found on this PC" for some targets that exist, such as one an exclusion
+  covers.
+- **History** shows when deleting a run or clearing it fails, such as when another program holds a
+  file open. It only wrote the error to the log.
+- An elevated copy compares accounts even when Windows does not report whether it is elevated, and
+  cleans nothing if it cannot compare them.
+- The question before a cleanup warns, in red, when empty-folder rows are checked: it says how many
+  folders the clean removes, and that they do not go to the Recycle Bin and cannot be restored. A
+  select-all box checks those rows too, and its tooltip now says so.
+- Updates installed from this version on are safer with two copies of the app open. A copy that
+  starts while another installs an update no longer deletes that download, and a copy no longer
+  installs an older update over a newer one that another copy installed. Files you keep beside the
+  app, and logs you renamed to keep, are no longer deleted at startup.
+
 ## 1.4.0
 
 - Picking a preset from **Presets** or **Manage presets** now checks its empty-folder rows. Saving

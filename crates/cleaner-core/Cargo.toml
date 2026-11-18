@@ -10,6 +10,7 @@ description = "Portable domain logic for win-cleaner: cleanup catalog, scanning,
 workspace = true
 
 [dependencies]
+app-paths.workspace = true
 jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true

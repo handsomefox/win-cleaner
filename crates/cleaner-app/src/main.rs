@@ -31,12 +31,9 @@ fn main() -> eframe::Result {
         tracing::info!("logging to {}", dir.display());
     }
 
-    if start_elevated_copy() {
-        return Ok(());
-    }
-    // A copy started by "Scan again as administrator" waits for the window
-    // that started it to close, because that window writes the settings
-    // this copy is about to read.
+    // An elevated copy waits for the window that started it to close: that
+    // window writes the settings this copy is about to read, and holds the
+    // single-instance lock this copy takes next.
     if let Some(pid) = cleaner_platform::elevation::after_pid(std::env::args())
         && let Ok(executable) = std::env::current_exe()
     {
@@ -55,11 +52,37 @@ fn main() -> eframe::Result {
             .with_icon(app_icon()),
         ..Default::default()
     };
-    let result = eframe::run_native(
-        strings::ENGLISH.app_title,
-        options,
-        Box::new(|cc| Ok(Box::new(app::WinCleanerApp::new(cc)))),
-    );
+    // The guard lives only for the window, so an updated copy started below
+    // finds the lock free.
+    let result = {
+        // A second launch brings this window forward instead of opening
+        // another.
+        let instance = match app_instance::acquire(APP_INFO.bin) {
+            Ok(app_instance::Instance::Primary(guard)) => Some(guard),
+            Ok(app_instance::Instance::Secondary) => {
+                tracing::info!("another copy is running; asked it to come forward");
+                return Ok(());
+            }
+            // Run without the guard rather than refuse to start.
+            Err(error) => {
+                tracing::warn!(%error, "running without the single-instance lock");
+                None
+            }
+        };
+        if start_elevated_copy() {
+            return Ok(());
+        }
+        eframe::run_native(
+            strings::ENGLISH.app_title,
+            options,
+            Box::new(|cc| {
+                if let Some(guard) = &instance {
+                    bring_forward_on_activate(guard, &cc.egui_ctx);
+                }
+                Ok(Box::new(app::WinCleanerApp::new(cc)))
+            }),
+        )
+    };
     // eframe saves the app's state before `run_native` returns, so the
     // updated copy starts from everything this one knew.
     if let Err(error) = app_update::restart_if_requested() {
@@ -70,7 +93,8 @@ fn main() -> eframe::Result {
 
 /// With "always start with administrator rights" on, asks Windows to start
 /// an elevated copy before any window opens, and reports whether one started.
-/// The copy carries `--elevated`, so it never asks again; a declined prompt
+/// The copy carries `--elevated`, so it never asks again, and waits for this
+/// copy to exit before it takes the single-instance lock. A declined prompt
 /// or a failure leaves this unelevated copy to run as usual.
 fn start_elevated_copy() -> bool {
     use cleaner_platform::elevation::{self, ELEVATED_ARG, Elevation};
@@ -83,7 +107,7 @@ fn start_elevated_copy() -> bool {
     let Ok(executable) = std::env::current_exe() else {
         return false;
     };
-    match elevation::start_elevated(&executable, false) {
+    match elevation::start_elevated(&executable, true) {
         Elevation::Started => {
             tracing::info!("started a copy with administrator rights");
             true
@@ -107,6 +131,19 @@ const APP_INFO: app_update::AppInfo = app_update::AppInfo {
     bin: "win-cleaner",
     version: env!("CARGO_PKG_VERSION"),
 };
+
+/// Restores and focuses the window whenever another launch signals.
+fn bring_forward_on_activate(guard: &app_instance::Guard, ctx: &egui::Context) {
+    let ctx = ctx.clone();
+    let watching = guard.on_activate(move || {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        ctx.request_repaint();
+    });
+    if let Err(error) = watching {
+        tracing::warn!(%error, "a second launch will not bring this window forward");
+    }
+}
 
 fn app_icon() -> egui::IconData {
     let bytes = include_bytes!("../assets/icon.png");

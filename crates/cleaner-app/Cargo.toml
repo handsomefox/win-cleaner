@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 app-diagnostics.workspace = true
 app-folders.workspace = true
+app-instance.workspace = true
 app-process.workspace = true
 app-update.workspace = true
 app-update-ui.workspace = true

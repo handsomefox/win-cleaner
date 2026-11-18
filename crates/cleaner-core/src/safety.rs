@@ -1,121 +1,17 @@
 //! The core safety invariant: a path may only be deleted when it is strictly
 //! inside one of the known safe roots. The guard is applied when scanning and
 //! re-checked immediately before every delete.
+//!
+//! The guard itself is `app-paths`, shared with the other apps. These tests
+//! pin the behaviour this app relies on.
 
-use std::fs;
-use std::path::{Component, MAIN_SEPARATOR, Path};
-
-/// Reports whether `path` is strictly under one of `roots` (never a root
-/// itself). Comparison is lexical and case-insensitive on cleaned paths, and
-/// the target and every existing ancestor below the trusted root are rejected
-/// when they are a symlink or Windows reparse point.
-#[must_use]
-pub fn is_safe_path(path: &Path, roots: &[&Path]) -> bool {
-    roots
-        .iter()
-        .any(|root| is_path_under_root(path, root) && path_chain_is_safe(path, root))
-}
-
-fn is_path_under_root(path: &Path, root: &Path) -> bool {
-    let path_key = normalized_key(path);
-    let root_key = normalized_key(root);
-    if path_key.is_empty() || root_key.is_empty() || path_key == root_key {
-        return false;
-    }
-    path_key.starts_with(&format!("{root_key}{MAIN_SEPARATOR}"))
-}
-
-/// Checks every directory between `root` and the target. A missing ancestor
-/// is safe for now because the target cannot exist; execution repeats this
-/// check immediately before recycling. Glob patterns are safety-checked before
-/// expansion, so an ancestor containing a `*` wildcard can never exist on disk:
-/// Windows reports it as `ERROR_INVALID_NAME` → `InvalidFilename` where Unix
-/// reports `NotFound`, and both are treated as missing. Other metadata failures
-/// are rejected because the guard cannot establish that the path stays inside
-/// the root.
-fn path_chain_is_safe(path: &Path, root: &Path) -> bool {
-    let root_key = normalized_key(root);
-    let mut current = Some(path);
-    while let Some(candidate) = current {
-        if normalized_key(candidate) == root_key {
-            return true;
-        }
-        match fs::symlink_metadata(candidate) {
-            Ok(metadata) if is_link(&metadata) => return false,
-            Ok(_) => {}
-            Err(err)
-                if err.kind() == std::io::ErrorKind::NotFound
-                    || err.kind() == std::io::ErrorKind::InvalidFilename => {}
-            Err(_) => return false,
-        }
-        current = candidate.parent();
-    }
-    false
-}
-
-/// Reports whether metadata describes a symlink or a Windows reparse point.
-/// Either counts as content: the cleaner never follows one, sizes its target,
-/// or treats it as a plain directory.
-pub(crate) fn is_link(metadata: &fs::Metadata) -> bool {
-    metadata.file_type().is_symlink() || is_reparse_point(metadata)
-}
-
-/// Reports whether metadata describes a Windows reparse point (junction,
-/// mount point, cloud placeholder). Always false elsewhere, where plain
-/// symlink checks suffice.
-pub(crate) fn is_reparse_point(metadata: &fs::Metadata) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
-        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = metadata;
-        false
-    }
-}
-
-/// Builds the comparison key used by both the safety guard and path
-/// de-duplication: a lexically cleaned path,
-/// lowercased. Using one key function for both keeps them consistent.
-#[must_use]
-pub fn normalized_key(path: &Path) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    let mut prefix = String::new();
-    let mut rooted = false;
-
-    for component in path.components() {
-        match component {
-            Component::Prefix(p) => prefix = p.as_os_str().to_string_lossy().into_owned(),
-            Component::RootDir => rooted = true,
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if parts.pop().is_none() && !rooted {
-                    parts.push("..".to_owned());
-                }
-            }
-            Component::Normal(name) => parts.push(name.to_string_lossy().into_owned()),
-        }
-    }
-
-    let mut key = prefix;
-    if rooted {
-        key.push(MAIN_SEPARATOR);
-    }
-    key.push_str(&parts.join(std::path::MAIN_SEPARATOR_STR));
-    if key.is_empty() {
-        key.push('.');
-    }
-    key.to_lowercase()
-}
+pub use app_paths::{is_link, is_reparse_point, is_safe_path, normalized_key};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::create_dir_all;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     fn sep(path: &str) -> PathBuf {
         PathBuf::from(path.replace('/', std::path::MAIN_SEPARATOR_STR))
@@ -142,6 +38,7 @@ mod tests {
         assert!(!is_safe_path(&sep("/elsewhere"), &[&root]));
     }
 
+    #[cfg(windows)]
     #[test]
     fn comparison_is_case_insensitive() {
         let root = sep("/Home/User/AppData");
@@ -152,7 +49,8 @@ mod tests {
     fn dotdot_cannot_escape() {
         let root = sep("/home/user/appdata");
         assert!(!is_safe_path(&sep("/home/user/appdata/../other"), &[&root]));
-        assert!(is_safe_path(&sep("/home/user/appdata/a/../b"), &[&root]));
+        // Any `..` is refused, even one that stays inside the root.
+        assert!(!is_safe_path(&sep("/home/user/appdata/a/../b"), &[&root]));
     }
 
     #[test]
@@ -165,7 +63,7 @@ mod tests {
     #[test]
     fn normalized_key_cleans_lexically() {
         assert_eq!(
-            normalized_key(&sep("/A/b/./c/../D")),
+            normalized_key(&sep("/a/b/./c/../d")),
             normalized_key(&sep("/a/b/d"))
         );
         assert_eq!(normalized_key(Path::new("")), ".");

@@ -19,14 +19,7 @@ pub const AFTER_ARG: &str = "--after=";
 /// Whether this process runs with administrator rights.
 #[must_use]
 pub fn is_elevated() -> bool {
-    #[cfg(windows)]
-    {
-        imp::elevation().unwrap_or(false)
-    }
-    #[cfg(not(windows))]
-    {
-        false
-    }
+    app_elevation::is_elevated().unwrap_or(false)
 }
 
 /// Which account this process runs as, next to the one signed in.
@@ -52,7 +45,7 @@ pub enum Account {
 pub fn account_check() -> Account {
     #[cfg(windows)]
     {
-        if imp::elevation() == Some(false) {
+        if matches!(app_elevation::is_elevated(), Ok(false)) {
             return Account::Same;
         }
         let process = imp::process_account();
@@ -153,37 +146,29 @@ pub enum Elevation {
 /// reads its settings.
 #[must_use]
 pub fn start_elevated(executable: &Path, after: bool) -> Elevation {
-    let mut parameters = ELEVATED_ARG.to_owned();
+    let mut command = app_elevation::Command::new(executable);
+    command.arg(ELEVATED_ARG);
     if after {
-        parameters.push(' ');
-        parameters.push_str(AFTER_ARG);
-        parameters.push_str(&std::process::id().to_string());
+        command.arg(format!("{AFTER_ARG}{}", std::process::id()));
     }
-    #[cfg(windows)]
-    {
-        imp::start_elevated(executable, &parameters)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (executable, parameters);
-        Elevation::Failed("administrator rights are only available on Windows".to_owned())
+    // The copy runs on its own; dropping the handle leaves it running.
+    match command.spawn() {
+        Ok(_copy) => Elevation::Started,
+        Err(app_elevation::Error::Cancelled) => Elevation::Declined,
+        Err(error) => Elevation::Failed(error.to_string()),
     }
 }
 
 #[cfg(windows)]
 mod imp {
     use std::ffi::c_void;
-    use std::os::windows::ffi::OsStrExt as _;
     use std::path::Path;
 
     use windows::Win32::Foundation::WAIT_TIMEOUT;
-    use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED, HANDLE};
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::{
         EqualSid, GetTokenInformation, LookupAccountNameW, LookupAccountSidW, PSID, SID_NAME_USE,
-        TOKEN_ELEVATION, TOKEN_QUERY, TOKEN_USER, TokenElevation, TokenUser,
-    };
-    use windows::Win32::System::Com::{
-        COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
+        TOKEN_QUERY, TOKEN_USER, TokenUser,
     };
     use windows::Win32::System::RemoteDesktop::{
         WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTS_INFO_CLASS, WTSDomainName,
@@ -194,11 +179,7 @@ mod imp {
         PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, QueryFullProcessImageNameW,
         WaitForSingleObject,
     };
-    use windows::Win32::UI::Shell::{SHELLEXECUTEINFOW, ShellExecuteExW};
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    use windows::core::{PCWSTR, PWSTR, w};
-
-    use super::Elevation;
+    use windows::core::{PCWSTR, PWSTR};
 
     /// This process's token, closed on drop.
     struct Token(HANDLE);
@@ -245,21 +226,6 @@ mod imp {
             // SAFETY: the handle came from OpenProcessToken and is closed once.
             let _ = unsafe { CloseHandle(self.0) };
         }
-    }
-
-    /// Whether this process's token is elevated, or `None` when the token
-    /// cannot be read.
-    pub(super) fn elevation() -> Option<bool> {
-        let token = Token::open()?;
-        let buffer = token.read(TokenElevation)?;
-        if buffer.len() < size_of::<TOKEN_ELEVATION>() {
-            return None;
-        }
-        // SAFETY: the buffer holds at least one TOKEN_ELEVATION, written by
-        // GetTokenInformation; read_unaligned copes with the Vec's alignment.
-        let elevation: TOKEN_ELEVATION =
-            unsafe { std::ptr::read_unaligned(buffer.as_ptr().cast()) };
-        Some(elevation.TokenIsElevated != 0)
     }
 
     /// The account this process runs as, as `DOMAIN\user`.
@@ -405,42 +371,6 @@ mod imp {
         }
         let image = String::from_utf16_lossy(&buffer[..length as usize]);
         image.eq_ignore_ascii_case(&executable.to_string_lossy())
-    }
-
-    pub(super) fn start_elevated(executable: &Path, parameters: &str) -> Elevation {
-        let file: Vec<u16> = executable
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let parameters: Vec<u16> = parameters
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        let mut info = SHELLEXECUTEINFOW {
-            cbSize: u32::try_from(size_of::<SHELLEXECUTEINFOW>()).unwrap_or_default(),
-            lpVerb: w!("runas"),
-            lpFile: PCWSTR(file.as_ptr()),
-            lpParameters: PCWSTR(parameters.as_ptr()),
-            nShow: SW_SHOWNORMAL.0,
-            ..Default::default()
-        };
-        // `ShellExecuteEx` can load shell extensions, which need COM, and
-        // `main` runs this before any window has set COM up.
-        // SAFETY: no reserved pointer; balanced below only on success.
-        let com =
-            unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
-        // SAFETY: `info` is initialized and its strings outlive the call.
-        let launched = unsafe { ShellExecuteExW(&raw mut info) };
-        if com.is_ok() {
-            // SAFETY: balances the successful CoInitializeEx above.
-            unsafe { CoUninitialize() };
-        }
-        match launched {
-            Ok(()) => Elevation::Started,
-            Err(error) if error.code() == ERROR_CANCELLED.to_hresult() => Elevation::Declined,
-            Err(error) => Elevation::Failed(error.message()),
-        }
     }
 }
 

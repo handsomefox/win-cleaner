@@ -73,16 +73,16 @@ pub fn build_plan(
         let mut resolved = unique_targets(resolved);
 
         let mut bytes = 0u64;
-        for target in &mut resolved {
+        // A target outside the safe roots is reported and dropped, so a
+        // cleanup never has it to try. One the rules leave entirely alone is
+        // not offered at all.
+        resolved.retain_mut(|target| {
             if !is_safe_path(&target.path, &guard_roots) {
                 errs.push(format!("skipping unsafe path: {}", target.path.display()));
-                continue;
+                return false;
             }
             target.bytes = estimate(target, rules, now, &mut errs);
             bytes += target.bytes;
-        }
-        // A target the rules leave entirely alone is not offered at all.
-        resolved.retain(|target| {
             !rules.is_excluded(&target.path)
                 && (target.version_rule.is_none() || !rules.has_exclusion_inside(&target.path))
         });
@@ -302,8 +302,9 @@ mod tests {
     }
 
     #[test]
-    fn unique_targets_is_case_insensitive_keeping_first() {
-        let targets = ["/a/B/c", "/a/b/C", "/a/b/d"]
+    fn unique_targets_keeps_the_first_of_each_path() {
+        // Case folds only on Windows, which `app-paths` covers.
+        let targets = ["/a/B/c", "/a/B/c", "/a/b/d"]
             .map(|path| Target::whole(PathBuf::from(path), 0))
             .into();
         let unique: Vec<_> = unique_targets(targets)
@@ -487,14 +488,14 @@ mod tests {
             .find(|group| group.app == "Tree")
             .unwrap();
         assert_eq!(tree.bytes, expected as u64);
-        assert!(tree.errs.is_empty());
+        assert_eq!(tree.errs, Vec::<String>::new());
         let missing = plan
             .groups
             .iter()
             .find(|group| group.app == "Missing")
             .unwrap();
         assert_eq!(missing.bytes, 0);
-        assert!(missing.errs.is_empty());
+        assert_eq!(missing.errs, Vec::<String>::new());
         assert!(!missing.on);
     }
 
@@ -537,6 +538,10 @@ mod tests {
         assert_eq!(evil.errs.len(), 1);
         assert!(evil.errs[0].contains("unsafe"));
         assert_eq!(evil.bytes, 0);
+        assert!(
+            evil.targets.is_empty(),
+            "a target that fails the guard is not kept for cleanup"
+        );
     }
 
     #[cfg(unix)]

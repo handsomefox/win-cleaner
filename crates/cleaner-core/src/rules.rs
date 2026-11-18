@@ -75,39 +75,69 @@ impl Rules {
     }
 
     /// Drops exclusions that are not plain absolute paths, and repeats.
+    /// Returns the exclusions dropped because they were not, so the user can
+    /// be told. Repeats are dropped without a word.
     ///
-    /// Cleanup targets are plain drive paths, and exclusions are matched to
-    /// them by text, so `\\?\C:\cache` is rewritten as `C:\cache`. Any other
-    /// prefix, such as a network share or a device, is dropped: no target
-    /// sits under one, so it could never protect anything.
-    pub fn sanitize(&mut self) {
+    /// Cleanup targets are plain drive or network share paths, and exclusions
+    /// are matched to them by text, so `\\?\C:\cache` is rewritten as
+    /// `C:\cache` and `\\?\UNC\server\share\cache` as `\\server\share\cache`.
+    /// A network share stays, since Folder Redirection can put `AppData` on
+    /// one. Any other form, such as a relative path or a device path, is
+    /// dropped: no target sits under one, so it could never protect anything.
+    pub fn sanitize(&mut self) -> Vec<PathBuf> {
         let mut seen = std::collections::HashSet::new();
+        let mut dropped = Vec::new();
         self.exclusions = std::mem::take(&mut self.exclusions)
             .into_iter()
-            .filter_map(plain_absolute)
+            .filter_map(|path| {
+                let plain = plain_absolute(&path);
+                if plain.is_none() {
+                    dropped.push(path);
+                }
+                plain
+            })
             .filter(|path| seen.insert(normalized_key(path)))
             .collect();
+        dropped
     }
 }
 
 /// `path` as a plain absolute path, or `None` when it has no such form.
-fn plain_absolute(path: PathBuf) -> Option<PathBuf> {
+fn plain_absolute(path: &Path) -> Option<PathBuf> {
     if !path.is_absolute() {
         return None;
     }
     let mut components = path.components();
     let Some(Component::Prefix(prefix)) = components.next() else {
-        return Some(path);
+        return Some(path.to_path_buf());
     };
-    match prefix.kind() {
-        Prefix::Disk(_) => Some(path),
+    let mut plain = match prefix.kind() {
+        Prefix::Disk(_) | Prefix::UNC(..) => return Some(path.to_path_buf()),
         Prefix::VerbatimDisk(letter) => {
-            let mut plain = PathBuf::from(format!("{}:{MAIN_SEPARATOR}", char::from(letter)));
-            plain.extend(components.filter(|part| !matches!(part, Component::RootDir)));
-            Some(plain)
+            PathBuf::from(format!("{}:{MAIN_SEPARATOR}", char::from(letter)))
         }
-        _ => None,
-    }
+        Prefix::VerbatimUNC(server, share) => {
+            let mut text = std::ffi::OsString::from(r"\\");
+            text.push(server);
+            text.push(r"\");
+            text.push(share);
+            text.push(r"\");
+            PathBuf::from(text)
+        }
+        Prefix::Verbatim(_) | Prefix::DeviceNS(_) => return None,
+    };
+    plain.extend(components.filter(|part| !matches!(part, Component::RootDir)));
+    Some(plain)
+}
+
+/// Whether Windows would look `name` up as another name: it drops a trailing
+/// dot or space from each part of a path it is given, so `foo.` opens `foo`.
+/// Such names can only be made through `\\?\` paths, and any move by name
+/// would reach the wrong item, perhaps an excluded one, so the cleaner skips
+/// them when it lists a folder.
+#[must_use]
+pub(crate) fn trimmed_by_windows(name: &std::ffi::OsStr) -> bool {
+    matches!(name.as_encoded_bytes().last(), Some(b'.' | b' '))
 }
 
 /// Whether the normalized `key` equals `ancestor` or lies inside it. Compares
@@ -176,7 +206,8 @@ impl<'a> Walk<'a> {
 
     /// The children of `folder`, sorted, or `None` when it cannot be read or
     /// the walk stops. Listing a folder with many thousands of entries takes a
-    /// while, so the stop is checked as each one is read.
+    /// while, so the stop is checked as each one is read. A child whose name
+    /// Windows would trim is left out; see [`trimmed_by_windows`].
     fn read_dir(&mut self, folder: &Path) -> Option<Vec<PathBuf>> {
         if self.stopped() {
             return None;
@@ -188,7 +219,9 @@ impl<'a> Walk<'a> {
                     if self.stopped() {
                         return None;
                     }
-                    children.push(entry.path());
+                    if !trimmed_by_windows(&entry.file_name()) {
+                        children.push(entry.path());
+                    }
                 }
                 children.sort();
                 Some(children)
@@ -243,6 +276,11 @@ pub fn plan_paths(
     }
 }
 
+/// The folders a walk has entered and not finished, each with the children
+/// it has yet to visit. Kept on the heap, so a deeply nested tree cannot
+/// overflow the worker thread's stack.
+type Pending = Vec<std::vec::IntoIter<PathBuf>>;
+
 /// Visits each child of `folder` whole, going one level deeper only where an
 /// exclusion sits inside. Returns `false` once `visit` asks to stop.
 fn split_folder(
@@ -254,7 +292,12 @@ fn split_folder(
     let Some(children) = walk.read_dir(folder) else {
         return !walk.stopped();
     };
-    for child in children {
+    let mut pending: Pending = vec![children.into_iter()];
+    while let Some(level) = pending.last_mut() {
+        let Some(child) = level.next() else {
+            pending.pop();
+            continue;
+        };
         if walk.stopped() {
             return false;
         }
@@ -267,14 +310,19 @@ fn split_folder(
         if is_link(&metadata) || is_reparse_point(&metadata) {
             continue;
         }
-        let keep_going = if metadata.is_dir() && rules.has_exclusion_inside(&child) {
-            split_folder(&child, rules, walk, visit)
+        if metadata.is_dir() && rules.has_exclusion_inside(&child) {
+            // A folder that cannot be listed is skipped, unless the walk
+            // stopped while listing it.
+            match walk.read_dir(&child) {
+                Some(children) => pending.push(children.into_iter()),
+                None if walk.stopped() => return false,
+                None => {}
+            }
         } else {
             let size = walk.size(&child);
-            visit(&child, size)
-        };
-        if !keep_going {
-            return false;
+            if !visit(&child, size) {
+                return false;
+            }
         }
     }
     true
@@ -290,22 +338,15 @@ fn walk_files(
     walk: &mut Walk<'_>,
     visit: &mut dyn FnMut(&Path, u64) -> bool,
 ) -> bool {
-    if is_link(metadata) || is_reparse_point(metadata) {
-        return true;
+    let mut pending: Pending = Vec::new();
+    if !walk_entry(root, metadata, rules, now, walk, visit, &mut pending) {
+        return false;
     }
-    if metadata.is_file() {
-        if rules.file_passes(metadata, now) {
-            return visit(root, metadata.len());
-        }
-        return true;
-    }
-    if !metadata.is_dir() {
-        return true;
-    }
-    let Some(children) = walk.read_dir(root) else {
-        return !walk.stopped();
-    };
-    for child in children {
+    while let Some(level) = pending.last_mut() {
+        let Some(child) = level.next() else {
+            pending.pop();
+            continue;
+        };
         if walk.stopped() {
             return false;
         }
@@ -315,11 +356,49 @@ fn walk_files(
         let Ok(child_metadata) = fs::symlink_metadata(&child) else {
             continue;
         };
-        if !walk_files(&child, &child_metadata, rules, now, walk, visit) {
+        if !walk_entry(
+            &child,
+            &child_metadata,
+            rules,
+            now,
+            walk,
+            visit,
+            &mut pending,
+        ) {
             return false;
         }
     }
     true
+}
+
+/// One step of [`walk_files`]: visits `path` when it is a file that passes
+/// the limits, or queues its children when it is a folder. Links are left
+/// alone. Returns `false` once `visit` asks to stop or the walk stops.
+fn walk_entry(
+    path: &Path,
+    metadata: &fs::Metadata,
+    rules: &Rules,
+    now: SystemTime,
+    walk: &mut Walk<'_>,
+    visit: &mut dyn FnMut(&Path, u64) -> bool,
+    pending: &mut Pending,
+) -> bool {
+    if is_link(metadata) || is_reparse_point(metadata) {
+        return true;
+    }
+    if metadata.is_file() {
+        return !rules.file_passes(metadata, now) || visit(path, metadata.len());
+    }
+    if !metadata.is_dir() {
+        return true;
+    }
+    match walk.read_dir(path) {
+        Some(children) => {
+            pending.push(children.into_iter());
+            true
+        }
+        None => !walk.stopped(),
+    }
 }
 
 /// Every file cleaning `root` under `rules` would move, with its size and
@@ -350,31 +429,60 @@ pub fn list_files(
     files
 }
 
+/// Adds every file at or under `path` to `files`, in the order the folders
+/// list them, until `limit` or `cancel`. Links are never listed or followed,
+/// and neither is a name Windows would trim.
 fn collect_files(path: &Path, files: &mut Vec<FileEntry>, limit: usize, cancel: &AtomicBool) {
-    if files.len() >= limit || cancel.load(Ordering::Relaxed) {
-        return;
-    }
-    let Ok(metadata) = fs::symlink_metadata(path) else {
-        return;
-    };
-    if is_link(&metadata) || is_reparse_point(&metadata) {
-        return;
-    }
-    if metadata.is_file() {
-        files.push(FileEntry {
-            path: path.to_path_buf(),
-            bytes: metadata.len(),
-            modified: metadata.modified().ok(),
-        });
-    } else if metadata.is_dir()
-        && let Ok(entries) = fs::read_dir(path)
-    {
-        for entry in entries.flatten() {
-            collect_files(&entry.path(), files, limit, cancel);
-            if files.len() >= limit || cancel.load(Ordering::Relaxed) {
-                return;
-            }
+    let mut pending: Pending = vec![vec![path.to_path_buf()].into_iter()];
+    while let Some(level) = pending.last_mut() {
+        let Some(path) = level.next() else {
+            pending.pop();
+            continue;
+        };
+        if files.len() >= limit || cancel.load(Ordering::Relaxed) {
+            return;
         }
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if is_link(&metadata) || is_reparse_point(&metadata) {
+            continue;
+        }
+        if metadata.is_file() {
+            files.push(FileEntry {
+                bytes: metadata.len(),
+                modified: metadata.modified().ok(),
+                path,
+            });
+        } else if metadata.is_dir()
+            && let Ok(entries) = fs::read_dir(&path)
+        {
+            // Each level is read in full and closed before the next opens,
+            // so a deep tree holds one folder open at a time.
+            let mut children = Vec::new();
+            for entry in entries.flatten() {
+                if cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+                if !trimmed_by_windows(&entry.file_name()) {
+                    children.push(entry.path());
+                }
+            }
+            pending.push(children.into_iter());
+        }
+    }
+}
+
+#[cfg(test)]
+/// `path` in a form that keeps a trailing dot or space: the `\\?\` form
+/// on Windows, which skips the trimming, and as it is elsewhere.
+pub(crate) fn verbatim_for_test(path: &Path) -> PathBuf {
+    if cfg!(windows) {
+        let mut text = std::ffi::OsString::from(r"\\?\");
+        text.push(path.as_os_str());
+        PathBuf::from(text)
+    } else {
+        path.to_path_buf()
     }
 }
 
@@ -407,8 +515,9 @@ mod tests {
     }
 
     #[test]
-    fn exclusions_match_whole_components_without_regard_to_case() {
-        let rules = rules(&[Path::new("/data/Cache/Keep")]);
+    fn exclusions_match_whole_components() {
+        // Case folds only on Windows, which `app-paths` covers.
+        let rules = rules(&[Path::new("/data/cache/keep")]);
         assert!(rules.is_excluded(Path::new("/data/cache/keep")));
         assert!(rules.is_excluded(Path::new("/data/cache/keep/deep/file")));
         assert!(!rules.is_excluded(Path::new("/data/cache/keeper")));
@@ -462,8 +571,9 @@ mod tests {
             ],
             "the excluded folder and the folders holding it stay"
         );
-        assert!(planned(&cache.join("sub/keep"), false, &rules).is_empty());
-        assert!(planned(&cache.join("sub/keep/k"), false, &rules).is_empty());
+        let nothing = Vec::<(PathBuf, u64)>::new();
+        assert_eq!(planned(&cache.join("sub/keep"), false, &rules), nothing);
+        assert_eq!(planned(&cache.join("sub/keep/k"), false, &rules), nothing);
     }
 
     #[test]
@@ -516,7 +626,7 @@ mod tests {
         let stop = AtomicBool::new(true);
         let mut walk = Walk::default().stopping_on(&stop);
         assert_eq!(walk.read_dir(dir.path()), None);
-        assert!(walk.errors.is_empty());
+        assert_eq!(walk.errors, Vec::<String>::new());
 
         stop.store(false, Ordering::Relaxed);
         assert_eq!(
@@ -664,24 +774,43 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn sanitize_rewrites_verbatim_drive_paths_and_drops_other_prefixes() {
+    fn sanitize_rewrites_verbatim_paths_keeps_shares_and_drops_devices() {
         let mut rules = Rules {
             exclusions: vec![
                 PathBuf::from(r"\\?\C:\Users\Ed\AppData\Local\cache\keep.bin"),
-                PathBuf::from(r"\\server\share\keep"),
-                PathBuf::from(r"\\?\UNC\server\share\keep"),
+                PathBuf::from(r"\\server\share\Ed\AppData\Roaming\cache\keep"),
+                PathBuf::from(r"\\?\UNC\server\share\Ed\AppData\Roaming\other\keep"),
+                PathBuf::from(r"\\?\UNC\server\share\Ed\AppData\Roaming\cache\keep"),
                 PathBuf::from(r"\\.\C:\keep"),
+                PathBuf::from(r"\\?\Volume{00000000-0000-0000-0000-000000000000}\keep"),
             ],
             ..Rules::default()
         };
-        rules.sanitize();
+        let dropped = rules.sanitize();
         assert_eq!(
             rules.exclusions,
-            vec![PathBuf::from(r"C:\Users\Ed\AppData\Local\cache\keep.bin")]
+            vec![
+                PathBuf::from(r"C:\Users\Ed\AppData\Local\cache\keep.bin"),
+                PathBuf::from(r"\\server\share\Ed\AppData\Roaming\cache\keep"),
+                PathBuf::from(r"\\server\share\Ed\AppData\Roaming\other\keep"),
+            ],
+            "the verbatim share path is rewritten, and its repeat goes quietly"
+        );
+        assert_eq!(
+            dropped,
+            vec![
+                PathBuf::from(r"\\.\C:\keep"),
+                PathBuf::from(r"\\?\Volume{00000000-0000-0000-0000-000000000000}\keep"),
+            ]
         );
         let cache = Path::new(r"C:\Users\Ed\AppData\Local\cache");
         assert!(rules.has_exclusion_inside(cache));
         assert!(rules.is_excluded(&cache.join("keep.bin")));
+        // With Folder Redirection, targets under Roaming sit on the share.
+        let roaming = Path::new(r"\\server\share\Ed\AppData\Roaming");
+        assert!(rules.has_exclusion_inside(&roaming.join("cache")));
+        assert!(rules.is_excluded(&roaming.join(r"other\keep\file.bin")));
+        assert!(!rules.is_excluded(&roaming.join(r"other\drop")));
     }
 
     #[test]
@@ -691,11 +820,144 @@ mod tests {
             exclusions: vec![
                 PathBuf::from("relative/path"),
                 base.join("Keep"),
-                base.join("keep"),
+                base.join("Keep"),
             ],
             ..Rules::default()
         };
-        rules.sanitize();
+        let dropped = rules.sanitize();
         assert_eq!(rules.exclusions, vec![base.join("Keep")]);
+        assert_eq!(
+            dropped,
+            vec![PathBuf::from("relative/path")],
+            "only the invalid one is reported, not the repeat"
+        );
+    }
+
+    #[test]
+    fn names_windows_would_trim_are_never_planned_or_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        create_dir_all(cache.join("keep")).unwrap();
+        write(cache.join("keep/data.bin"), b"keep").unwrap();
+        write(cache.join("drop.bin"), b"drop").unwrap();
+        // Windows would open these as `keep` and `drop.bin`.
+        create_dir_all(verbatim_for_test(&cache.join("keep."))).unwrap();
+        write(
+            verbatim_for_test(&cache.join("keep.").join("inner.bin")),
+            b"inner",
+        )
+        .unwrap();
+        write(
+            verbatim_for_test(&cache.join("drop.bin ")),
+            b"trailing space",
+        )
+        .unwrap();
+        let rules = rules(&[&cache.join("keep")]);
+
+        let paths: Vec<PathBuf> = planned(&cache, false, &rules)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert_eq!(paths, vec![cache.join("drop.bin")]);
+
+        let filtered = Rules {
+            min_size_bytes: 1,
+            ..rules.clone()
+        };
+        let files: Vec<PathBuf> = planned(&cache, false, &filtered)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert_eq!(files, vec![cache.join("drop.bin")]);
+
+        let listed: Vec<PathBuf> = list_files(
+            &cache,
+            true,
+            &Rules::default(),
+            SystemTime::now(),
+            100,
+            &AtomicBool::new(false),
+        )
+        .into_iter()
+        .map(|file| file.path)
+        .collect();
+        let mut listed = listed;
+        listed.sort();
+        assert_eq!(
+            listed,
+            vec![cache.join("drop.bin"), cache.join("keep/data.bin")]
+        );
+
+        assert!(trimmed_by_windows(std::ffi::OsStr::new("a.")));
+        assert!(trimmed_by_windows(std::ffi::OsStr::new("a ")));
+        assert!(!trimmed_by_windows(std::ffi::OsStr::new("a.b")));
+        assert!(!trimmed_by_windows(std::ffi::OsStr::new(".a")));
+    }
+
+    /// A chain of `depth` nested folders under `root`, each named `d`, with a
+    /// file and an exclusion at the bottom. Returns the deepest folder.
+    fn deep_tree(root: &Path, depth: usize) -> PathBuf {
+        let mut deepest = root.to_path_buf();
+        for _ in 0..depth {
+            deepest.push("d");
+        }
+        create_dir_all(&deepest).unwrap();
+        write(deepest.join("file.bin"), b"deep").unwrap();
+        write(deepest.join("keep.bin"), b"keep").unwrap();
+        deepest
+    }
+
+    /// Runs `work` on a thread with a stack far smaller than the worker's,
+    /// so a walk that recursed once per folder level would overflow it.
+    fn on_small_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(work)
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    #[test]
+    fn deeply_nested_folders_do_not_overflow_the_stack() {
+        // Linux limits a path to 4096 bytes and `d/` is two, so 1500 levels
+        // fit. On a 256 KiB stack a walk that recursed per level would abort.
+        const DEPTH: usize = 1500;
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        let deepest = deep_tree(&cache, DEPTH);
+        let rules = rules(&[&deepest.join("keep.bin")]);
+
+        let (split, filtered, listed) = on_small_stack({
+            let cache = cache.clone();
+            move || {
+                let split = planned(&cache, false, &rules);
+                let filtered = planned(
+                    &cache,
+                    false,
+                    &Rules {
+                        min_size_bytes: 1,
+                        ..rules.clone()
+                    },
+                );
+                let listed = list_files(
+                    &cache,
+                    false,
+                    &Rules::default(),
+                    SystemTime::now(),
+                    100,
+                    &AtomicBool::new(false),
+                );
+                (split, filtered, listed)
+            }
+        });
+        assert_eq!(split, vec![(deepest.join("file.bin"), 4)]);
+        assert_eq!(filtered, vec![(deepest.join("file.bin"), 4)]);
+        let mut listed: Vec<PathBuf> = listed.into_iter().map(|file| file.path).collect();
+        listed.sort();
+        assert_eq!(
+            listed,
+            vec![deepest.join("file.bin"), deepest.join("keep.bin")]
+        );
     }
 }

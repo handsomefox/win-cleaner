@@ -30,6 +30,10 @@ pub(crate) struct SettingsFile {
     pub remember_selection: bool,
     pub show_empty: bool,
     pub selection: Vec<TargetKey>,
+    /// The exclusions [`SettingsFile::parse`] removed because no target can
+    /// sit under them, so the user can be told. Never written to the file.
+    #[serde(skip)]
+    pub dropped_exclusions: Vec<std::path::PathBuf>,
 }
 
 /// Why a settings file was not imported.
@@ -57,6 +61,7 @@ impl SettingsFile {
             remember_selection,
             show_empty,
             selection: selection.to_vec(),
+            dropped_exclusions: Vec::new(),
         }
     }
 
@@ -65,7 +70,8 @@ impl SettingsFile {
     }
 
     /// Reads and checks a settings file. Exclusions that are not absolute
-    /// paths are dropped, presets are cleaned the way storage is, and keys
+    /// paths are dropped and listed in `dropped_exclusions`, presets are
+    /// cleaned the way storage is, and keys
     /// for targets from older versions are carried over.
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, ImportError> {
         if bytes.len() as u64 > MAX_BYTES {
@@ -79,7 +85,7 @@ impl SettingsFile {
         if file.version > VERSION {
             return Err(ImportError::NewerVersion(file.version));
         }
-        file.rules.sanitize();
+        file.dropped_exclusions = file.rules.sanitize();
         file.presets.sanitize();
         file.presets.migrate_keys();
         crate::migrate::target_keys(&mut file.selection);
@@ -161,6 +167,10 @@ mod tests {
         assert_eq!(
             imported.rules.exclusions,
             vec![std::env::temp_dir().join("keep-this")]
+        );
+        assert_eq!(
+            imported.dropped_exclusions,
+            vec![PathBuf::from("relative/path")]
         );
         assert!(
             imported

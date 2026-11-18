@@ -32,8 +32,17 @@ pub(crate) fn show(ui: &mut Ui, texts: &UiText, state: &mut ResultsState) -> Opt
         if let Some(stats_error) = &state.stats_error {
             ui.label(RichText::new(texts.stats_write_failed(stats_error)).color(theme::DANGER));
         }
-        if state.result.stopped {
-            ui.label(RichText::new(texts.result_stopped).color(theme::MUTED));
+        match state.result.not_recycled_count() {
+            0 if state.result.recycle_bin_off() => {
+                ui.label(RichText::new(texts.result_recycle_bin_off).color(theme::DANGER));
+            }
+            0 if state.result.stopped => {
+                ui.label(RichText::new(texts.result_stopped).color(theme::MUTED));
+            }
+            0 => {}
+            lost => {
+                ui.label(RichText::new(texts.result_not_recycled(lost)).color(theme::DANGER));
+            }
         }
         if let Some(error_summary) = error_summary(texts, &state.result) {
             ui.label(&error_summary);

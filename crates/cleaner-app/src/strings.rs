@@ -135,6 +135,7 @@ pub(crate) struct UiText {
     pub files_loading: &'static str,
     pub files_none: &'static str,
     pub result_stopped: &'static str,
+    pub result_recycle_bin_off: &'static str,
     pub settings_add_file: &'static str,
     pub settings_add_folder: &'static str,
     pub settings_admin_title: &'static str,
@@ -328,6 +329,7 @@ pub(crate) const ENGLISH: UiText = UiText {
     files_hint_filtered: "With an age or size limit set, cleanup moves these files one by one and leaves their folders.",
     files_loading: "Listing files…",
     files_none: "Nothing here would be cleaned.",
+    result_recycle_bin_off: "Cleanup stopped: the Recycle Bin is turned off or too small for a drive, so Windows would have deleted files for good. Nothing was deleted. Turn the Recycle Bin on or make it larger for that drive in its Properties, then clean again.",
     result_stopped: "You stopped the cleanup. The last target listed may be only partly cleaned, and the targets not listed were not cleaned.",
     settings_add_file: "Add file…",
     settings_add_folder: "Add folder…",
@@ -413,6 +415,48 @@ impl UiText {
 
     pub(crate) fn failed_count(&self, n: usize) -> String {
         format!("{n} failed")
+    }
+
+    /// A target's status when the shell deleted some of it for good.
+    pub(crate) fn not_recycled_count(&self, n: usize) -> String {
+        format!("{n} deleted for good")
+    }
+
+    /// The warning on the results screen and in History when the shell
+    /// deleted something for good instead of moving it to the Recycle Bin.
+    pub(crate) fn result_not_recycled(&self, n: usize) -> String {
+        let (object, subject) = if n == 1 {
+            ("it", "It")
+        } else {
+            ("them", "They")
+        };
+        format!(
+            "Windows deleted {} for good instead of moving {object} to the Recycle Bin. {subject} \
+             cannot be restored. The cleanup stopped there, so nothing else was deleted this \
+             way. The Recycle Bin may be turned off for that drive, or the item may be too large \
+             for it. The error details show what was deleted.",
+            self.items_count(n)
+        )
+    }
+
+    /// The notice for exclusions removed because no target can sit under
+    /// them, such as a relative path or a device path.
+    pub(crate) fn exclusions_dropped(&self, paths: &[std::path::PathBuf]) -> String {
+        use std::fmt::Write as _;
+
+        let mut out = if paths.len() == 1 {
+            "This exclusion was removed. It is not a path on a drive or a network share, so it \
+             could never protect anything:"
+                .to_owned()
+        } else {
+            "These exclusions were removed. They are not paths on a drive or a network share, so \
+             they could never protect anything:"
+                .to_owned()
+        };
+        for path in paths {
+            let _ = write!(out, "\n- {}", path.display());
+        }
+        out
     }
 
     pub(crate) fn issues_count(&self, n: usize) -> String {

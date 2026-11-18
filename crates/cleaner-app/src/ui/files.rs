@@ -282,12 +282,11 @@ pub(crate) fn show(
 fn format_modified(modified: Option<std::time::SystemTime>) -> String {
     modified
         .and_then(|time| jiff::Timestamp::try_from(time).ok())
-        .map(|time| {
+        .map_or_default(|time| {
             time.to_zoned(jiff::tz::TimeZone::system())
                 .strftime("%Y-%m-%d %H:%M")
                 .to_string()
         })
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -207,8 +207,17 @@ fn run_details(ui: &mut Ui, texts: &UiText, run: &StoredRun, action: &mut Option
         );
         error_chip(ui, texts, result.error_count);
     });
-    if result.stopped {
-        ui.label(RichText::new(texts.result_stopped).color(theme::MUTED));
+    match result.not_recycled_count() {
+        0 if result.recycle_bin_off() => {
+            ui.label(RichText::new(texts.result_recycle_bin_off).color(theme::DANGER));
+        }
+        0 if result.stopped => {
+            ui.label(RichText::new(texts.result_stopped).color(theme::MUTED));
+        }
+        0 => {}
+        lost => {
+            ui.label(RichText::new(texts.result_not_recycled(lost)).color(theme::DANGER));
+        }
     }
     ui.separator();
 

@@ -52,9 +52,27 @@ pub struct GroupResult {
     pub skipped: Option<String>,
     pub paths_attempted: usize,
     pub paths_failed: usize,
-    /// Stop was pressed before cleanup finished this target.
+    /// Stop was pressed before cleanup finished this target, or the run ended
+    /// in it because something was deleted for good.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stopped: bool,
+    /// How many paths the shell deleted for good instead of moving them to
+    /// the Recycle Bin. Each also has an entry in `errors`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub not_recycled: usize,
+    /// The run ended in this target because the shell refused to move a path
+    /// to the Recycle Bin: it is off or too small for the drive. Nothing was
+    /// deleted.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub recycle_bin_off: bool,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde passes the field by reference"
+)]
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 impl GroupResult {
@@ -71,6 +89,13 @@ impl GroupResult {
     #[must_use]
     pub fn stopped_untouched(&self) -> bool {
         self.stopped && self.paths_attempted == 0 && self.skipped.is_none()
+    }
+
+    /// Whether every path this target tried failed, so nothing of it was
+    /// cleaned.
+    #[must_use]
+    pub fn all_failed(&self) -> bool {
+        self.paths_attempted > 0 && self.paths_failed >= self.paths_attempted
     }
 }
 
@@ -107,6 +132,20 @@ impl ExecResult {
         self.freed_bytes.unwrap_or(self.total_bytes)
     }
 
+    /// How many paths the shell deleted for good instead of moving them to
+    /// the Recycle Bin.
+    #[must_use]
+    pub fn not_recycled_count(&self) -> usize {
+        self.groups.iter().map(|group| group.not_recycled).sum()
+    }
+
+    /// Whether the run ended because the Recycle Bin was off or too small for
+    /// a drive.
+    #[must_use]
+    pub fn recycle_bin_off(&self) -> bool {
+        self.groups.iter().any(|group| group.recycle_bin_off)
+    }
+
     /// How many targets the run left alone, such as one whose program was
     /// running.
     #[must_use]
@@ -117,8 +156,9 @@ impl ExecResult {
             .count()
     }
 
-    /// How many targets the run cleaned or tried to clean. A skipped target
-    /// does not count, and neither does one a stopped run never reached.
+    /// How many targets the run cleaned. A skipped target does not count,
+    /// nor does one a stopped run never reached, nor one where every path it
+    /// tried failed.
     #[must_use]
     pub fn cleaned_count(&self) -> usize {
         let reached = if self.stopped {
@@ -129,7 +169,7 @@ impl ExecResult {
         let untouched = self
             .groups
             .iter()
-            .filter(|group| group.stopped_untouched())
+            .filter(|group| group.stopped_untouched() || group.all_failed())
             .count();
         reached.saturating_sub(self.skipped_count() + untouched)
     }

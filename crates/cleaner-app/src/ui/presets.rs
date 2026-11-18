@@ -25,8 +25,7 @@ pub(crate) fn menu(ui: &mut Ui, texts: &UiText, state: &mut SelectState) {
     let startup = state
         .presets
         .on_start()
-        .map(|preset| preset.name.clone())
-        .unwrap_or_default();
+        .map_or_default(|preset| preset.name.clone());
     let label = if startup.is_empty() {
         icons::with_label(icons::PRESETS, texts.presets_menu)
     } else {

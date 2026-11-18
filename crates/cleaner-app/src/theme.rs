@@ -242,7 +242,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::float_cmp, reason = "clamp returns its exact bounds")]
     fn clamp01_bounds() {
         assert_eq!(clamp01(-1.0), 0.0);
         assert_eq!(clamp01(0.5), 0.5);

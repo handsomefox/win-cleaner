@@ -144,7 +144,10 @@ mod tests {
         assert_eq!(installed_builds(&product_db("2.41.2.9852")), vec![9852]);
         assert_eq!(installed_builds(b"2.53.8.17986R"), vec![17986]);
         // A hash, a date, and a three-part version are not a build.
-        assert!(installed_builds(b"26000534d51b737e 2026.11.11 1.2.3 ..1.2").is_empty());
+        assert_eq!(
+            installed_builds(b"26000534d51b737e 2026.11.11 1.2.3 ..1.2"),
+            Vec::<u64>::new()
+        );
     }
 
     #[test]
@@ -207,6 +210,6 @@ mod tests {
         let elsewhere = tempfile::tempdir().unwrap();
         let rule = agent(temp.path(), &["Agent.9852"], Some("2.41.2.9852"));
         std::os::unix::fs::symlink(elsewhere.path(), temp.path().join("Agent.9700")).unwrap();
-        assert!(superseded(&rule).is_empty());
+        assert_eq!(superseded(&rule), Vec::<PathBuf>::new());
     }
 }

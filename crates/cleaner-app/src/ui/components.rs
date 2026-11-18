@@ -257,7 +257,13 @@ pub(crate) fn sidebar_row(
 /// The glyph-prefixed outcome text for one executed group: failed count in
 /// danger, or Skipped/OK muted.
 pub(crate) fn group_status(texts: &UiText, group: &GroupResult) -> RichText {
-    if group.paths_failed > 0 {
+    if group.not_recycled > 0 {
+        RichText::new(icons::with_label(
+            icons::ERROR,
+            &texts.not_recycled_count(group.not_recycled),
+        ))
+        .color(theme::DANGER)
+    } else if group.paths_failed > 0 {
         RichText::new(icons::with_label(
             icons::ERROR,
             &texts.failed_count(group.paths_failed),

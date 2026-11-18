@@ -65,9 +65,11 @@ const KEY_RULES: &str = "rules";
 const KEY_HANDOFF: &str = "elevation_handoff";
 
 impl Prefs {
-    fn load(storage: Option<&dyn eframe::Storage>) -> Self {
+    /// The stored preferences, and the stored exclusions dropped because no
+    /// target can sit under them.
+    fn load(storage: Option<&dyn eframe::Storage>) -> (Self, Vec<PathBuf>) {
         let Some(storage) = storage else {
-            return Self::default();
+            return (Self::default(), Vec::new());
         };
         let fallback = Self::default();
         let mut presets: Presets =
@@ -80,8 +82,8 @@ impl Prefs {
             eframe::get_value(storage, KEY_SELECTION).unwrap_or(fallback.selection);
         crate::migrate::target_keys(&mut selection);
         let mut rules: Rules = eframe::get_value(storage, KEY_RULES).unwrap_or(fallback.rules);
-        rules.sanitize();
-        Self {
+        let dropped = rules.sanitize();
+        let prefs = Self {
             remember_selection: eframe::get_value(storage, KEY_REMEMBER)
                 .unwrap_or(fallback.remember_selection),
             show_empty: eframe::get_value(storage, KEY_SHOW_EMPTY).unwrap_or(fallback.show_empty),
@@ -91,7 +93,8 @@ impl Prefs {
                 .unwrap_or(fallback.app_updates),
             rules,
             handoff: eframe::get_value(storage, KEY_HANDOFF).flatten(),
-        }
+        };
+        (prefs, dropped)
     }
 
     /// Copies what the selection screen holds, ready for the next `save`.
@@ -158,6 +161,9 @@ pub(crate) struct WinCleanerApp {
     /// The selection handed over by the window that started this copy with
     /// administrator rights, applied to the first scan.
     handoff: Option<Vec<TargetKey>>,
+    /// The window was closed during a cleanup. It closes once the cleanup
+    /// has stopped and its result is in History.
+    close_after_cleanup: bool,
 }
 
 pub(crate) enum Screen {
@@ -309,6 +315,7 @@ impl WinCleanerApp {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx);
         let worker = worker::spawn(cc.egui_ctx.clone());
+        let (prefs, dropped) = Prefs::load(cc.storage);
         let mut app = Self {
             texts: &ENGLISH,
             worker,
@@ -318,7 +325,7 @@ impl WinCleanerApp {
             about_open: false,
             settings_open: false,
             update_open: false,
-            prefs: Prefs::load(cc.storage),
+            prefs,
             updater: app_update::Updater::new(crate::APP_INFO, {
                 let ctx = cc.egui_ctx.clone();
                 move || ctx.request_repaint()
@@ -331,7 +338,9 @@ impl WinCleanerApp {
             file_request: 0,
             notice: None,
             handoff: None,
+            close_after_cleanup: false,
         };
+        app.report_dropped_exclusions(&dropped);
         // Only a copy started by "Scan again as administrator" takes the
         // selection its window handed over. Any other start drops one left
         // behind, such as by a prompt that was answered No.
@@ -559,11 +568,23 @@ impl WinCleanerApp {
         self.preview_baseline = None;
     }
 
+    /// Tells the user which exclusions were removed because no target can
+    /// sit under them. Nothing else records them once the settings are saved.
+    fn report_dropped_exclusions(&mut self, dropped: &[PathBuf]) {
+        if !dropped.is_empty() {
+            self.notice = Some((
+                self.texts.settings_exclusions_title.to_owned(),
+                self.texts.exclusions_dropped(dropped),
+            ));
+        }
+    }
+
     /// Adds `path` to the exclusions, and drops it from the open preview.
     fn exclude(&mut self, path: &std::path::Path) {
         if !self.prefs.rules.is_excluded(path) {
             self.prefs.rules.exclusions.push(path.to_path_buf());
-            self.prefs.rules.sanitize();
+            let dropped = self.prefs.rules.sanitize();
+            self.report_dropped_exclusions(&dropped);
         }
         if let Some(view) = &mut self.files {
             view.exclude(path);
@@ -643,10 +664,12 @@ impl WinCleanerApp {
                 self.prefs.selection = file.selection;
                 self.settings_baseline = None;
                 self.settings_open = false;
-                self.notice = Some((
-                    self.texts.settings_import.to_owned(),
-                    self.texts.settings_imported.to_owned(),
-                ));
+                let mut body = self.texts.settings_imported.to_owned();
+                if !file.dropped_exclusions.is_empty() {
+                    body.push_str("\n\n");
+                    body.push_str(&self.texts.exclusions_dropped(&file.dropped_exclusions));
+                }
+                self.notice = Some((self.texts.settings_import.to_owned(), body));
                 self.history = None;
                 self.start_scan();
             }
@@ -1043,6 +1066,26 @@ impl WinCleanerApp {
         }
     }
 
+    /// Handles a request to close the window, and returns whether to cancel
+    /// it. Closing during a cleanup would end it part-way through a move and
+    /// record nothing in History. So the cleanup stops after the path it is
+    /// moving, and the window closes when the result arrives.
+    fn on_close_requested(&mut self) -> bool {
+        let Screen::Deleting(state) = &mut self.screen else {
+            return false;
+        };
+        self.stop.store(true, Ordering::Relaxed);
+        state.stopping = true;
+        self.close_after_cleanup = true;
+        true
+    }
+
+    /// Whether a close put off by [`Self::on_close_requested`] can happen
+    /// now: the cleanup has ended, or the worker has stopped.
+    fn close_now(&self) -> bool {
+        self.close_after_cleanup && !matches!(self.screen, Screen::Deleting(_))
+    }
+
     fn handle_nav(&mut self, ctx: &egui::Context, mut nav: Nav) {
         if nav.stop {
             self.stop.store(true, Ordering::Relaxed);
@@ -1146,6 +1189,13 @@ impl eframe::App for WinCleanerApp {
         self.drain_events();
         self.updater.poll(&mut self.prefs.app_updates);
         let ctx = root.ctx().clone();
+        if ctx.input(|input| input.viewport().close_requested()) && self.on_close_requested() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
+        if self.close_now() {
+            self.close_after_cleanup = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         let mut nav = Nav::default();
         self.draw_header(root, &mut nav);
         // Side and bottom panels must be registered before the central panel,
@@ -1217,6 +1267,7 @@ mod tests {
                 file_request: 0,
                 notice: None,
                 handoff: None,
+                close_after_cleanup: false,
             },
             commands,
             events,
@@ -1528,6 +1579,76 @@ mod tests {
         );
     }
 
+    fn deleting() -> Screen {
+        Screen::Deleting(DeletingState {
+            current: 0,
+            total: 1,
+            message: String::new(),
+            task: String::new(),
+            stopping: false,
+            selected_bytes: 42,
+        })
+    }
+
+    #[test]
+    fn closing_during_a_cleanup_stops_it_and_closes_when_it_ends() {
+        let (mut app, _, _) = app();
+        app.screen = deleting();
+        assert!(app.on_close_requested(), "the close waits for the cleanup");
+        assert!(
+            app.stop.load(Ordering::Relaxed),
+            "the cleanup is told to stop"
+        );
+        assert!(matches!(&app.screen, Screen::Deleting(state) if state.stopping));
+        assert!(!app.close_now(), "the cleanup has not ended yet");
+        // A second request while it stops is held off the same way.
+        assert!(app.on_close_requested());
+
+        app.apply_event(Event::DeleteDone {
+            result: ExecResult::begin(&plan(), Options::default()),
+            stats_error: None,
+        });
+        assert!(app.close_now());
+        assert!(
+            !app.on_close_requested(),
+            "the close that follows goes ahead"
+        );
+    }
+
+    #[test]
+    fn closing_during_a_cleanup_still_closes_when_the_worker_stops() {
+        let (mut app, _, events) = app();
+        app.screen = deleting();
+        assert!(app.on_close_requested());
+        drop(events);
+        app.drain_events();
+        assert!(app.close_now());
+    }
+
+    #[test]
+    fn an_exclusion_dropped_as_invalid_is_reported() {
+        let (mut app, _, _) = app();
+        let kept = std::env::temp_dir().join("keep");
+        app.exclude(&kept);
+        assert!(app.notice.is_none());
+        app.exclude(std::path::Path::new("relative/keep"));
+        assert_eq!(app.prefs.rules.exclusions, vec![kept]);
+        let Some((title, body)) = &app.notice else {
+            panic!("expected a notice");
+        };
+        assert_eq!(title, ENGLISH.settings_exclusions_title);
+        assert!(body.contains("relative/keep"), "{body}");
+    }
+
+    #[test]
+    fn closing_outside_a_cleanup_is_not_held() {
+        let (mut app, _, _) = app();
+        app.screen = Screen::Select(app.restored_state(plan()));
+        assert!(!app.on_close_requested());
+        assert!(!app.close_now());
+        assert!(!app.stop.load(Ordering::Relaxed));
+    }
+
     #[test]
     fn a_scan_applies_the_remembered_view_and_selection() {
         let (mut remembered, _, _) = app();
@@ -1579,7 +1700,7 @@ mod tests {
         // the state a reset leaves behind.
         let (mut app, _, _) = app();
         assert!(app.prefs.remember_selection);
-        assert!(app.prefs.selection.is_empty());
+        assert_eq!(app.prefs.selection, Vec::<TargetKey>::new());
         app.generation = 1;
         app.apply_event(Event::ScanDone {
             generation: 1,
@@ -1749,7 +1870,7 @@ mod tests {
                 ..Nav::default()
             },
         );
-        assert!(app.prefs.selection.is_empty());
+        assert_eq!(app.prefs.selection, Vec::<TargetKey>::new());
         assert!(!app.settings_open, "the modal has no screen to sit on");
         // Only a fresh scan can put the catalog defaults back on the plan.
         assert!(matches!(

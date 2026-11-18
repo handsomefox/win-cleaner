@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::plan::{Group, Target};
 use crate::roots::Roots;
+use crate::rules::trimmed_by_windows;
 use crate::safety::{is_reparse_point, is_safe_path};
 
 /// App name used for the empty-folder removal groups; the GUI keys its
@@ -49,7 +50,8 @@ fn empty_folder_groups(sweep_roots: Vec<(String, PathBuf)>, guard_roots: &[&Path
         };
         let mut candidates: Vec<PathBuf> = Vec::new();
         for entry in entries.flatten() {
-            if !entry_is_plain_dir(&entry) {
+            // Windows would look `name.` up as `name`, another folder.
+            if trimmed_by_windows(&entry.file_name()) || !entry_is_plain_dir(&entry) {
                 continue;
             }
             let child = root.join(entry.file_name());
@@ -94,26 +96,53 @@ fn entry_is_plain_dir(entry: &fs::DirEntry) -> bool {
     }
 }
 
-/// Reports whether `dir`'s entire subtree contains zero files. All entries of
-/// a directory are checked for non-directories before any subdirectory is
-/// descended into, so the first file found anywhere bails out early.
+/// Reports whether `dir`'s entire subtree contains zero files, and if so
+/// returns every folder in it, `dir` last, in postorder: each folder after
+/// the folders inside it, siblings sorted. All entries of a directory are
+/// checked for non-directories before any subdirectory is descended into, so
+/// the first file found anywhere bails out early. A name Windows would trim
+/// counts as content, since removing it by name would reach another folder.
+///
+/// The walk keeps its pending folders on the heap, so a deeply nested tree
+/// cannot overflow the worker thread's stack.
 fn empty_subtree(dir: &Path) -> Option<Vec<PathBuf>> {
+    /// A folder whose subfolders are still being visited.
+    struct Open {
+        path: PathBuf,
+        subdirs: std::vec::IntoIter<PathBuf>,
+    }
+    let mut paths = Vec::new();
+    let mut pending = vec![Open {
+        subdirs: plain_subdirs(dir)?.into_iter(),
+        path: dir.to_path_buf(),
+    }];
+    while let Some(open) = pending.last_mut() {
+        if let Some(sub) = open.subdirs.next() {
+            pending.push(Open {
+                subdirs: plain_subdirs(&sub)?.into_iter(),
+                path: sub,
+            });
+        } else if let Some(done) = pending.pop() {
+            paths.push(done.path);
+        }
+    }
+    Some(paths)
+}
+
+/// The subfolders of `dir`, sorted, or `None` when it holds anything else or
+/// cannot be read.
+fn plain_subdirs(dir: &Path) -> Option<Vec<PathBuf>> {
     let entries = fs::read_dir(dir).ok()?;
     let mut subdirs = Vec::new();
     for entry in entries {
         let entry = entry.ok()?;
-        if !entry_is_plain_dir(&entry) {
+        if trimmed_by_windows(&entry.file_name()) || !entry_is_plain_dir(&entry) {
             return None;
         }
         subdirs.push(dir.join(entry.file_name()));
     }
     subdirs.sort();
-    let mut paths = Vec::new();
-    for sub in subdirs {
-        paths.extend(empty_subtree(&sub)?);
-    }
-    paths.push(dir.to_path_buf());
-    Some(paths)
+    Some(subdirs)
 }
 
 #[cfg(test)]
@@ -209,6 +238,75 @@ mod tests {
         create_dir_all(dir.path().join("d")).unwrap();
         std::os::unix::fs::symlink(dir.path().join("target"), dir.path().join("d/link")).unwrap();
         assert!(!subtree_has_no_files(&dir.path().join("d")));
+    }
+
+    #[test]
+    fn a_name_windows_would_trim_is_content() {
+        let dir = tempfile::tempdir().unwrap();
+        create_dir_all(dir.path().join("d/a")).unwrap();
+        // Removing `d\a.` by name would remove `d\a`.
+        create_dir_all(crate::rules::verbatim_for_test(
+            &dir.path().join("d").join("a."),
+        ))
+        .unwrap();
+        assert!(!subtree_has_no_files(&dir.path().join("d")));
+
+        let local = dir.path().join("Local");
+        create_dir_all(local.join("EmptyApp")).unwrap();
+        create_dir_all(crate::rules::verbatim_for_test(&local.join("EmptyApp."))).unwrap();
+        let groups = empty_folder_groups(vec![("Local".to_owned(), local.clone())], &[&local]);
+        assert_eq!(paths(&groups[0]), vec![local.join("EmptyApp")]);
+    }
+
+    #[test]
+    fn a_deeply_nested_empty_tree_does_not_overflow_the_stack() {
+        // 1500 levels of `d/` fit in a Linux path. On a 256 KiB stack, a walk
+        // that recursed once per level would abort.
+        const DEPTH: usize = 1500;
+        let dir = tempfile::tempdir().unwrap();
+        let top = dir.path().join("top");
+        let mut deepest = top.clone();
+        for _ in 0..DEPTH {
+            deepest.push("d");
+        }
+        create_dir_all(&deepest).unwrap();
+        let walked = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn({
+                let top = top.clone();
+                move || empty_subtree(&top)
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+            .unwrap();
+        assert_eq!(walked.len(), DEPTH + 1);
+        assert_eq!(
+            walked.first(),
+            Some(&deepest),
+            "the deepest folder goes first"
+        );
+        assert_eq!(walked.last(), Some(&top), "the top folder goes last");
+    }
+
+    #[test]
+    fn postorder_visits_siblings_sorted_and_children_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let top = dir.path().join("top");
+        create_dir_all(top.join("b/y")).unwrap();
+        create_dir_all(top.join("a/x")).unwrap();
+        create_dir_all(top.join("a/w")).unwrap();
+        assert_eq!(
+            empty_subtree(&top).unwrap(),
+            vec![
+                top.join("a/w"),
+                top.join("a/x"),
+                top.join("a"),
+                top.join("b/y"),
+                top.join("b"),
+                top.clone(),
+            ]
+        );
     }
 
     #[test]

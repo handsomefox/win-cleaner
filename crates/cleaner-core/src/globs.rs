@@ -25,6 +25,10 @@ pub fn expand(pattern: &Path) -> Vec<PathBuf> {
                     continue;
                 };
                 for entry in entries.flatten() {
+                    // Windows would look this name up as another one.
+                    if crate::rules::trimmed_by_windows(&entry.file_name()) {
+                        continue;
+                    }
                     let path = entry.path();
                     let Ok(metadata) = fs::symlink_metadata(&path) else {
                         continue;
@@ -144,6 +148,25 @@ mod tests {
     }
 
     #[test]
+    fn wildcard_skips_names_windows_would_trim() {
+        use crate::rules::verbatim_for_test;
+        let dir = tempfile::tempdir().unwrap();
+        create_dir_all(dir.path().join("Profile 1").join("Cache")).unwrap();
+        // Windows would look `Profile 1.\Cache` up as `Profile 1\Cache`.
+        create_dir_all(verbatim_for_test(
+            &dir.path().join("Profile 1.").join("Cache"),
+        ))
+        .unwrap();
+        create_dir_all(verbatim_for_test(
+            &dir.path().join("Profile 2 ").join("Cache"),
+        ))
+        .unwrap();
+
+        let matches = expand(&dir.path().join("Profile*").join("Cache"));
+        assert_eq!(matches, vec![dir.path().join("Profile 1").join("Cache")]);
+    }
+
+    #[test]
     fn star_does_not_cross_separators() {
         let dir = tempfile::tempdir().unwrap();
         create_dir_all(dir.path().join("a").join("b").join("Cache")).unwrap();
@@ -164,14 +187,14 @@ mod tests {
         std::os::unix::fs::symlink(&outside, profiles.join("linked-profile")).unwrap();
 
         let matches = expand(&profiles.join("*").join("Cache"));
-        assert!(matches.is_empty());
+        assert_eq!(matches, Vec::<PathBuf>::new());
     }
 
     #[test]
     fn missing_directory_yields_no_matches() {
         let dir = tempfile::tempdir().unwrap();
         let matches = expand(&dir.path().join("nope").join("*").join("Cache"));
-        assert!(matches.is_empty());
+        assert_eq!(matches, Vec::<PathBuf>::new());
     }
 
     #[test]
@@ -182,7 +205,7 @@ mod tests {
             expand(&dir.path().join("present")),
             vec![dir.path().join("present")]
         );
-        assert!(expand(&dir.path().join("absent")).is_empty());
+        assert_eq!(expand(&dir.path().join("absent")), Vec::<PathBuf>::new());
     }
 
     #[test]

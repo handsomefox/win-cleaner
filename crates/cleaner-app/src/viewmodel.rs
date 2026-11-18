@@ -907,7 +907,7 @@ mod tests {
         }
         let (selection, savings) = cache_selection_summary(&ENGLISH, &mut plan);
         assert_eq!(selection, "0 items selected");
-        assert!(savings.is_empty());
+        assert_eq!(savings, "");
     }
 
     fn sample_result(errors: usize) -> ExecResult {
@@ -928,6 +928,8 @@ mod tests {
                 paths_attempted: 2,
                 paths_failed: 0,
                 stopped: false,
+                not_recycled: 0,
+                recycle_bin_off: false,
             },
             GroupResult {
                 app: "npm".into(),
@@ -944,6 +946,8 @@ mod tests {
                 paths_attempted: errors + 1,
                 paths_failed: errors,
                 stopped: false,
+                not_recycled: 0,
+                recycle_bin_off: false,
             },
         ];
         result

@@ -54,6 +54,12 @@ mod windows_recycle {
     #[implement(IFileOperationProgressSink)]
     struct RecycleOnly {
         completed: Arc<AtomicBool>,
+        /// Set when the shell deleted the item for good instead of moving it
+        /// to the Recycle Bin.
+        destroyed: Arc<AtomicBool>,
+        /// Set when the shell announced a delete that would not go to the
+        /// Recycle Bin, and the sink refused it.
+        refused: Arc<AtomicBool>,
     }
     // Reject a shell fallback to permanent deletion before the source is removed.
     fn require_recycling(flags: u32) -> Result<()> {
@@ -70,7 +76,11 @@ mod windows_recycle {
             result.ok()
         }
         fn PreDeleteItem(&self, flags: u32, _item: Ref<IShellItem>) -> Result<()> {
-            require_recycling(flags)
+            let allowed = require_recycling(flags);
+            if allowed.is_err() {
+                self.refused.store(true, Ordering::Relaxed);
+            }
+            allowed
         }
         fn PostDeleteItem(
             &self,
@@ -80,7 +90,11 @@ mod windows_recycle {
             recycled: Ref<IShellItem>,
         ) -> Result<()> {
             result.ok()?;
+            // A successful delete with no item in the Recycle Bin means the
+            // shell deleted it for good. It is gone; all that is left is to
+            // say so.
             if recycled.is_none() {
+                self.destroyed.store(true, Ordering::Relaxed);
                 return Err(E_ABORT.into());
             }
             self.completed.store(true, Ordering::Relaxed);
@@ -180,18 +194,36 @@ mod windows_recycle {
             if !path.is_absolute() || path.as_os_str().is_empty() {
                 return Err(RecycleError::UnsafePath(path.to_path_buf()));
             }
-            recycle_one(path).map_err(|error| shell_error(&error))?;
+            recycle_one(path)?;
         }
         Ok(())
     }
     fn shell_error(error: &windows::core::Error) -> RecycleError {
-        if error.code() == E_ABORT {
+        let code = error.code();
+        if code == E_ABORT {
             RecycleError::Aborted
         } else {
-            RecycleError::ShellOperation(error.code().0)
+            RecycleError::ShellOperation {
+                code: code.0,
+                message: code.message().trim().to_owned(),
+            }
         }
     }
-    fn recycle_one(path: &Path) -> Result<()> {
+    fn recycle_one(path: &Path) -> std::result::Result<(), RecycleError> {
+        let destroyed = Arc::new(AtomicBool::new(false));
+        let refused = Arc::new(AtomicBool::new(false));
+        let outcome = perform(path, &destroyed, &refused);
+        // The shell reports both a permanent delete and a refused one as an
+        // aborted operation, so the flags are read before the error is.
+        if destroyed.load(Ordering::Relaxed) {
+            return Err(RecycleError::NotRecycled);
+        }
+        if refused.load(Ordering::Relaxed) {
+            return Err(RecycleError::RecycleBinOff);
+        }
+        outcome.map_err(|error| shell_error(&error))
+    }
+    fn perform(path: &Path, destroyed: &Arc<AtomicBool>, refused: &Arc<AtomicBool>) -> Result<()> {
         use std::os::windows::ffi::OsStrExt;
         let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
         if wide.contains(&0) {
@@ -217,6 +249,8 @@ mod windows_recycle {
         let completed = Arc::new(AtomicBool::new(false));
         let sink: IFileOperationProgressSink = RecycleOnly {
             completed: completed.clone(),
+            destroyed: destroyed.clone(),
+            refused: refused.clone(),
         }
         .into();
         // SAFETY: item and sink remain alive until synchronous completion.
@@ -239,6 +273,22 @@ mod windows_recycle {
             assert!(require_recycling(0).is_err());
             assert!(require_recycling(0xffff & !128).is_err());
             assert!(require_recycling(128).is_ok());
+        }
+        #[test]
+        fn shell_errors_show_hex_codes_and_the_system_message() {
+            use windows::Win32::Foundation::E_ACCESSDENIED;
+            let error = shell_error(&E_ACCESSDENIED.into());
+            let text = error.to_string();
+            assert!(
+                text.starts_with("Recycle Bin operation failed (0x80070005): "),
+                "{text}"
+            );
+            assert!(text.len() > "Recycle Bin operation failed (0x80070005): ".len());
+            assert!(!text.ends_with('\n'), "{text:?}");
+            assert!(matches!(
+                shell_error(&E_ABORT.into()),
+                RecycleError::Aborted
+            ));
         }
         #[test]
         fn shell_confirms_a_recycled_item() {

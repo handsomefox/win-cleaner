@@ -1056,8 +1056,8 @@ mod tests {
         let mut keys = HashSet::new();
 
         for item in &registry.items {
-            assert!(!item.app.trim().is_empty());
-            assert!(!item.label.trim().is_empty());
+            assert_ne!(item.app.trim(), "");
+            assert_ne!(item.label.trim(), "");
             assert!(
                 !item.paths.is_empty()
                     || !item.globs.is_empty()
@@ -1213,7 +1213,10 @@ mod tests {
             find("Steam", "HTML cache").processes,
             ["steam.exe", "steamwebhelper.exe"]
         );
-        assert!(find("Windows", "Temp files").processes.is_empty());
+        assert_eq!(
+            find("Windows", "Temp files").processes,
+            Vec::<String>::new()
+        );
     }
 
     /// Folders other programs expect to exist keep the folder and lose only

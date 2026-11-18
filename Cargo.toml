@@ -12,7 +12,6 @@ version = "1.4.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/handsomefox/win-cleaner"
-description = "A Windows desktop app that safely cleans application and system caches"
 
 [workspace.dependencies]
 app-diagnostics = { git = "https://github.com/handsomefox/app-internals", tag = "v0.3.0", version = "=0.3.0" }

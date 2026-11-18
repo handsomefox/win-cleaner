@@ -2,6 +2,37 @@
 
 Releases before 1.0.9 are listed on the [releases page](https://github.com/handsomefox/win-cleaner/releases).
 
+## 1.5.0
+
+- Opening Windows Cleaner while it is already open brings the open window to the front instead of
+  starting a second copy.
+- If the Recycle Bin is turned off or too small for a drive, the cleanup stops at the first item
+  Windows would have deleted for good, and says so in red. Nothing is deleted. It used to report
+  every item as "operation aborted by shell" and go on to the next target.
+- The results count only targets that were actually cleaned. A cleanup where every move failed used
+  to report its targets as cleaned.
+- If Windows deletes something for good instead of moving it to the Recycle Bin, such as when the
+  Recycle Bin is turned off for that drive, the cleanup stops there. The results and **History** say
+  in red what was deleted and that it cannot be restored, and its size no longer counts as freed. It
+  used to count as moved, and the cleanup went on.
+- Exclusions on a network share, such as `\\server\share\...` with a redirected `AppData`, are kept.
+  They used to disappear when the app started or when settings were imported. If an exclusion is
+  removed because it cannot match any target, a message lists it.
+- Closing the window during a cleanup stops the cleanup after the item it is moving, then closes.
+  The run is saved to **History**. It used to end mid-move and record nothing.
+- Folders nested many thousands of levels deep no longer crash the app during a scan, a file list,
+  or a cleanup.
+- While a cleanup moves an item, it holds the folders above it open, so no other program can rename
+  them or swap one for a link until the move ends.
+- Files and folders whose names end in a dot or a space are left alone. Windows opens `cache.` as
+  `cache`, so moving one could move an excluded item instead.
+- An item whose details cannot be read is reported as an error instead of being moved.
+- A target outside the folders the app may clean is dropped at scan time, so a cleanup never tries
+  it.
+- Recycle Bin errors show the Windows error code in hexadecimal, such as `0x80070005`, followed by
+  the Windows message for it.
+- Build with Rust 1.100.0.
+
 ## 1.4.1
 
 - A cache folder whose contents cannot be listed shows with its error instead of being hidden as

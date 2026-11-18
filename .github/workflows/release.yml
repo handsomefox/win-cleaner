@@ -14,7 +14,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: release-${{ inputs.release_tag || github.ref }}
+  group: release-${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
   cancel-in-progress: false
 
 jobs:

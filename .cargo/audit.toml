@@ -3,7 +3,4 @@
 # with the Wayland protocol crates. This dependency is not present in the
 # Windows target shipped by this project. Remove these exceptions when a
 # compatible wayland-scanner release accepts quick-xml >= 0.41.
-ignore = [
-    "RUSTSEC-2026-0194",
-    "RUSTSEC-2026-0195",
-]
+ignore = []
